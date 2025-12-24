@@ -8,7 +8,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Reverse API** is an AI-powered tool that captures browser traffic and automatically generates production-ready Python API clients. No more manual reverse engineering—just browse, capture, and get clean API code.
+CLI tool that captures browser traffic and automatically generates production-ready Python API clients. No more manual reverse engineering—just browse, capture, and get clean API code.
 
 ![Reverse API Engineer Demo](assets/reverse-api-engineer.gif)
 
@@ -21,6 +21,12 @@
 - 📦 **Production Ready**: Generated scripts include error handling, type hints, and documentation
 - 💾 **Session History**: All runs saved locally with full message logs
 - 💰 **Cost Tracking**: Detailed token usage and cost estimation with cache support
+
+## Limitations
+
+- This tool executes code locally using Claude Code please monitor output.
+
+- Some websites employ advanced bot-detection and anti-automation protections, which may limit capture or require additional manual interaction.
 
 ## 🚀 Installation
 
@@ -187,7 +193,7 @@ uv build
 ## 🔐 Requirements
 
 - Python 3.10+
-- Anthropic API key (set as `ANTHROPIC_API_KEY` environment variable)
+- Claude Code
 - Playwright browsers installed
 
 ## 🤝 Contributing
