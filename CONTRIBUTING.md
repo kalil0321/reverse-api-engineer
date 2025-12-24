@@ -1,6 +1,6 @@
-# Contributing to Reverse API
+# Contributing 
 
-Thank you for your interest in contributing to Reverse API! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing! This document provides guidelines and instructions for contributing.
 
 ## Development Setup
 
@@ -26,7 +26,6 @@ Thank you for your interest in contributing to Reverse API! This document provid
 - Follow PEP 8 guidelines
 - Use type hints where applicable
 - Add docstrings to functions and classes
-- Keep the minimalist CLI aesthetic
 
 ## Pull Request Process
 
