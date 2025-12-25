@@ -40,6 +40,7 @@ pip install reverse-api-engineer
 
 # With agent mode support (includes browser-use)
 pip install 'reverse-api-engineer[agent]'
+pip install git+https://github.com/browser-use/browser-use.git@49a345fb19e9f12befc5cc1658e0033873892455T
 ```
 
 ### Using uv (recommended)
@@ -49,6 +50,7 @@ uv tool install reverse-api-engineer
 
 # With agent mode support
 uv tool install 'reverse-api-engineer[agent]'
+uv pip install git+https://github.com/browser-use/browser-use.git@49a345fb19e9f12befc5cc1658e0033873892455
 ```
 
 ### From source

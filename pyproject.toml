@@ -35,7 +35,7 @@ dependencies = [
 
 [project.optional-dependencies]
 agent = [
-    "browser-use @ git+https://github.com/browser-use/browser-use.git@49a345fb19e9f12befc5cc1658e0033873892455",
+    "browser-use",
     "stagehand"
 ]
 
