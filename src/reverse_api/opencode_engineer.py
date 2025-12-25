@@ -43,13 +43,15 @@ class OpenCodeEngineer(BaseEngineer):
         # Override UI with OpenCode-specific version
         self.opencode_ui = OpenCodeUI(verbose=kwargs.get("verbose", True))
         self.ui = self.opencode_ui  # Ensure base class uses our specialized UI
+        self.opencode_provider = kwargs.get("opencode_provider", "anthropic")
+        self.opencode_model = kwargs.get("opencode_model", "claude-sonnet-4-5")
         self._last_error: Optional[str] = None
         self._session_id: Optional[str] = None
         self._last_event_time = 0.0
 
     async def analyze_and_generate(self) -> Optional[Dict[str, Any]]:
         """Run the reverse engineering analysis with OpenCode."""
-        self.opencode_ui.header(self.run_id, self.prompt, self.model)
+        self.opencode_ui.header(self.run_id, self.prompt, self.opencode_model)
         self.opencode_ui.start_analysis()
         
         # Save the prompt to messages
@@ -73,12 +75,12 @@ class OpenCodeEngineer(BaseEngineer):
                 
                 # Send prompt with correct format
                 # POST /session/:id/message with model object
-                # Resolve short model name to full Anthropic ID
-                model_id = self.MODEL_MAP.get(self.model, self.model) if self.model else "claude-sonnet-4-5-20250514"
+                # Resolve short model name to full model ID if needed
+                model_id = self.MODEL_MAP.get(self.opencode_model, self.opencode_model)
                 
                 prompt_body = {
                     "model": {
-                        "providerID": "anthropic",
+                        "providerID": self.opencode_provider,
                         "modelID": model_id
                     },
                     "parts": [{"type": "text", "text": self._build_analysis_prompt()}]
@@ -367,6 +369,8 @@ def run_opencode_engineering(
     additional_instructions: Optional[str] = None,
     output_dir: Optional[str] = None,
     verbose: bool = True,
+    opencode_provider: Optional[str] = None,
+    opencode_model: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """Synchronous wrapper for OpenCode reverse engineering."""
     engineer = OpenCodeEngineer(
@@ -377,5 +381,7 @@ def run_opencode_engineering(
         additional_instructions=additional_instructions,
         output_dir=output_dir,
         verbose=verbose,
+        opencode_provider=opencode_provider,
+        opencode_model=opencode_model,
     )
     return asyncio.run(engineer.analyze_and_generate())
