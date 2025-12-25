@@ -37,6 +37,7 @@ class SessionManager:
             "timestamp": kwargs.get("timestamp"),
             "url": kwargs.get("url"),
             "model": kwargs.get("model"),
+            "mode": kwargs.get("mode", "manual"),  # Track which mode was used
             "usage": kwargs.get("usage", {}),
             "paths": kwargs.get("paths", {}),
         }

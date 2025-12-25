@@ -15,13 +15,15 @@ CLI tool that captures browser traffic and automatically generates production-re
 ## ✨ Features
 
 - 🌐 **Browser Automation**: Built on Playwright with stealth mode for realistic browsing
+- 🤖 **Autonomous Agent Mode**: Fully automated browser interaction using AI agents (browser-use)
 - 📊 **HAR Recording**: Captures all network traffic in HTTP Archive format
-- 🤖 **AI-Powered Generation**: Uses Claude 4.5 to analyze traffic and generate clean Python code
+- 🧠 **AI-Powered Generation**: Uses Claude 4.5 to analyze traffic and generate clean Python code
 - 🔌 **OpenCode SDK Support**: Native integration with OpenCode SDK for more flexibility
 - 💻 **Interactive CLI**: Minimalist terminal interface with mode cycling (Shift+Tab)
 - 📦 **Production Ready**: Generated scripts include error handling, type hints, and documentation
 - 💾 **Session History**: All runs saved locally with full message logs
 - 💰 **Cost Tracking**: Detailed token usage and cost estimation with cache support
+- 🔑 **Multi-Provider Support**: Supports Browser-Use, OpenAI, and Google LLMs for agent mode
 
 ## Limitations
 
@@ -63,9 +65,10 @@ Launch the interactive CLI:
 reverse-api-engineer
 ```
 
-The CLI has two modes (cycle with **Shift+Tab**):
+The CLI has three modes (cycle with **Shift+Tab**):
 - **manual**: Full pipeline (browser capture + AI generation)
 - **engineer**: Reverse engineer from existing run_id
+- **agent**: Autonomous browser agent + capture (fully automated)
 
 ### Manual Mode (Full Pipeline)
 
@@ -89,10 +92,29 @@ Re-run AI generation on a previous capture:
 reverse-api-engineer engineer <run_id>
 ```
 
+### Agent Mode (Autonomous Browser Agent)
+
+Fully automated browser interaction using AI agents:
+
+1. Start the CLI: `reverse-api-engineer`
+2. Switch to agent mode (Shift+Tab until you see `[agent]`)
+3. Enter your task description (e.g., "Click on the first job listing")
+4. Optionally provide a starting URL
+5. The agent automatically navigates and interacts with the website
+6. HAR is captured automatically
+7. Optionally run reverse engineering to generate API client
+
+**Agent Model Configuration:**
+- **Browser-Use LLM** (default): Requires `BROWSER_USE_API_KEY`
+- **OpenAI Models**: Format `openai/{model}` (e.g., `openai/gpt-4`), requires `OPENAI_API_KEY`
+- **Google Models**: Format `google/{model}` (e.g., `google/gemini-pro`), requires `GOOGLE_API_KEY`
+
+Configure agent model in `/settings` → "agent model"
+
 ### CLI Commands
 
 While in the CLI, use these slash commands:
-- `/settings` - Configure model and output directory
+- `/settings` - Configure model, agent model, SDK, and output directory
 - `/history` - View past runs with costs
 - `/messages <run_id>` - View detailed message logs
 - `/help` - Show all commands
@@ -117,9 +139,37 @@ Settings are stored in `~/.reverse-api/config.json`:
 {
   "model": "claude-sonnet-4-5",
   "sdk": "claude",
+  "agent_model": "bu-llm",
   "output_dir": null
 }
 ```
+
+### Agent Model Configuration
+
+The `agent_model` setting controls which LLM is used for autonomous browser agents:
+
+- **`bu-llm`** (default): Browser-Use's own LLM
+  - Requires: `BROWSER_USE_API_KEY` environment variable
+- **`openai/{model}`**: OpenAI models (e.g., `openai/gpt-4`, `openai/gpt-3.5-turbo`)
+  - Requires: `OPENAI_API_KEY` environment variable
+  - Optional: Install `langchain-openai` for additional model support
+- **`google/{model}`**: Google models (e.g., `google/gemini-pro`, `google/gemini-1.5-pro`)
+  - Requires: `GOOGLE_API_KEY` environment variable
+  - Optional: Install `langchain-google-genai` for additional model support
+
+**Setting API Keys:**
+```bash
+# Browser-Use (default)
+export BROWSER_USE_API_KEY="your-api-key"
+
+# OpenAI
+export OPENAI_API_KEY="your-api-key"
+
+# Google
+export GOOGLE_API_KEY="your-api-key"
+```
+
+Change agent model in `/settings` → "agent model" or edit `config.json` directly.
 
 ### SDK Selection
 
@@ -174,10 +224,9 @@ Generated `api_client.py` includes:
 - ✅ **OpenCode** - Integration with OpenCode
 - 🔄 **Codex** - Codex SDK support
 
-### Fully Automated Extraction
-Adding browser agent capabilities for fully automated API extraction:
-- **Stagehand** - Automated browser interaction and extraction
-- **Browser-use** - Browser automation for API discovery
+### Browser Agent Support
+- ✅ **Browser-use** - Browser automation for API discovery (implemented)
+- 🔄 **Stagehand** - Additional browser agent provider support
 
 ## 🛠️ Development
 
@@ -201,8 +250,9 @@ uv build
 ## 🔐 Requirements
 
 - Python 3.10+
-- Claude Code / OpenCode
+- Claude Code / OpenCode (for reverse engineering)
 - Playwright browsers installed
+- API key for agent mode (see [Agent Model Configuration](#agent-model-configuration))
 
 ## 🤝 Contributing
 

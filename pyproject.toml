@@ -3,7 +3,7 @@ name = "reverse-api-engineer"
 version = "0.1.0"
 description = "A tool to capture browser traffic for API reverse engineering"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     { name = "Kalil", email = "kalil0321@users.noreply.github.com" }
 ]
@@ -14,7 +14,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -31,6 +30,8 @@ dependencies = [
     "requests>=2.32.5",
     "anthropic>=0.40.0",
     "brotli>=1.2.0",
+    "browser-use @ git+https://github.com/browser-use/browser-use.git@1a96cf7ef00bfbb6e21978f77e347639c316fff8",
+    "aiohttp>=3.12.15",
 ]
 
 [project.urls]
@@ -44,6 +45,9 @@ reverse-api-engineer = "reverse_api.cli:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/reverse_api"]

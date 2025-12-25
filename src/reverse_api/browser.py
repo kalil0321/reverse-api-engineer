@@ -1,5 +1,8 @@
 """Browser management with Playwright for HAR recording."""
 
+import os
+
+import asyncio
 import json
 import random
 import signal
@@ -13,7 +16,6 @@ from rich.console import Console
 from rich.status import Status
 
 from .utils import get_har_dir, get_timestamp
-from .tui import THEME_PRIMARY, THEME_DIM, THEME_SUCCESS
 
 console = Console()
 
@@ -167,16 +169,16 @@ def get_chrome_profile_dir() -> Path | None:
 
 class ManualBrowser:
     """Manages a Playwright browser session with HAR recording.
-    
+
     Supports two modes:
     - Real Chrome: Uses your actual Chrome browser with existing profile (best for stealth)
     - Stealth Chromium: Falls back to Playwright's Chromium with stealth patches
     """
 
     def __init__(
-        self, 
-        run_id: str, 
-        prompt: str, 
+        self,
+        run_id: str,
+        prompt: str,
         output_dir: str | None = None,
         use_real_chrome: bool = True,  # New option to use real Chrome
     ):
@@ -222,19 +224,21 @@ class ManualBrowser:
         # Chrome locks its profile when running, so we can't use it directly
         import shutil
         import tempfile
-        
+
         chrome_profile = get_chrome_profile_dir()
         if not chrome_profile:
-            console.print(f" [yellow]chrome profile not found, falling back to stealth mode[/yellow]")
+            console.print(
+                f" [yellow]chrome profile not found, falling back to stealth mode[/yellow]"
+            )
             return self._start_with_stealth_chromium(start_url)
-        
+
         # Create a temporary profile directory
         temp_profile_dir = Path(tempfile.mkdtemp(prefix="chrome_profile_"))
-        
+
         console.print(f" [dim]using real chrome (profile copy)[/dim]")
         console.print(f" [dim]note: close chrome if you have it open[/dim]")
         console.print()
-        
+
         try:
             # Use launch_persistent_context with channel="chrome" to use real Chrome binary
             # This gives us the real Chrome with a fresh profile that has all extensions/settings
@@ -252,25 +256,25 @@ class ManualBrowser:
                 ignore_default_args=["--enable-automation", "--no-sandbox"],
             )
             self._using_persistent = True
-            
+
             # Get or create page
             if self._context.pages:
                 page = self._context.pages[0]
             else:
                 page = self._context.new_page()
-            
+
             if start_url:
                 page.goto(start_url, wait_until="domcontentloaded")
-            
+
             # Wait for browser to close
             try:
                 while self._context.pages:
                     self._context.pages[0].wait_for_timeout(100)  # Faster polling
             except Exception:
                 pass
-            
+
             return self.close()
-            
+
         finally:
             # Clean up temp profile
             try:
@@ -312,13 +316,13 @@ class ManualBrowser:
             "--password-store=basic",
             "--use-mock-keychain",
         ]
-        
+
         self._browser = self._playwright.chromium.launch(
             headless=False,
             args=chrome_args,
             ignore_default_args=["--enable-automation", "--no-sandbox"],
         )
-        
+
         # Create context with HAR recording and realistic settings
         self._context = self._browser.new_context(
             record_har_path=str(self.har_path),
@@ -338,17 +342,17 @@ class ManualBrowser:
                 "sec-ch-ua-platform": '"macOS"',
             },
         )
-        
+
         # Apply playwright-stealth evasions
         stealth = Stealth()
         stealth.apply_stealth_sync(self._context)
-        
+
         # Add custom stealth init script
         self._context.add_init_script(STEALTH_JS)
 
         # Open initial page
         page = self._context.new_page()
-        
+
         if start_url:
             page.goto(start_url, wait_until="domcontentloaded")
 
@@ -364,7 +368,7 @@ class ManualBrowser:
     def start(self, start_url: Optional[str] = None) -> Path:
         """Start the browser with HAR recording enabled. Returns HAR path when done."""
         self._start_time = get_timestamp()
-        
+
         # Set up signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._handle_signal)
         signal.signal(signal.SIGTERM, self._handle_signal)
@@ -378,7 +382,7 @@ class ManualBrowser:
         console.print()
 
         self._playwright = sync_playwright().start()
-        
+
         # Try real Chrome first, fall back to stealth Chromium
         if self.use_real_chrome:
             return self._start_with_real_chrome(start_url)
@@ -388,11 +392,15 @@ class ManualBrowser:
     def close(self) -> Path:
         """Close the browser and save HAR file. Returns HAR path."""
         end_time = get_timestamp()
-        
+
         console.print(f" [dim]browser closed[/dim]")
-        
+
         if self._context:
-            with Status(" [dim]handling har... can take a bit[/dim]", console=console, spinner="dots") as status:
+            with Status(
+                " [dim]handling har... can take a bit[/dim]",
+                console=console,
+                spinner="dots",
+            ) as status:
                 try:
                     status.update(" [dim]saving har file...[/dim]")
                     self._context.close()  # This saves the HAR file
@@ -417,8 +425,365 @@ class ManualBrowser:
 
         # Save metadata
         self._save_metadata(end_time)
-        
+
         console.print(f" [dim]capture saved[/dim]")
         console.print(f" [dim]metadata synced[/dim]")
-        
+
         return self.har_path
+
+
+def parse_agent_model(agent_model: str) -> tuple[str, str | None]:
+    """Parse agent_model string into provider and model name.
+
+    Args:
+        agent_model: Model string in format "bu-llm" or "{provider}/{model_name}"
+
+    Returns:
+        Tuple of (provider, model_name) where model_name is None for "bu-llm"
+
+    Examples:
+        "bu-llm" -> ("bu-llm", None)
+        "openai/gpt-4" -> ("openai", "gpt-4")
+        "google/gemini-pro" -> ("google", "gemini-pro")
+    """
+    if agent_model == "bu-llm":
+        return ("bu-llm", None)
+
+    if "/" in agent_model:
+        parts = agent_model.split("/", 1)
+        if len(parts) == 2:
+            provider, model_name = parts
+            return (provider.lower(), model_name)
+
+    raise ValueError(
+        f"Invalid agent_model format: {agent_model}. "
+        f"Expected 'bu-llm' or '{{provider}}/{{model_name}}' (e.g., 'openai/gpt-4')"
+    )
+
+
+def get_required_api_key(provider: str) -> tuple[str, str]:
+    """Get the required API key environment variable name for a provider.
+
+    Args:
+        provider: Provider name ("bu-llm", "openai", or "google")
+
+    Returns:
+        Tuple of (env_var_name, display_name)
+
+    Raises:
+        ValueError: If provider is not supported
+    """
+    provider_map = {
+        "bu-llm": ("BROWSER_USE_API_KEY", "Browser-Use API key"),
+        "openai": ("OPENAI_API_KEY", "OpenAI API key"),
+        "google": ("GOOGLE_API_KEY", "Google API key"),
+    }
+
+    if provider not in provider_map:
+        supported = ", ".join(provider_map.keys())
+        raise ValueError(
+            f"Unsupported provider: {provider}. Supported providers: {supported}"
+        )
+
+    return provider_map[provider]
+
+
+def validate_api_key(provider: str) -> tuple[bool, str | None]:
+    """Validate that the required API key exists for the provider.
+
+    Args:
+        provider: Provider name ("bu-llm", "openai", or "google")
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    try:
+        env_var_name, display_name = get_required_api_key(provider)
+        api_key = os.getenv(env_var_name)
+
+        if not api_key:
+            return (
+                False,
+                f"Missing {display_name}. Please set the {env_var_name} environment variable.",
+            )
+
+        return (True, None)
+    except ValueError as e:
+        return (False, str(e))
+
+
+class AgentBrowser:
+    """Manages autonomous browser session with browser-use and HAR recording.
+
+    Launches Chromium, captures HAR via CDP Network domain,
+    and browser-use connects via CDP for AI-powered automation.
+    """
+
+    def __init__(
+        self,
+        run_id: str,
+        prompt: str,
+        output_dir: str | None = None,
+        timeout: int = 300,
+        agent_model: str = "bu-llm",
+        start_url: Optional[str] = None,
+    ):
+        """Initialize agent browser."""
+        self.run_id = run_id
+        self.prompt = prompt
+        self.output_dir = output_dir
+        self.timeout = timeout
+        self.agent_model = agent_model
+        self.start_url = start_url
+
+        # Setup paths
+        self.har_dir = get_har_dir(run_id, output_dir)
+        self.har_path = self.har_dir / "recording.har"
+        self.metadata_path = self.har_dir / "metadata.json"
+
+        self._start_time: Optional[str] = None
+        self._cdp_port = 9222
+
+    def _save_metadata(self, end_time: str, result: dict | None = None) -> None:
+        """Save run metadata to JSON file."""
+        metadata = {
+            "run_id": self.run_id,
+            "prompt": self.prompt,
+            "mode": "agent",
+            "agent_model": self.agent_model,
+            "start_time": self._start_time,
+            "end_time": end_time,
+            "har_file": str(self.har_path),
+            "start_url": self.start_url,
+            "result": result,
+        }
+        with open(self.metadata_path, "w") as f:
+            json.dump(metadata, f, indent=2)
+
+    async def _run_with_har_capture(self, cdp_url: str = None) -> dict:
+        """Run agent with HAR recording via browser-use's built-in HAR capture."""
+        import logging
+
+        # Custom handler to capture memory logs
+        class MemoryLogHandler(logging.Handler):
+            def __init__(self, console_instance):
+                super().__init__()
+                self.console = console_instance
+
+            def emit(self, record):
+                try:
+                    msg = record.getMessage()
+
+                    if "🧠 Memory:" in msg or ("Memory:" in msg and "🧠" not in msg):
+                        if "🧠 Memory:" in msg:
+                            memory_text = msg.split("🧠 Memory:", 1)[-1].strip()
+                        elif "Memory:" in msg:
+                            memory_text = msg.split("Memory:", 1)[-1].strip()
+                        else:
+                            memory_text = msg
+
+                        memory_text = " ".join(memory_text.split())
+
+                        if memory_text:
+                            self.console.print(f"  [dim]{memory_text}[/dim]")
+                except Exception:
+                    pass  # Silently ignore handler errors
+
+        # Suppress all browser-use logs completely
+        # Keep INFO level for memory capture, but prevent propagation to parent handlers
+        null_handler = logging.NullHandler()
+
+        browser_use_logger = logging.getLogger("browser_use")
+        browser_use_logger.setLevel(logging.INFO)
+        browser_use_logger.handlers.clear()  # Remove existing handlers
+        browser_use_logger.propagate = False
+
+        agent_logger = logging.getLogger("Agent")
+        agent_logger.setLevel(logging.INFO)
+        agent_logger.handlers.clear()  # Remove existing handlers
+        agent_logger.propagate = False
+
+        # Suppress these loggers completely
+        for logger_name in ["BrowserSession", "service", "tools"]:
+            logger = logging.getLogger(logger_name)
+            logger.setLevel(logging.CRITICAL)
+            logger.handlers.clear()
+            logger.addHandler(null_handler)
+            logger.propagate = False
+
+        from browser_use import Agent, Browser
+        from browser_use import ChatBrowserUse
+
+        result = {"success": False, "message": None, "error": None}
+        browser = None
+        memory_handler = None
+
+        try:
+            # Parse agent model and validate API key
+            try:
+                provider, model_name = parse_agent_model(self.agent_model)
+            except ValueError as e:
+                result["error"] = str(e)
+                console.print(f" [red]error:[/red] {e}")
+                return result
+
+            # Validate API key
+            is_valid, error_msg = validate_api_key(provider)
+            if not is_valid:
+                result["error"] = error_msg
+                console.print(f" [red]error:[/red] {error_msg}")
+                return result
+
+            # Create appropriate LLM instance
+            env_var_name, _ = get_required_api_key(provider)
+            api_key = os.getenv(env_var_name)
+
+            if provider == "bu-llm":
+                llm = ChatBrowserUse(api_key=api_key)
+            elif provider == "openai":
+                try:
+                    from browser_use import ChatOpenAI
+
+                    llm = ChatOpenAI(model=model_name, api_key=api_key)
+                except ImportError:
+                    result["error"] = "Failed to initialize OpenAI LLM"
+                    console.print(f" [red]error:[/red] {result['error']}")
+                    return result
+            elif provider == "google":
+                try:
+                    from browser_use import ChatGoogle
+
+                    llm = ChatGoogle(model=model_name, api_key=api_key)
+                except ImportError:
+                    result["error"] = "Failed to initialize Google LLM"
+                    console.print(f" [red]error:[/red] {result['error']}")
+                    return result
+            else:
+                result["error"] = f"Unsupported provider: {provider}"
+                console.print(f" [red]error:[/red] {result['error']}")
+                return result
+
+            console.print(f" [dim]starting browser with har...[/dim]")
+            browser = Browser(
+                record_har_path=str(self.har_path),
+                record_har_mode="full",
+                record_har_content="attach",
+            )
+            await browser.start()
+
+            console.print(f" [dim]browser started[/dim]")
+
+            task = self.prompt
+
+            # Set up memory log handler
+            memory_handler = MemoryLogHandler(console)
+            memory_handler.setLevel(logging.INFO)
+            browser_use_logger.addHandler(memory_handler)
+            agent_logger.addHandler(memory_handler)
+
+            agent = Agent(task=task, llm=llm, browser=browser)
+            agent_result = await agent.run()
+
+            if memory_handler:
+                browser_use_logger.removeHandler(memory_handler)
+                agent_logger.removeHandler(memory_handler)
+
+            # Extract final result from agent_result
+            final_message = None
+            if agent_result:
+                if hasattr(agent_result, "all_results") and agent_result.all_results:
+                    last_result = agent_result.all_results[-1]
+                    if hasattr(last_result, "text") and last_result.text:
+                        final_message = last_result.text
+                    elif hasattr(last_result, "result") and last_result.result:
+                        final_message = str(last_result.result)
+                elif hasattr(agent_result, "result"):
+                    final_message = str(agent_result.result)
+                elif hasattr(agent_result, "text"):
+                    final_message = agent_result.text
+                else:
+                    msg_str = str(agent_result)
+                    if "Final Result:" in msg_str:
+                        parts = msg_str.split("Final Result:")
+                        if len(parts) > 1:
+                            final_message = parts[-1].strip()
+                    else:
+                        final_message = msg_str
+
+            result["success"] = True
+            result["message"] = final_message or "Task completed"
+
+        except Exception as e:
+            if memory_handler:
+                browser_use_logger.removeHandler(memory_handler)
+                agent_logger.removeHandler(memory_handler)
+            result["error"] = str(e)
+            console.print(f" [yellow]agent error: {e}[/yellow]")
+        finally:
+            if browser:
+                try:
+                    await browser.stop()
+                    # Check if HAR was created
+                    if self.har_path.exists():
+                        har_size = self.har_path.stat().st_size
+                        console.print(f" [dim]har saved: {har_size} bytes[/dim]")
+                    else:
+                        console.print(f" [dim]har not saved by browser-use[/dim]")
+                except Exception as e:
+                    console.print(f" [dim]browser stop error: {e}[/dim]")
+
+        return result
+
+    def start(self) -> Path:
+        """Start agent execution with HAR recording. Returns HAR path when done."""
+        self._start_time = get_timestamp()
+
+        console.print(f" [dim]agent mode starting...[/dim]")
+        console.print(f" [dim]━[/dim] [white]{self.run_id}[/white]")
+        console.print(f" [dim]task[/dim]  [white]{self.prompt}[/white]")
+        console.print()
+
+        result = None
+
+        try:
+            result = asyncio.run(self._run_with_har_capture())
+
+            if result.get("success"):
+                console.print(f" [green]agent task completed[/green]")
+                if result.get("message"):
+                    msg = result["message"]
+                    if len(msg) > 500:
+                        msg = msg[:500] + "..."
+                    console.print(f" [dim]result:[/dim] [white]{msg}[/white]")
+            else:
+                error = result.get("error", "unknown error")
+                console.print(f" [yellow]agent error: {error}[/yellow]")
+
+        except Exception as e:
+            console.print(f" [red]error: {e}[/red]")
+            result = {"error": str(e)}
+
+        self._save_metadata(get_timestamp(), result)
+        console.print(f" [dim]metadata synced[/dim]")
+
+        return self.har_path
+
+
+def run_agent_browser(
+    run_id: str,
+    prompt: str,
+    output_dir: str | None = None,
+    timeout: int = 300,
+    agent_model: str = "bu-llm",
+    start_url: Optional[str] = None,
+) -> Path:
+    """Run agent browser with HAR recording."""
+    agent_browser = AgentBrowser(
+        run_id=run_id,
+        prompt=prompt,
+        output_dir=output_dir,
+        timeout=timeout,
+        agent_model=agent_model,
+        start_url=start_url,
+    )
+    return agent_browser.start()
