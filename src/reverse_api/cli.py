@@ -317,6 +317,7 @@ def handle_settings():
         choices=[
             Choice(title="> change model", value="model"),
             Choice(title="> change sdk", value="sdk"),
+            Choice(title="> agent provider", value="agent_provider"),
             Choice(title="> agent model", value="agent_model"),
             Choice(title="> output directory", value="output_dir"),
             Choice(title="> back", value="back"),
@@ -376,14 +377,56 @@ def handle_settings():
             config_manager.set("sdk", sdk)
             console.print(f" [dim]updated[/dim] sdk: {sdk}\n")
 
+    elif action == "agent_provider":
+        provider_choices = [
+            Choice(title="> browser-use", value="browser-use"),
+            Choice(title="> stagehand", value="stagehand"),
+            Choice(title="> back", value="back"),
+        ]
+        provider = questionary.select(
+            "",
+            choices=provider_choices,
+            pointer="",
+            qmark="",
+            style=questionary.Style(
+                [
+                    ("highlighted", f"fg:{THEME_PRIMARY} bold"),
+                ]
+            ),
+        ).ask()
+        if provider and provider != "back":
+            config_manager.set("agent_provider", provider)
+            console.print(f" [dim]updated[/dim] agent provider: {provider}\n")
+            # If switching to stagehand, validate current model
+            if provider == "stagehand":
+                current_model = config_manager.get("agent_model", "bu-llm")
+                try:
+                    from .browser import parse_agent_model
+
+                    parse_agent_model(current_model, provider)
+                except ValueError:
+                    console.print(
+                        f" [yellow]warning:[/yellow] Current agent model '{current_model}' may not be compatible with stagehand.\n"
+                    )
+                    console.print(
+                        f" [dim]Stagehand supports OpenAI and Anthropic Computer Use models[/dim]\n"
+                        f" [dim]Examples: openai/computer-use-preview-2025-03-11, anthropic/claude-sonnet-4-5-20250929[/dim]\n"
+                    )
+
     elif action == "agent_model":
         from .browser import parse_agent_model
 
         current = config_manager.get("agent_model", "bu-llm")
+        agent_provider = config_manager.get("agent_provider", "browser-use")
+
+        instruction = "(Format: 'bu-llm' or 'provider/model', e.g., 'openai/gpt-4')"
+        if agent_provider == "stagehand":
+            instruction = "(Format: 'openai/model' or 'anthropic/model', e.g., 'openai/computer-use-preview-2025-03-11' or 'anthropic/claude-sonnet-4-5-20250929')"
+
         new_model = questionary.text(
             " > agent model",
             default=current or "bu-llm",
-            instruction="(Format: 'bu-llm' or 'provider/model', e.g., 'openai/gpt-4')",
+            instruction=instruction,
             qmark="",
             style=questionary.Style(
                 [
@@ -397,19 +440,28 @@ def handle_settings():
             if not new_model:
                 console.print(" [yellow]error:[/yellow] agent model cannot be empty\n")
             else:
-                # Validate format
+                # Validate format with current agent_provider
                 try:
-                    parse_agent_model(new_model)
+                    parse_agent_model(new_model, agent_provider)
                     config_manager.set("agent_model", new_model)
                     console.print(f" [dim]updated[/dim] agent model: {new_model}\n")
                 except ValueError as e:
                     console.print(f" [yellow]error:[/yellow] {e}\n")
-                    console.print(
-                        " [dim]Valid formats:[/dim]\n"
-                        " [dim]  - bu-llm[/dim]\n"
-                        " [dim]  - openai/model_name (e.g., openai/gpt-4)[/dim]\n"
-                        " [dim]  - google/model_name (e.g., google/gemini-pro)[/dim]\n"
-                    )
+                    if agent_provider == "stagehand":
+                        console.print(
+                            " [dim]Valid formats for stagehand:[/dim]\n"
+                            " [dim]  - openai/computer-use-preview-2025-03-11[/dim]\n"
+                            " [dim]  - anthropic/claude-sonnet-4-5-20250929[/dim]\n"
+                            " [dim]  - anthropic/claude-haiku-4-5-20251001[/dim]\n"
+                            " [dim]  - anthropic/claude-opus-4-5-20251101[/dim]\n"
+                        )
+                    else:
+                        console.print(
+                            " [dim]Valid formats:[/dim]\n"
+                            " [dim]  - bu-llm[/dim]\n"
+                            " [dim]  - openai/model_name (e.g., openai/gpt-4)[/dim]\n"
+                            " [dim]  - google/model_name (e.g., google/gemini-pro)[/dim]\n"
+                        )
 
     elif action == "output_dir":
         current = config_manager.get("output_dir")
@@ -640,8 +692,9 @@ def run_agent_capture(
     run_id = generate_run_id()
     timestamp = get_timestamp()
 
-    # Get agent model from config
+    # Get agent model and provider from config
     agent_model = config_manager.get("agent_model", "bu-llm")
+    agent_provider = config_manager.get("agent_provider", "browser-use")
 
     # Record initial session
     session_manager.add_run(
@@ -661,12 +714,12 @@ def run_agent_capture(
             prompt=prompt,
             output_dir=output_dir,
             agent_model=agent_model,
+            agent_provider=agent_provider,
             start_url=url,
         )
 
         # Optionally run reverse engineering
         if reverse_engineer:
-            # Ask if user wants a new prompt for the engineer
             engineer_prompt = prompt
             try:
                 wants_new_prompt = questionary.confirm(
@@ -681,7 +734,7 @@ def run_agent_capture(
                     ),
                 ).ask()
 
-                if wants_new_prompt is None:  # Ctrl+C or similar
+                if wants_new_prompt is None:
                     raise KeyboardInterrupt
 
                 if wants_new_prompt:
@@ -698,13 +751,12 @@ def run_agent_capture(
                         ),
                     ).ask()
 
-                    if new_prompt is None:  # Ctrl+C or similar
+                    if new_prompt is None:
                         raise KeyboardInterrupt
 
                     if new_prompt and new_prompt.strip():
                         engineer_prompt = new_prompt.strip()
             except KeyboardInterrupt:
-                # User cancelled, use original prompt
                 pass
 
             result = run_engineer(

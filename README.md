@@ -15,7 +15,7 @@ CLI tool that captures browser traffic and automatically generates production-re
 ## ✨ Features
 
 - 🌐 **Browser Automation**: Built on Playwright with stealth mode for realistic browsing
-- 🤖 **Autonomous Agent Mode**: Fully automated browser interaction using AI agents (browser-use)
+- 🤖 **Autonomous Agent Mode**: Fully automated browser interaction using AI agents (browser-use, stagehand)
 - 📊 **HAR Recording**: Captures all network traffic in HTTP Archive format
 - 🧠 **AI-Powered Generation**: Uses Claude 4.5 to analyze traffic and generate clean Python code
 - 🔌 **OpenCode SDK Support**: Native integration with OpenCode SDK for more flexibility
@@ -23,7 +23,7 @@ CLI tool that captures browser traffic and automatically generates production-re
 - 📦 **Production Ready**: Generated scripts include error handling, type hints, and documentation
 - 💾 **Session History**: All runs saved locally with full message logs
 - 💰 **Cost Tracking**: Detailed token usage and cost estimation with cache support
-- 🔑 **Multi-Provider Support**: Supports Browser-Use, OpenAI, and Google LLMs for agent mode
+- 🔑 **Multi-Provider Support**: Supports Browser-Use and Stagehand agent providers with multiple LLM options
 
 ## Limitations
 
@@ -118,12 +118,21 @@ Fully automated browser interaction using AI agents:
 pip install git+https://github.com/browser-use/browser-use.git@<commit-hash>
 ```
 
-**Agent Model Configuration:**
-- **Browser-Use LLM** (default): Requires `BROWSER_USE_API_KEY`
-- **OpenAI Models**: Format `openai/{model}` (e.g., `openai/gpt-4`), requires `OPENAI_API_KEY`
-- **Google Models**: Format `google/{model}` (e.g., `google/gemini-pro`), requires `GOOGLE_API_KEY`
+**Agent Provider Configuration:**
+- **Browser-Use** (default): Supports Browser-Use LLM, OpenAI, and Google models
+- **Stagehand**: Supports OpenAI and Anthropic Computer Use models
 
-Configure agent model in `/settings` → "agent model"
+**Agent Model Configuration:**
+- **Browser-Use Provider**:
+  - **Browser-Use LLM**: Requires `BROWSER_USE_API_KEY`
+  - **OpenAI Models**: Format `openai/{model}` (e.g., `openai/gpt-4`), requires `OPENAI_API_KEY`
+  - **Google Models**: Format `google/{model}` (e.g., `google/gemini-pro`), requires `GOOGLE_API_KEY`
+- **Stagehand Provider**:
+  - **OpenAI Computer Use Models**: Format `openai/{cua-model}` (e.g., `openai/computer-use-preview-2025-03-11`), requires `OPENAI_API_KEY`
+  - **Anthropic Computer Use Models**: Format `anthropic/{cua-model}` (e.g., `anthropic/claude-sonnet-4-5-20250929`), requires `ANTHROPIC_API_KEY`
+  - Note: Stagehand only supports Computer Use Agents (CUA) models
+
+Configure agent provider and model in `/settings` → "agent provider" and "agent model"
 
 ### CLI Commands
 
@@ -153,15 +162,23 @@ Settings are stored in `~/.reverse-api/config.json`:
 {
   "model": "claude-sonnet-4-5",
   "sdk": "claude",
+  "agent_provider": "browser-use",
   "agent_model": "bu-llm",
   "output_dir": null
 }
 ```
 
+### Agent Provider Configuration
+
+The `agent_provider` setting controls which browser automation library is used:
+- **`browser-use`** (default): Browser-Use library with support for multiple LLM providers
+- **`stagehand`**: Stagehand library with OpenAI and Anthropic Computer Use models
+
 ### Agent Model Configuration
 
 The `agent_model` setting controls which LLM is used for autonomous browser agents:
 
+**For Browser-Use Provider:**
 - **`bu-llm`** (default): Browser-Use's own LLM
   - Requires: `BROWSER_USE_API_KEY` environment variable
 - **`openai/{model}`**: OpenAI models (e.g., `openai/gpt-4`, `openai/gpt-3.5-turbo`)
@@ -171,19 +188,31 @@ The `agent_model` setting controls which LLM is used for autonomous browser agen
   - Requires: `GOOGLE_API_KEY` environment variable
   - Optional: Install `langchain-google-genai` for additional model support
 
+**For Stagehand Provider:**
+- **`openai/{cua-model}`**: OpenAI Computer Use models (e.g., `openai/computer-use-preview-2025-03-11`)
+  - Requires: `OPENAI_API_KEY` environment variable
+  - Supported models: `computer-use-preview-2025-03-11`
+- **`anthropic/{cua-model}`**: Anthropic Computer Use models (e.g., `anthropic/claude-sonnet-4-5-20250929`)
+  - Requires: `ANTHROPIC_API_KEY` environment variable
+  - Supported models: `claude-sonnet-4-5-20250929`, `claude-haiku-4-5-20251001`, `claude-opus-4-5-20251101`
+- Note: Stagehand's `agent.execute()` mode only supports Computer Use Agents (CUA)
+
 **Setting API Keys:**
 ```bash
 # Browser-Use (default)
 export BROWSER_USE_API_KEY="your-api-key"
 
-# OpenAI
+# OpenAI (required for OpenAI models and Stagehand)
 export OPENAI_API_KEY="your-api-key"
 
-# Google
+# Anthropic (required for Anthropic models with Stagehand)
+export ANTHROPIC_API_KEY="your-api-key"
+
+# Google (for Browser-Use only)
 export GOOGLE_API_KEY="your-api-key"
 ```
 
-Change agent model in `/settings` → "agent model" or edit `config.json` directly.
+Change agent provider and model in `/settings` → "agent provider" and "agent model" or edit `config.json` directly.
 
 ### SDK Selection
 
@@ -238,9 +267,7 @@ Generated `api_client.py` includes:
 - ✅ **OpenCode** - Integration with OpenCode
 - 🔄 **Codex** - Codex SDK support
 
-### Browser Agent Support
-- ✅ **Browser-use** - Browser automation for API discovery (implemented)
-- 🔄 **Stagehand** - Additional browser agent provider support
+
 
 ## 🛠️ Development
 

@@ -1,5 +1,7 @@
 """Browser management with Playwright for HAR recording."""
 
+import io
+import logging
 import os
 
 import asyncio
@@ -7,6 +9,7 @@ import json
 import random
 import signal
 import sys
+from contextlib import redirect_stderr
 from pathlib import Path
 from typing import Optional
 
@@ -18,6 +21,23 @@ from rich.status import Status
 from .utils import get_har_dir, get_timestamp
 
 console = Console()
+
+# Null stderr stream for suppressing logs
+_null_stderr = io.StringIO()
+
+
+def _suppress_stagehand_logs():
+    """Suppress all Stagehand-related logs. Call before importing stagehand."""
+    for name in ["stagehand", "agent", "browserbase"]:
+        logger = logging.getLogger(name)
+        logger.setLevel(logging.CRITICAL + 100)
+        logger.propagate = False
+        logger.handlers = [logging.NullHandler()]
+
+
+def _null_logger(message: dict) -> None:
+    """Null logger that discards all messages."""
+    pass
 
 # Realistic Chrome user agents (updated for late 2024/2025)
 USER_AGENTS = [
@@ -432,11 +452,14 @@ class ManualBrowser:
         return self.har_path
 
 
-def parse_agent_model(agent_model: str) -> tuple[str, str | None]:
+def parse_agent_model(
+    agent_model: str, agent_provider: str = "browser-use"
+) -> tuple[str, str | None]:
     """Parse agent_model string into provider and model name.
 
     Args:
         agent_model: Model string in format "bu-llm" or "{provider}/{model_name}"
+        agent_provider: Agent provider ("browser-use" or "stagehand")
 
     Returns:
         Tuple of (provider, model_name) where model_name is None for "bu-llm"
@@ -453,7 +476,38 @@ def parse_agent_model(agent_model: str) -> tuple[str, str | None]:
         parts = agent_model.split("/", 1)
         if len(parts) == 2:
             provider, model_name = parts
-            return (provider.lower(), model_name)
+            provider = provider.lower()
+
+            if agent_provider == "stagehand":
+                openai_cua_models = [
+                    "computer-use-preview-2025-03-11",
+                ]
+
+                anthropic_cua_models = [
+                    "claude-sonnet-4-5-20250929",
+                    "claude-haiku-4-5-20251001",
+                    "claude-opus-4-5-20251101",
+                ]
+
+                if provider == "openai":
+                    if model_name not in openai_cua_models:
+                        raise ValueError(
+                            f"Unsupported OpenAI model: {model_name}. "
+                            f"Supported OpenAI CUA models: {', '.join(openai_cua_models)}"
+                        )
+                elif provider == "anthropic":
+                    if model_name not in anthropic_cua_models:
+                        raise ValueError(
+                            f"Unsupported Anthropic model: {model_name}. "
+                            f"Supported Anthropic CUA models: {', '.join(anthropic_cua_models)}"
+                        )
+                else:
+                    raise ValueError(
+                        f"Stagehand only supports OpenAI and Anthropic Computer Use models. "
+                        f"Got: {agent_model}. Expected format: 'openai/{{model}}' or 'anthropic/{{model}}'"
+                    )
+
+            return (provider, model_name)
 
     raise ValueError(
         f"Invalid agent_model format: {agent_model}. "
@@ -461,11 +515,14 @@ def parse_agent_model(agent_model: str) -> tuple[str, str | None]:
     )
 
 
-def get_required_api_key(provider: str) -> tuple[str, str]:
+def get_required_api_key(
+    provider: str, agent_provider: str = "browser-use"
+) -> tuple[str, str]:
     """Get the required API key environment variable name for a provider.
 
     Args:
-        provider: Provider name ("bu-llm", "openai", or "google")
+        provider: Provider name ("bu-llm", "openai", "google", or "anthropic")
+        agent_provider: Agent provider ("browser-use" or "stagehand")
 
     Returns:
         Tuple of (env_var_name, display_name)
@@ -473,10 +530,17 @@ def get_required_api_key(provider: str) -> tuple[str, str]:
     Raises:
         ValueError: If provider is not supported
     """
+    if agent_provider == "stagehand":
+        if provider == "anthropic":
+            return ("ANTHROPIC_API_KEY", "Anthropic API key")
+        else:
+            return ("OPENAI_API_KEY", "OpenAI API key")
+
     provider_map = {
         "bu-llm": ("BROWSER_USE_API_KEY", "Browser-Use API key"),
         "openai": ("OPENAI_API_KEY", "OpenAI API key"),
         "google": ("GOOGLE_API_KEY", "Google API key"),
+        "anthropic": ("ANTHROPIC_API_KEY", "Anthropic API key"),
     }
 
     if provider not in provider_map:
@@ -488,17 +552,20 @@ def get_required_api_key(provider: str) -> tuple[str, str]:
     return provider_map[provider]
 
 
-def validate_api_key(provider: str) -> tuple[bool, str | None]:
+def validate_api_key(
+    provider: str, agent_provider: str = "browser-use"
+) -> tuple[bool, str | None]:
     """Validate that the required API key exists for the provider.
 
     Args:
-        provider: Provider name ("bu-llm", "openai", or "google")
+        provider: Provider name ("bu-llm", "openai", "google", or "anthropic")
+        agent_provider: Agent provider ("browser-use" or "stagehand")
 
     Returns:
         Tuple of (is_valid, error_message)
     """
     try:
-        env_var_name, display_name = get_required_api_key(provider)
+        env_var_name, display_name = get_required_api_key(provider, agent_provider)
         api_key = os.getenv(env_var_name)
 
         if not api_key:
@@ -513,10 +580,11 @@ def validate_api_key(provider: str) -> tuple[bool, str | None]:
 
 
 class AgentBrowser:
-    """Manages autonomous browser session with browser-use and HAR recording.
+    """Manages autonomous browser session with browser-use or stagehand and HAR recording.
 
-    Launches Chromium, captures HAR via CDP Network domain,
-    and browser-use connects via CDP for AI-powered automation.
+    Supports two agent providers:
+    - browser-use: Uses browser-use library with multiple LLM providers
+    - stagehand: Uses Stagehand library with OpenAI Computer Use models only
     """
 
     def __init__(
@@ -526,6 +594,7 @@ class AgentBrowser:
         output_dir: str | None = None,
         timeout: int = 300,
         agent_model: str = "bu-llm",
+        agent_provider: str = "browser-use",
         start_url: Optional[str] = None,
     ):
         """Initialize agent browser."""
@@ -534,6 +603,7 @@ class AgentBrowser:
         self.output_dir = output_dir
         self.timeout = timeout
         self.agent_model = agent_model
+        self.agent_provider = agent_provider
         self.start_url = start_url
 
         # Setup paths
@@ -550,6 +620,7 @@ class AgentBrowser:
             "run_id": self.run_id,
             "prompt": self.prompt,
             "mode": "agent",
+            "agent_provider": self.agent_provider,
             "agent_model": self.agent_model,
             "start_time": self._start_time,
             "end_time": end_time,
@@ -561,6 +632,13 @@ class AgentBrowser:
             json.dump(metadata, f, indent=2)
 
     async def _run_with_har_capture(self, cdp_url: str = None) -> dict:
+        """Run agent with HAR recording. Routes to browser-use or stagehand based on agent_provider."""
+        if self.agent_provider == "stagehand":
+            return await self._run_with_stagehand()
+        else:
+            return await self._run_with_browser_use()
+
+    async def _run_with_browser_use(self) -> dict:
         """Run agent with HAR recording via browser-use's built-in HAR capture."""
         import logging
 
@@ -630,21 +708,23 @@ class AgentBrowser:
         try:
             # Parse agent model and validate API key
             try:
-                provider, model_name = parse_agent_model(self.agent_model)
+                provider, model_name = parse_agent_model(
+                    self.agent_model, self.agent_provider
+                )
             except ValueError as e:
                 result["error"] = str(e)
                 console.print(f" [red]error:[/red] {e}")
                 return result
 
             # Validate API key
-            is_valid, error_msg = validate_api_key(provider)
+            is_valid, error_msg = validate_api_key(provider, self.agent_provider)
             if not is_valid:
                 result["error"] = error_msg
                 console.print(f" [red]error:[/red] {error_msg}")
                 return result
 
             # Create appropriate LLM instance
-            env_var_name, _ = get_required_api_key(provider)
+            env_var_name, _ = get_required_api_key(provider, self.agent_provider)
             api_key = os.getenv(env_var_name)
 
             if provider == "bu-llm":
@@ -743,6 +823,195 @@ class AgentBrowser:
 
         return result
 
+    async def _run_with_stagehand(self) -> dict:
+        """Run agent with HAR recording via Stagehand's built-in HAR capture."""
+        _suppress_stagehand_logs()
+
+        try:
+            from stagehand import Stagehand
+        except ImportError:
+            return {
+                "success": False,
+                "message": None,
+                "error": "stagehand is required. Install with: pip install 'reverse-api-engineer[agent]'",
+            }
+
+        result = {"success": False, "message": None, "error": None}
+        stagehand = None
+
+        try:
+            try:
+                provider, model_name = parse_agent_model(
+                    self.agent_model, self.agent_provider
+                )
+            except ValueError as e:
+                result["error"] = str(e)
+                console.print(f" [red]error:[/red] {e}")
+                return result
+
+            is_valid, error_msg = validate_api_key(provider, self.agent_provider)
+            if not is_valid:
+                result["error"] = error_msg
+                console.print(f" [red]error:[/red] {error_msg}")
+                return result
+
+            console.print(f" [dim]starting stagehand with har...[/dim]")
+
+            env_var_name, _ = get_required_api_key(provider, self.agent_provider)
+            api_key = os.getenv(env_var_name)
+
+            with redirect_stderr(_null_stderr):
+                stagehand = Stagehand(env="LOCAL", verbose=0, logger=_null_logger)
+                await stagehand.init()
+
+            # Set up HAR recording using Playwright's route_from_har
+            # Create empty HAR file first, then use route_from_har with update=True to record
+            if hasattr(stagehand, "context") and stagehand.context:
+                self.har_dir.mkdir(parents=True, exist_ok=True)
+
+                import json
+
+                empty_har = {
+                    "log": {
+                        "version": "1.2",
+                        "creator": {"name": "reverse-api-engineer", "version": "0.2.0"},
+                        "pages": [],
+                        "entries": [],
+                    }
+                }
+
+                with open(self.har_path, "w") as f:
+                    json.dump(empty_har, f)
+
+                # Use route_from_har with update=True to record all network traffic
+                try:
+                    await stagehand.context.route_from_har(
+                        str(self.har_path),
+                        update=True,  # Records new HAR file
+                        not_found="abort",  # Abort requests not in HAR (but we have empty HAR)
+                    )
+                except Exception as e:
+                    console.print(
+                        f" [dim]warning: could not set up HAR recording: {e}[/dim]"
+                    )
+
+            agent_options = {
+                "api_key": api_key,
+            }
+
+            with redirect_stderr(_null_stderr):
+                if provider == "anthropic":
+                    agent = stagehand.agent(
+                        provider="anthropic",
+                        model=model_name,
+                        options=agent_options,
+                    )
+                else:
+                    # OpenAI (default for stagehand)
+                    agent = stagehand.agent(
+                        provider="openai",
+                        model=model_name,
+                        options=agent_options,
+                    )
+
+            console.print(f" [dim]stagehand started[/dim]")
+
+            # Navigate to start URL first if provided (best practice per Stagehand docs)
+            if self.start_url:
+                # Stagehand agent has access to the page, navigate before executing
+                # We'll include the URL in the instruction if agent doesn't expose page directly
+                task_instruction = f"{self.prompt}\n\nStart URL: {self.start_url}"
+            else:
+                task_instruction = self.prompt
+
+            # Execute the task
+            with redirect_stderr(_null_stderr):
+                agent_result = await agent.execute(
+                    {
+                        "instruction": task_instruction,
+                        "maxSteps": self.timeout
+                        // 10,  # Convert timeout seconds to reasonable step limit
+                    }
+                )
+
+            # Extract result from agent_result
+            # According to Stagehand v2 docs, when using object form, result has:
+            # - success: boolean indicating if task completed
+            # - result/text: the actual result content
+            final_message = None
+            task_success = False
+
+            if agent_result:
+                if isinstance(agent_result, dict):
+                    task_success = agent_result.get("success", False)
+                    final_message = (
+                        agent_result.get("message")
+                        or agent_result.get("result")
+                        or agent_result.get("text")
+                    )
+                elif hasattr(agent_result, "success"):
+                    task_success = agent_result.success
+                    # Only extract message field, ignore actions, usage, etc.
+                    if hasattr(agent_result, "message") and agent_result.message:
+                        final_message = str(agent_result.message)
+                    elif hasattr(agent_result, "result"):
+                        final_message = str(agent_result.result)
+                    elif hasattr(agent_result, "text"):
+                        final_message = agent_result.text
+                    else:
+                        # Fallback: try to get message if it exists as attribute
+                        final_message = getattr(
+                            agent_result, "message", "Task completed"
+                        )
+                elif isinstance(agent_result, str):
+                    # String result (simple form)
+                    final_message = agent_result
+                    task_success = True  # Assume success if string returned
+                elif hasattr(agent_result, "message") and agent_result.message:
+                    # Object with message attribute
+                    final_message = str(agent_result.message)
+                    task_success = getattr(
+                        agent_result,
+                        "success",
+                        getattr(agent_result, "completed", True),
+                    )
+                elif hasattr(agent_result, "result"):
+                    final_message = str(agent_result.result)
+                    task_success = True
+                elif hasattr(agent_result, "text"):
+                    final_message = agent_result.text
+                    task_success = True
+                else:
+                    # Last resort: try message attribute, otherwise use default
+                    final_message = getattr(agent_result, "message", "Task completed")
+                    task_success = True
+
+            result["success"] = task_success
+            result["message"] = final_message or "Task completed"
+
+        except Exception as e:
+            result["error"] = str(e)
+            console.print(f" [yellow]stagehand error: {e}[/yellow]")
+        finally:
+            if stagehand:
+                try:
+                    with redirect_stderr(_null_stderr):
+                        await stagehand.close()
+                except Exception:
+                    pass
+
+            # Check if HAR file was created and has content
+            if self.har_path.exists():
+                har_size = self.har_path.stat().st_size
+                if har_size > 100:  # HAR file should have some content
+                    console.print(f" [dim]har saved: {har_size} bytes[/dim]")
+                else:
+                    console.print(f" [dim]har file exists but appears empty[/dim]")
+            else:
+                console.print(f" [dim]har not saved[/dim]")
+
+        return result
+
     def start(self) -> Path:
         """Start agent execution with HAR recording. Returns HAR path when done."""
         self._start_time = get_timestamp()
@@ -784,6 +1053,7 @@ def run_agent_browser(
     output_dir: str | None = None,
     timeout: int = 300,
     agent_model: str = "bu-llm",
+    agent_provider: str = "browser-use",
     start_url: Optional[str] = None,
 ) -> Path:
     """Run agent browser with HAR recording."""
@@ -793,6 +1063,7 @@ def run_agent_browser(
         output_dir=output_dir,
         timeout=timeout,
         agent_model=agent_model,
+        agent_provider=agent_provider,
         start_url=start_url,
     )
     return agent_browser.start()

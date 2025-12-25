@@ -240,7 +240,7 @@ wheels = [
 [[package]]
 name = "browser-use"
 version = "0.11.2"
-source = { git = "https://github.com/browser-use/browser-use.git?rev=1a96cf7ef00bfbb6e21978f77e347639c316fff8#1a96cf7ef00bfbb6e21978f77e347639c316fff8" }
+source = { git = "https://github.com/browser-use/browser-use.git?rev=49a345fb19e9f12befc5cc1658e0033873892455#49a345fb19e9f12befc5cc1658e0033873892455" }
 dependencies = [
     { name = "aiohttp" },
     { name = "anthropic" },
@@ -4875,13 +4875,12 @@ wheels = [
 
 [[package]]
 name = "reverse-api-engineer"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
     { name = "anthropic" },
     { name = "brotli" },
-    { name = "browser-use" },
     { name = "claude-agent-sdk" },
     { name = "click" },
     { name = "playwright" },
@@ -4891,12 +4890,17 @@ dependencies = [
     { name = "rich" },
 ]
 
+[package.optional-dependencies]
+agent = [
+    { name = "browser-use" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.12.15" },
     { name = "anthropic", specifier = ">=0.40.0" },
     { name = "brotli", specifier = ">=1.2.0" },
-    { name = "browser-use", git = "https://github.com/browser-use/browser-use.git?rev=1a96cf7ef00bfbb6e21978f77e347639c316fff8" },
+    { name = "browser-use", marker = "extra == 'agent'", git = "https://github.com/browser-use/browser-use.git?rev=49a345fb19e9f12befc5cc1658e0033873892455" },
     { name = "claude-agent-sdk", specifier = ">=0.1.0" },
     { name = "click", specifier = ">=8.1.0" },
     { name = "playwright", specifier = ">=1.40.0" },
@@ -4905,6 +4909,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.32.5" },
     { name = "rich", specifier = ">=13.0.0" },
 ]
+provides-extras = ["agent"]
 
 [package.metadata.requires-dev]
 dev = []
