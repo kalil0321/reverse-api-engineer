@@ -1,16 +1,11 @@
-import sys
 from pathlib import Path
 import json
 
 import click
 import questionary
 from questionary import Choice
-from prompt_toolkit.completion import WordCompleter
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
-from rich.text import Text
-from rich.box import MINIMAL, ROUNDED
 
 from .browser import ManualBrowser
 from .utils import (
@@ -19,7 +14,6 @@ from .utils import (
     get_config_path,
     get_history_path,
     get_har_dir,
-    get_scripts_dir,
     get_timestamp,
 )
 from .tui import (
@@ -29,8 +23,6 @@ from .tui import (
     THEME_PRIMARY,
     THEME_SECONDARY,
     THEME_DIM,
-    THEME_SUCCESS,
-    THEME_ERROR,
 )
 from .config import ConfigManager
 from .session import SessionManager
@@ -41,6 +33,8 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style as PtStyle
 from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 
 
 console = Console()
@@ -68,9 +62,25 @@ def prompt_interactive_options(
     """
     
     # Slash command completer
-    command_completer = WordCompleter([
+    commands = [
         "/settings", "/history", "/messages", "/help", "/exit", "/quit", "/commands"
-    ], ignore_case=True)
+    ]
+    
+    class FilteredCompleter(Completer):
+        def get_completions(self, document, complete_event):
+            text = document.text_before_cursor
+            if not text.startswith('/'):
+                return
+
+            # Only suggest if we are still on the first word (the command)
+            if ' ' in text:
+                return
+
+            for cmd in commands:
+                if cmd.startswith(text):
+                    yield Completion(cmd, start_position=-len(text))
+
+    command_completer = FilteredCompleter()
     
     # Track mode state (mutable container for closure)
     mode_state = {"mode": current_mode, "mode_index": MODES.index(current_mode)}
@@ -101,6 +111,8 @@ def prompt_interactive_options(
         session = PromptSession(
             message=get_prompt,  # Dynamic prompt function
             completer=command_completer,
+            auto_suggest=AutoSuggestFromHistory(),
+            complete_while_typing=True,
             style=pt_style,
             key_bindings=kb,
         )
@@ -168,7 +180,7 @@ def main(ctx: click.Context):
 def repl_loop():
     """Main interactive loop for the CLI."""
     display_banner(console)
-    console.print(f"  [dim]shift+tab to cycle modes: manual | engineer[/dim]")
+    console.print("  [dim]shift+tab to cycle modes: manual | engineer[/dim]")
     display_footer(console)
     
     current_mode = "manual"
@@ -197,7 +209,7 @@ def repl_loop():
                     if len(parts) > 1:
                         handle_messages(parts[1].strip())
                     else:
-                        console.print(f" [dim]![/dim] [red]usage:[/red] /messages <run_id>")
+                        console.print(" [dim]![/dim] [red]usage:[/red] /messages <run_id>")
                 else:
                     console.print(f" [dim]![/dim] [red]unknown command:[/red] {cmd}")
                 continue
@@ -209,7 +221,7 @@ def repl_loop():
                 # Engineer mode: only run reverse engineering on existing run_id
                 run_id = options.get("run_id")
                 if not run_id:
-                    console.print(f" [dim]![/dim] [red]error:[/red] enter a run_id to reverse engineer")
+                    console.print(" [dim]![/dim] [red]error:[/red] enter a run_id to reverse engineer")
                     continue
                 run_engineer(run_id, model=options.get("model"))
                 continue
@@ -223,7 +235,7 @@ def repl_loop():
             )
             
         except (click.Abort, KeyboardInterrupt):
-            console.print(f"\n [dim]terminated[/dim]")
+            console.print("\n [dim]terminated[/dim]")
             return
         except Exception as e:
             console.print(f" [dim]![/dim] [red]error:[/red] {e}")
@@ -239,6 +251,7 @@ def handle_settings():
         "",
         choices=[
             Choice(title="> change model", value="model"),
+            Choice(title="> change sdk", value="sdk"),
             Choice(title="> output directory", value="output_dir"),
             Choice(title="> back", value="back"),
         ],
@@ -269,10 +282,29 @@ def handle_settings():
             config_manager.set("model", model)
             console.print(f" [dim]updated[/dim] {model}\n")
     
+    elif action == "sdk":
+        sdk_choices = [
+            Choice(title="> opencode", value="opencode"),
+            Choice(title="> claude", value="claude"),
+            Choice(title="> back", value="back"),
+        ]
+        sdk = questionary.select(
+            "",
+            choices=sdk_choices,
+            pointer="",
+            qmark="",
+            style=questionary.Style([
+                ('highlighted', f'fg:{THEME_PRIMARY} bold'),
+            ])
+        ).ask()
+        if sdk and sdk != "back":
+            config_manager.set("sdk", sdk)
+            console.print(f" [dim]updated[/dim] sdk: {sdk}\n")
+    
     elif action == "output_dir":
         current = config_manager.get("output_dir")
         new_dir = questionary.text(
-            f" > output directory",
+            " > output directory",
             default=current or "",
             instruction="(Enter for default ~/.reverse-api/runs)",
             qmark="",
@@ -283,14 +315,14 @@ def handle_settings():
         ).ask()
         if new_dir is not None:
             config_manager.set("output_dir", new_dir if new_dir.strip() else None)
-            console.print(f" [dim]updated[/dim] output directory\n")
+            console.print(" [dim]updated[/dim] output directory\n")
 
 
 def handle_history():
     """Display history of runs."""
     history = session_manager.get_history(limit=15)
     if not history:
-        console.print(f" [dim]> no logs found[/dim]")
+        console.print(" [dim]> no logs found[/dim]")
         return
     
     choices = []
@@ -323,22 +355,22 @@ def handle_history():
             model = run.get("model") or config_manager.get("model", "claude-sonnet-4-5")
             run_engineer(run_id, model=model)
     else:
-        console.print(f" [dim]> not found[/dim]")
+        console.print(" [dim]> not found[/dim]")
 
 
 def handle_help():
     """Show help for slash commands."""
     console.print()
-    console.print(f" [white]commands[/white]")
-    console.print(f" [dim]>[/dim] /settings   [dim]system[/dim]")
-    console.print(f" [dim]>[/dim] /history    [dim]logs[/dim]")
-    console.print(f" [dim]>[/dim] /messages   [dim]view run messages[/dim]")
-    console.print(f" [dim]>[/dim] /help       [dim]help[/dim]")
-    console.print(f" [dim]>[/dim] /exit       [dim]quit[/dim]")
+    console.print(" [white]commands[/white]")
+    console.print(" [dim]>[/dim] /settings   [dim]system[/dim]")
+    console.print(" [dim]>[/dim] /history    [dim]logs[/dim]")
+    console.print(" [dim]>[/dim] /messages   [dim]view run messages[/dim]")
+    console.print(" [dim]>[/dim] /help       [dim]help[/dim]")
+    console.print(" [dim]>[/dim] /exit       [dim]quit[/dim]")
     console.print()
-    console.print(f" [white]modes[/white] [dim](shift+tab to cycle)[/dim]")
-    console.print(f" [dim]>[/dim] manual      [dim]full pipeline: browser + reverse engineering[/dim]")
-    console.print(f" [dim]>[/dim] engineer    [dim]reverse engineer only (enter run_id)[/dim]")
+    console.print(" [white]modes[/white] [dim](shift+tab to cycle)[/dim]")
+    console.print(" [dim]>[/dim] manual      [dim]full pipeline: browser + reverse engineering[/dim]")
+    console.print(" [dim]>[/dim] engineer    [dim]reverse engineer only (enter run_id)[/dim]")
     console.print()
 
 
@@ -490,7 +522,8 @@ def run_engineer(run_id, har_path=None, prompt=None, model=None, output_dir=None
         har_path=har_path,
         prompt=prompt,
         model=model or config_manager.get("model", "claude-sonnet-4-5"),
-        output_dir=output_dir
+        output_dir=output_dir,
+        sdk=config_manager.get("sdk", "opencode"),
     )
     
     if result:
@@ -514,7 +547,7 @@ def run_engineer(run_id, har_path=None, prompt=None, model=None, output_dir=None
             if item.is_file():
                 shutil.copy2(item, local_dir / item.name)
         
-        console.print(f" [dim]>[/dim] [white]decoding complete[/white]")
+        console.print(" [dim]>[/dim] [white]decoding complete[/white]")
         console.print(f" [dim]>[/dim] [white]{result['script_path']}[/white]")
         console.print(f" [dim]>[/dim] [white]copied to ./scripts/{folder_name}[/white]\n")
         

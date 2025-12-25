@@ -7,6 +7,7 @@ from typing import Any, Dict
 DEFAULT_CONFIG = {
     "model": "claude-sonnet-4-5",
     "output_dir": None,  # None means use ~/.reverse-api/runs
+    "sdk": "claude",  # "opencode" or "claude"
 }
 
 

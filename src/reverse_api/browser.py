@@ -10,6 +10,7 @@ from typing import Optional
 from playwright.sync_api import sync_playwright, Browser, BrowserContext, Page
 from playwright_stealth import Stealth
 from rich.console import Console
+from rich.status import Status
 
 from .utils import get_har_dir, get_timestamp
 from .tui import THEME_PRIMARY, THEME_DIM, THEME_SUCCESS
@@ -264,7 +265,7 @@ class ManualBrowser:
             # Wait for browser to close
             try:
                 while self._context.pages:
-                    self._context.pages[0].wait_for_timeout(500)
+                    self._context.pages[0].wait_for_timeout(100)  # Faster polling
             except Exception:
                 pass
             
@@ -354,7 +355,7 @@ class ManualBrowser:
         # Wait for browser to close
         try:
             while self._context.pages:
-                self._context.pages[0].wait_for_timeout(500)
+                self._context.pages[0].wait_for_timeout(100)  # Faster polling
         except Exception:
             pass
 
@@ -388,12 +389,16 @@ class ManualBrowser:
         """Close the browser and save HAR file. Returns HAR path."""
         end_time = get_timestamp()
         
+        console.print(f" [dim]browser closed[/dim]")
+        
         if self._context:
-            try:
-                self._context.close()  # This saves the HAR file
-            except Exception:
-                pass
-            self._context = None
+            with Status(" [dim]handling har... can take a bit[/dim]", console=console, spinner="dots") as status:
+                try:
+                    status.update(" [dim]saving har file...[/dim]")
+                    self._context.close()  # This saves the HAR file
+                except Exception:
+                    pass
+                self._context = None
 
         # Only close browser if not using persistent context
         if self._browser and not self._using_persistent:
