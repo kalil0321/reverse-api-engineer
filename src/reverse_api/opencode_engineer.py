@@ -94,7 +94,8 @@ class OpenCodeEngineer(BaseEngineer):
                 try:
                     await asyncio.wait_for(event_task, timeout=600.0)
                 except asyncio.TimeoutError:
-                    self.opencode_ui.error("Session timed out (10 min)")
+                    self._last_error = "Session timed out (10 min)"
+                    self.opencode_ui.error(self._last_error)
                 
                 # Stop streaming UI
                 self.opencode_ui.stop_streaming()
@@ -258,7 +259,7 @@ class OpenCodeEngineer(BaseEngineer):
                     
                     elif event_type == "session.error":
                         event_sid = properties.get("sessionID")
-                        if event_sid != self._session_id:
+                        if event_sid and event_sid != self._session_id:
                             debug_log(f"session.error for other session {event_sid}, ignoring")
                             continue
                         
@@ -290,8 +291,7 @@ class OpenCodeEngineer(BaseEngineer):
                         return
                         
         except httpx.ReadError as e:
-            debug_log(f"ReadError (normal on session end): {e}")
-            pass
+            self._last_error = f"Stream disconnected: {e}"
         except Exception as e:
             self._last_error = str(e) if str(e) else "Stream error"
 
