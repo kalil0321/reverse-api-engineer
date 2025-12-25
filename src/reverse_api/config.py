@@ -5,12 +5,14 @@ from pathlib import Path
 from typing import Any, Dict
 
 DEFAULT_CONFIG = {
-    "model": "claude-sonnet-4-5",
+    "claude_code_model": "claude-sonnet-4-5",
+    "opencode_provider": "anthropic",
+    "opencode_model": "claude-sonnet-4-5",
     "output_dir": None,  # None means use ~/.reverse-api/runs
     "sdk": "claude",  # "opencode" or "claude"
     "agent_provider": "browser-use",
-    # We support openai & google as model providers
-    "agent_model": "bu-llm", # "bu-llm" or "{provider}/{model_name}" (e.g. "openai/gpt-5-mini")
+    "browser_use_model": "bu-llm",  # "bu-llm" or "{provider}/{model_name}" (e.g. "openai/gpt-5-mini")
+    "stagehand_model": "openai/computer-use-preview-2025-03-11",  # "{provider}/{model_name}" format
 }
 
 
@@ -28,8 +30,35 @@ class ConfigManager:
             try:
                 with open(self.config_path, "r") as f:
                     user_config = json.load(f)
+
+                    # Backward compatibility: migrate old config keys
+                    # Migrate "model" -> "claude_code_model"
+                    if (
+                        "model" in user_config
+                        and "claude_code_model" not in user_config
+                    ):
+                        user_config["claude_code_model"] = user_config["model"]
+
+                    # Migrate "agent_model" -> "browser_use_model" and "stagehand_model"
+                    if "agent_model" in user_config:
+                        agent_provider = user_config.get(
+                            "agent_provider", "browser-use"
+                        )
+                        if agent_provider == "stagehand":
+                            if "stagehand_model" not in user_config:
+                                user_config["stagehand_model"] = user_config[
+                                    "agent_model"
+                                ]
+                        else:
+                            if "browser_use_model" not in user_config:
+                                user_config["browser_use_model"] = user_config[
+                                    "agent_model"
+                                ]
+
                     # Only keep valid keys
-                    valid_config = {k: v for k, v in user_config.items() if k in self.config}
+                    valid_config = {
+                        k: v for k, v in user_config.items() if k in self.config
+                    }
                     self.config.update(valid_config)
             except (json.JSONDecodeError, OSError):
                 # Fallback to defaults if file is corrupted

@@ -150,7 +150,8 @@ def prompt_interactive_options(
         return {
             "mode": result_mode,
             "run_id": prompt,
-            "model": model or config_manager.get("model", "claude-sonnet-4-5"),
+            "model": model
+            or config_manager.get("claude_code_model", "claude-sonnet-4-5"),
         }
 
     # Agent mode: similar to manual but uses autonomous browser
@@ -174,7 +175,7 @@ def prompt_interactive_options(
                 raise click.Abort()
 
         if model is None:
-            model = config_manager.get("model", "claude-sonnet-4-5")
+            model = config_manager.get("claude_code_model", "claude-sonnet-4-5")
 
         return {
             "mode": result_mode,
@@ -208,7 +209,7 @@ def prompt_interactive_options(
         reverse_engineer = True
 
     if model is None:
-        model = config_manager.get("model", "claude-sonnet-4-5")
+        model = config_manager.get("claude_code_model", "claude-sonnet-4-5")
 
     return {
         "mode": result_mode,
@@ -315,10 +316,13 @@ def handle_settings():
     action = questionary.select(
         "",
         choices=[
-            Choice(title="> change model", value="model"),
+            Choice(title="> change claude code model", value="claude_code_model"),
             Choice(title="> change sdk", value="sdk"),
+            Choice(title="> opencode provider", value="opencode_provider"),
+            Choice(title="> opencode model", value="opencode_model"),
             Choice(title="> agent provider", value="agent_provider"),
-            Choice(title="> agent model", value="agent_model"),
+            Choice(title="> browser-use model", value="browser_use_model"),
+            Choice(title="> stagehand model", value="stagehand_model"),
             Choice(title="> output directory", value="output_dir"),
             Choice(title="> back", value="back"),
         ],
@@ -335,7 +339,7 @@ def handle_settings():
     if action is None or action == "back":
         return
 
-    if action == "model":
+    if action == "claude_code_model":
         model_choices = [
             Choice(title=f"> {c['name'].lower()}", value=c["value"])
             for c in get_model_choices()
@@ -353,7 +357,7 @@ def handle_settings():
             ),
         ).ask()
         if model and model != "back":
-            config_manager.set("model", model)
+            config_manager.set("claude_code_model", model)
             console.print(f" [dim]updated[/dim] {model}\n")
 
     elif action == "sdk":
@@ -397,34 +401,65 @@ def handle_settings():
         if provider and provider != "back":
             config_manager.set("agent_provider", provider)
             console.print(f" [dim]updated[/dim] agent provider: {provider}\n")
-            # If switching to stagehand, validate current model
-            if provider == "stagehand":
-                current_model = config_manager.get("agent_model", "bu-llm")
-                try:
-                    from .browser import parse_agent_model
 
-                    parse_agent_model(current_model, provider)
-                except ValueError:
-                    console.print(
-                        f" [yellow]warning:[/yellow] Current agent model '{current_model}' may not be compatible with stagehand.\n"
-                    )
-                    console.print(
-                        f" [dim]Stagehand supports OpenAI and Anthropic Computer Use models[/dim]\n"
-                        f" [dim]Examples: openai/computer-use-preview-2025-03-11, anthropic/claude-sonnet-4-5-20250929[/dim]\n"
-                    )
+    elif action == "opencode_provider":
+        current = config_manager.get("opencode_provider", "anthropic")
+        new_provider = questionary.text(
+            " > opencode provider",
+            default=current or "anthropic",
+            instruction="(e.g., 'anthropic', 'openai', 'google')",
+            qmark="",
+            style=questionary.Style(
+                [
+                    ("question", f"fg:{THEME_SECONDARY}"),
+                    ("instruction", f"fg:{THEME_DIM} italic"),
+                ]
+            ),
+        ).ask()
+        if new_provider is not None:
+            new_provider = new_provider.strip()
+            if not new_provider:
+                console.print(
+                    " [yellow]error:[/yellow] opencode provider cannot be empty\n"
+                )
+            else:
+                config_manager.set("opencode_provider", new_provider)
+                console.print(
+                    f" [dim]updated[/dim] opencode provider: {new_provider}\n"
+                )
 
-    elif action == "agent_model":
+    elif action == "opencode_model":
+        current = config_manager.get("opencode_model", "claude-sonnet-4-5")
+        new_model = questionary.text(
+            " > opencode model",
+            default=current or "claude-sonnet-4-5",
+            instruction="(e.g., 'claude-sonnet-4-5', 'claude-opus-4-5')",
+            qmark="",
+            style=questionary.Style(
+                [
+                    ("question", f"fg:{THEME_SECONDARY}"),
+                    ("instruction", f"fg:{THEME_DIM} italic"),
+                ]
+            ),
+        ).ask()
+        if new_model is not None:
+            new_model = new_model.strip()
+            if not new_model:
+                console.print(
+                    " [yellow]error:[/yellow] opencode model cannot be empty\n"
+                )
+            else:
+                config_manager.set("opencode_model", new_model)
+                console.print(f" [dim]updated[/dim] opencode model: {new_model}\n")
+
+    elif action == "browser_use_model":
         from .browser import parse_agent_model
 
-        current = config_manager.get("agent_model", "bu-llm")
-        agent_provider = config_manager.get("agent_provider", "browser-use")
-
+        current = config_manager.get("browser_use_model", "bu-llm")
         instruction = "(Format: 'bu-llm' or 'provider/model', e.g., 'openai/gpt-4')"
-        if agent_provider == "stagehand":
-            instruction = "(Format: 'openai/model' or 'anthropic/model', e.g., 'openai/computer-use-preview-2025-03-11' or 'anthropic/claude-sonnet-4-5-20250929')"
 
         new_model = questionary.text(
-            " > agent model",
+            " > browser-use model",
             default=current or "bu-llm",
             instruction=instruction,
             qmark="",
@@ -438,30 +473,67 @@ def handle_settings():
         if new_model is not None:
             new_model = new_model.strip()
             if not new_model:
-                console.print(" [yellow]error:[/yellow] agent model cannot be empty\n")
+                console.print(
+                    " [yellow]error:[/yellow] browser-use model cannot be empty\n"
+                )
             else:
-                # Validate format with current agent_provider
+                # Validate format for browser-use
                 try:
-                    parse_agent_model(new_model, agent_provider)
-                    config_manager.set("agent_model", new_model)
-                    console.print(f" [dim]updated[/dim] agent model: {new_model}\n")
+                    parse_agent_model(new_model, "browser-use")
+                    config_manager.set("browser_use_model", new_model)
+                    console.print(
+                        f" [dim]updated[/dim] browser-use model: {new_model}\n"
+                    )
                 except ValueError as e:
                     console.print(f" [yellow]error:[/yellow] {e}\n")
-                    if agent_provider == "stagehand":
-                        console.print(
-                            " [dim]Valid formats for stagehand:[/dim]\n"
-                            " [dim]  - openai/computer-use-preview-2025-03-11[/dim]\n"
-                            " [dim]  - anthropic/claude-sonnet-4-5-20250929[/dim]\n"
-                            " [dim]  - anthropic/claude-haiku-4-5-20251001[/dim]\n"
-                            " [dim]  - anthropic/claude-opus-4-5-20251101[/dim]\n"
-                        )
-                    else:
-                        console.print(
-                            " [dim]Valid formats:[/dim]\n"
-                            " [dim]  - bu-llm[/dim]\n"
-                            " [dim]  - openai/model_name (e.g., openai/gpt-4)[/dim]\n"
-                            " [dim]  - google/model_name (e.g., google/gemini-pro)[/dim]\n"
-                        )
+                    console.print(
+                        " [dim]Valid formats:[/dim]\n"
+                        " [dim]  - bu-llm[/dim]\n"
+                        " [dim]  - openai/model_name (e.g., openai/gpt-4)[/dim]\n"
+                        " [dim]  - google/model_name (e.g., google/gemini-pro)[/dim]\n"
+                    )
+
+    elif action == "stagehand_model":
+        from .browser import parse_agent_model
+
+        current = config_manager.get(
+            "stagehand_model", "openai/computer-use-preview-2025-03-11"
+        )
+        instruction = "(Format: 'openai/model' or 'anthropic/model', e.g., 'openai/computer-use-preview-2025-03-11' or 'anthropic/claude-sonnet-4-5-20250929')"
+
+        new_model = questionary.text(
+            " > stagehand model",
+            default=current or "openai/computer-use-preview-2025-03-11",
+            instruction=instruction,
+            qmark="",
+            style=questionary.Style(
+                [
+                    ("question", f"fg:{THEME_SECONDARY}"),
+                    ("instruction", f"fg:{THEME_DIM} italic"),
+                ]
+            ),
+        ).ask()
+        if new_model is not None:
+            new_model = new_model.strip()
+            if not new_model:
+                console.print(
+                    " [yellow]error:[/yellow] stagehand model cannot be empty\n"
+                )
+            else:
+                # Validate format for stagehand
+                try:
+                    parse_agent_model(new_model, "stagehand")
+                    config_manager.set("stagehand_model", new_model)
+                    console.print(f" [dim]updated[/dim] stagehand model: {new_model}\n")
+                except ValueError as e:
+                    console.print(f" [yellow]error:[/yellow] {e}\n")
+                    console.print(
+                        " [dim]Valid formats for stagehand:[/dim]\n"
+                        " [dim]  - openai/computer-use-preview-2025-03-11[/dim]\n"
+                        " [dim]  - anthropic/claude-sonnet-4-5-20250929[/dim]\n"
+                        " [dim]  - anthropic/claude-haiku-4-5-20251001[/dim]\n"
+                        " [dim]  - anthropic/claude-opus-4-5-20251101[/dim]\n"
+                    )
 
     elif action == "output_dir":
         current = config_manager.get("output_dir")
@@ -518,7 +590,9 @@ def handle_history():
     if run:
         console.print(Panel(json.dumps(run, indent=2), border_style=THEME_DIM))
         if questionary.confirm(" > recode?").ask():
-            model = run.get("model") or config_manager.get("model", "claude-sonnet-4-5")
+            model = run.get("model") or config_manager.get(
+                "claude_code_model", "claude-sonnet-4-5"
+            )
             run_engineer(run_id, model=model)
     else:
         console.print(" [dim]> not found[/dim]")
@@ -692,8 +766,11 @@ def run_agent_capture(
     run_id = generate_run_id()
     timestamp = get_timestamp()
 
-    # Get agent model and provider from config
-    agent_model = config_manager.get("agent_model", "bu-llm")
+    # Get agent models and provider from config
+    browser_use_model = config_manager.get("browser_use_model", "bu-llm")
+    stagehand_model = config_manager.get(
+        "stagehand_model", "openai/computer-use-preview-2025-03-11"
+    )
     agent_provider = config_manager.get("agent_provider", "browser-use")
 
     # Record initial session
@@ -713,7 +790,8 @@ def run_agent_capture(
             run_id=run_id,
             prompt=prompt,
             output_dir=output_dir,
-            agent_model=agent_model,
+            browser_use_model=browser_use_model,
+            stagehand_model=stagehand_model,
             agent_provider=agent_provider,
             start_url=url,
         )
@@ -813,14 +891,27 @@ def run_engineer(run_id, har_path=None, prompt=None, model=None, output_dir=None
             har_dir = Path(paths.get("har_dir", get_har_dir(run_id, None)))
             har_path = har_dir / "recording.har"
 
-    result = run_reverse_engineering(
-        run_id=run_id,
-        har_path=har_path,
-        prompt=prompt,
-        model=model or config_manager.get("model", "claude-sonnet-4-5"),
-        output_dir=output_dir,
-        sdk=config_manager.get("sdk", "opencode"),
-    )
+    sdk = config_manager.get("sdk", "claude")
+    if sdk == "opencode":
+        result = run_reverse_engineering(
+            run_id=run_id,
+            har_path=har_path,
+            prompt=prompt,
+            model=model,
+            output_dir=output_dir,
+            sdk=sdk,
+            opencode_provider=config_manager.get("opencode_provider", "anthropic"),
+            opencode_model=config_manager.get("opencode_model", "claude-sonnet-4-5"),
+        )
+    else:
+        result = run_reverse_engineering(
+            run_id=run_id,
+            har_path=har_path,
+            prompt=prompt,
+            model=model or config_manager.get("claude_code_model", "claude-sonnet-4-5"),
+            output_dir=output_dir,
+            sdk=sdk,
+        )
 
     if result:
         # Automatically copy scripts to current directory with a readable name

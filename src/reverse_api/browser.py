@@ -39,6 +39,7 @@ def _null_logger(message: dict) -> None:
     """Null logger that discards all messages."""
     pass
 
+
 # Realistic Chrome user agents (updated for late 2024/2025)
 USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -593,7 +594,8 @@ class AgentBrowser:
         prompt: str,
         output_dir: str | None = None,
         timeout: int = 300,
-        agent_model: str = "bu-llm",
+        browser_use_model: str = "bu-llm",
+        stagehand_model: str = "openai/computer-use-preview-2025-03-11",
         agent_provider: str = "browser-use",
         start_url: Optional[str] = None,
     ):
@@ -602,7 +604,8 @@ class AgentBrowser:
         self.prompt = prompt
         self.output_dir = output_dir
         self.timeout = timeout
-        self.agent_model = agent_model
+        self.browser_use_model = browser_use_model
+        self.stagehand_model = stagehand_model
         self.agent_provider = agent_provider
         self.start_url = start_url
 
@@ -616,12 +619,21 @@ class AgentBrowser:
 
     def _save_metadata(self, end_time: str, result: dict | None = None) -> None:
         """Save run metadata to JSON file."""
+        # Select the appropriate model based on agent_provider
+        agent_model = (
+            self.stagehand_model
+            if self.agent_provider == "stagehand"
+            else self.browser_use_model
+        )
+
         metadata = {
             "run_id": self.run_id,
             "prompt": self.prompt,
             "mode": "agent",
             "agent_provider": self.agent_provider,
-            "agent_model": self.agent_model,
+            "agent_model": agent_model,
+            "browser_use_model": self.browser_use_model,
+            "stagehand_model": self.stagehand_model,
             "start_time": self._start_time,
             "end_time": end_time,
             "har_file": str(self.har_path),
@@ -709,7 +721,7 @@ class AgentBrowser:
             # Parse agent model and validate API key
             try:
                 provider, model_name = parse_agent_model(
-                    self.agent_model, self.agent_provider
+                    self.browser_use_model, self.agent_provider
                 )
             except ValueError as e:
                 result["error"] = str(e)
@@ -842,7 +854,7 @@ class AgentBrowser:
         try:
             try:
                 provider, model_name = parse_agent_model(
-                    self.agent_model, self.agent_provider
+                    self.stagehand_model, self.agent_provider
                 )
             except ValueError as e:
                 result["error"] = str(e)
@@ -1052,7 +1064,8 @@ def run_agent_browser(
     prompt: str,
     output_dir: str | None = None,
     timeout: int = 300,
-    agent_model: str = "bu-llm",
+    browser_use_model: str = "bu-llm",
+    stagehand_model: str = "openai/computer-use-preview-2025-03-11",
     agent_provider: str = "browser-use",
     start_url: Optional[str] = None,
 ) -> Path:
@@ -1062,7 +1075,8 @@ def run_agent_browser(
         prompt=prompt,
         output_dir=output_dir,
         timeout=timeout,
-        agent_model=agent_model,
+        browser_use_model=browser_use_model,
+        stagehand_model=stagehand_model,
         agent_provider=agent_provider,
         start_url=start_url,
     )
