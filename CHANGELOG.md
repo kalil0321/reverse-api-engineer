@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8] - 2025-12-28
+
+### Added
+- **3-Tier Pricing Fallback System**: Automatic pricing lookup for 100+ LLM models
+  - Local pricing for common models (highest priority)
+  - Optional LiteLLM integration for extended coverage (install with `pip install 'reverse-api-engineer[pricing]'`)
+  - Default fallback to Claude Sonnet 4.5 pricing
+- **New Model Pricing**: Added pricing for Gemini 3 and Claude thinking series models
+
+### Changed
+- **Enhanced OpenCode Prompts**: Improved prompt handling for code generation
+- **Better Folder Naming**: Folder name generation with OpenCode SDK
+- **Antigravity Documentation**: Added comprehensive documentation for free models via Antigravity
+
+### Fixed
+- Model name mismatch in pricing lookups
+- Pricing computation for extended thinking models
+
 ## [0.2.7] - 2025-12-27
 
 ### Changed

@@ -916,7 +916,7 @@ def run_engineer(run_id, har_path=None, prompt=None, model=None, output_dir=None
     if result:
         # Automatically copy scripts to current directory with a readable name
         scripts_dir = Path(result["script_path"]).parent
-        base_name = generate_folder_name(prompt)
+        base_name = generate_folder_name(prompt, sdk=sdk)
         folder_name = base_name
         local_dir = Path.cwd() / "scripts" / folder_name
 

@@ -34,30 +34,111 @@ class BaseEngineer(ABC):
 
     def _build_analysis_prompt(self) -> str:
         """Build the prompt for analyzing the HAR file."""
-        base_prompt = f"""Analyze the HAR file at {self.har_path} and reverse engineer the APIs captured.
+        base_prompt = f"""You are tasked with analyzing a HAR (HTTP Archive) file to reverse engineer API calls and generate production-ready Python code that replicates those calls.
 
-Original user prompt: {self.prompt}
+Here is the HAR file path you need to analyze:
+<har_path>
+{self.har_path}
+</har_path>
 
-Your task:
-1. Read and analyze the HAR file to understand the API calls made
-2. Identify authentication patterns (cookies, tokens, headers)
-3. Extract request/response patterns for each endpoint
-4. Generate a clean, well-documented Python script that replicates these API calls
+Here is the original user prompt with context about what they're trying to accomplish:
+<user_prompt>
+{self.prompt}
+</user_prompt>
 
-The Python script should:
-- Use the `requests` library
-- Include proper authentication handling
-- Have functions for each distinct API endpoint
-- Include type hints and docstrings
-- Handle errors gracefully
-- Be production-ready
+Here is the output directory where you should save your generated files:
+<output_dir>
+{self.scripts_dir}
+</output_dir>
 
-Save the generated Python script to: {self.scripts_dir / 'api_client.py'}
-Also create a brief README.md in the same folder explaining the APIs discovered.
-Always test your implementation to ensure it works. If it doesn't try again if you think you can fix it. You can go up to 5 attempts.
-Sometimes websites have bot detection and that kind of things so keep in mind.
-If you see you can't achieve with requests, feel free to use playwright with the real user browser with CDP to bypass bot detection.
-No matter which implementation you choose, always try to make it production ready and test it.
+Your task is to:
+
+1. **Read and analyze the HAR file** to understand all API calls that were captured. Look for:
+   - HTTP methods (GET, POST, PUT, DELETE, etc.)
+   - Request URLs and endpoints
+   - Request headers (especially authentication-related ones)
+   - Request bodies and parameters
+   - Response structures
+   - Response status codes
+
+2. **Identify authentication patterns** such as:
+   - Cookies and session tokens
+   - Authorization headers (Bearer tokens, API keys, etc.)
+   - CSRF tokens or other security mechanisms
+   - Custom authentication headers
+
+3. **Extract request/response patterns** for each distinct endpoint:
+   - Required vs optional parameters
+   - Data formats (JSON, form data, etc.)
+   - Query parameters vs body parameters
+   - Response data structures
+
+4. **Generate a Python script** that replicates these API calls with the following requirements:
+   - Use the `requests` library as the default choice
+   - Include proper authentication handling (sessions, headers, tokens)
+   - Create separate functions for each distinct API endpoint
+   - Include type hints for all function parameters and return values
+   - Write comprehensive docstrings for each function
+   - Implement proper error handling with try-except blocks
+   - Add logging for debugging purposes
+   - Make the code production-ready and maintainable
+   - Include a main section with example usage
+
+5. **Create documentation**:
+   - Generate a README.md file that explains:
+     - What APIs were discovered
+     - How authentication works
+     - How to use each function
+     - Example usage
+     - Any limitations or requirements
+
+6. **Test your implementation**:
+   - After generating the code, test it to ensure it works
+   - You have up to 5 attempts to fix any issues
+   - If the initial implementation fails, analyze the error and try again
+   - Keep in mind that some websites have bot detection mechanisms
+
+7. **Handle bot detection**:
+   - If you encounter bot detection, CAPTCHA, or anti-scraping measures with `requests`
+   - Consider switching to Playwright with CDP (Chrome DevTools Protocol)
+   - Use the real user browser context to bypass detection
+   - Maintain the same code quality standards regardless of approach
+
+Before generating your code, use a scratchpad to plan your approach:
+
+<scratchpad>
+In your scratchpad:
+- Summarize the key API endpoints found in the HAR file
+- Note the authentication mechanism being used
+- Identify any patterns or commonalities between requests
+- Plan the structure of your Python script
+- Consider potential issues (rate limiting, bot detection, etc.)
+- Decide whether `requests` will be sufficient or if Playwright is needed
+</scratchpad>
+
+After your analysis, generate the files:
+
+1. Save the Python script to: {self.scripts_dir}/api_client.py
+2. Save the documentation to: {self.scripts_dir}/README.md
+
+If your first attempt doesn't work, analyze what went wrong and try again. Document each attempt and what you learned.
+
+<attempt_log>
+For each attempt (up to 5), document:
+- Attempt number
+- What approach you tried
+- What error or issue occurred (if any)
+- What you changed for the next attempt
+</attempt_log>
+
+After testing, provide your final response with:
+- A summary of the APIs discovered
+- The authentication method used
+- Whether the implementation works
+- Any limitations or caveats
+- The paths to the generated files
+
+Your final output should confirm that the files have been created and provide a brief summary of what was accomplished. Do not include the full code in your response - just confirm the files were saved and summarize the key findings.
 """
         if self.additional_instructions:
             base_prompt += f"\n\nAdditional instructions:\n{self.additional_instructions}"
