@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.7] - 2025-12-27
+
+### Changed
+- **Version management**: Implemented single source of truth for versioning
+  - Version now defined only in `pyproject.toml`
+  - `__init__.py` reads version dynamically using `importlib.metadata`
+  - Eliminates need to manually update version in multiple files
+  - Added `RELEASING.md` with release process documentation
+
 ## [0.2.6] - 2025-12-27
 
 ### Fixed

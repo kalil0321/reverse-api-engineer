@@ -1,6 +1,6 @@
 [project]
 name = "reverse-api-engineer"
-version = "0.2.6"
+version = "0.2.7"
 description = "A tool to capture browser traffic for API reverse engineering"
 readme = "README.md"
 requires-python = ">=3.11"
