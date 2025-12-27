@@ -36,6 +36,62 @@ MODEL_PRICING = {
         "cache_read": 0.20,
         "reasoning": 12,
     },
+    "gemini-3-pro-low": {
+        "input": 3,
+        "output": 12,
+        "cache_creation": 4.5,
+        "cache_read": 0.20,
+        "reasoning": 12,
+    },
+    "gemini-3-pro-high": {
+        "input": 3,
+        "output": 12,
+        "cache_creation": 4.5,
+        "cache_read": 0.20,
+        "reasoning": 12,
+    },
+    "claude-sonnet-4-5-thinking-low": {
+        "input": 3.00,
+        "output": 15.00,
+        "cache_creation": 3.75,
+        "cache_read": 0.30,
+        "reasoning": 15.00,
+    },
+    "claude-sonnet-4-5-thinking-medium": {
+        "input": 3.00,
+        "output": 15.00,
+        "cache_creation": 3.75,
+        "cache_read": 0.30,
+        "reasoning": 15.00,
+    },
+    "claude-sonnet-4-5-thinking-high": {
+        "input": 3.00,
+        "output": 15.00,
+        "cache_creation": 3.75,
+        "cache_read": 0.30,
+        "reasoning": 15.00,
+    },
+    "claude-opus-4-5-thinking-low": {
+        "input": 15.00,
+        "output": 25.00,
+        "cache_creation": 6.25,
+        "cache_read": 0.50,
+        "reasoning": 25.00,
+    },
+    "claude-opus-4-5-thinking-medium": {
+        "input": 15.00,
+        "output": 25.00,
+        "cache_creation": 6.25,
+        "cache_read": 0.50,
+        "reasoning": 25.00,
+    },
+    "claude-opus-4-5-thinking-high": {
+        "input": 15.00,
+        "output": 25.00,
+        "cache_creation": 6.25,
+        "cache_read": 0.50,
+        "reasoning": 25.00,
+    },
 }
 
 
@@ -159,10 +215,6 @@ def calculate_cost(
     Returns:
         Total cost in USD
     """
-    # Normalize model name to canonical pricing key
-    if model_id in _MODEL_NAME_NORMALIZE:
-        model_id = _MODEL_NAME_NORMALIZE[model_id]
-
     if model_id in MODEL_PRICING:
         pricing = MODEL_PRICING[model_id]
     elif model_id and (litellm_pricing := _get_pricing_from_litellm(model_id)):
