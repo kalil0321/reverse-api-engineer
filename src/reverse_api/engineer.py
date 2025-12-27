@@ -114,16 +114,15 @@ class ClaudeEngineer(BaseEngineer):
                                     "cache_read_input_tokens", 0
                                 )
 
-                                # Claude Sonnet 4.5 pricing per million tokens:
-                                # - Regular input: $3.00
-                                # - Cache creation: $3.75
-                                # - Cache read: $0.30
-                                # - Output: $15.00
-                                cost = (
-                                    (input_tokens / 1_000_000 * 3.0)
-                                    + (cache_creation_tokens / 1_000_000 * 3.75)
-                                    + (cache_read_tokens / 1_000_000 * 0.30)
-                                    + (output_tokens / 1_000_000 * 15.0)
+                                # Calculate cost using shared pricing module
+                                from .pricing import calculate_cost
+
+                                cost = calculate_cost(
+                                    model_id=self.model,
+                                    input_tokens=input_tokens,
+                                    output_tokens=output_tokens,
+                                    cache_creation_tokens=cache_creation_tokens,
+                                    cache_read_tokens=cache_read_tokens,
                                 )
                                 self.usage_metadata["estimated_cost_usd"] = cost
 

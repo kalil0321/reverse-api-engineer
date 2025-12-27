@@ -65,6 +65,19 @@ class OpenCodeEngineer(BaseEngineer):
             async with httpx.AsyncClient(
                 base_url=self.BASE_URL, timeout=600.0
             ) as client:
+                # Health check
+                try:
+                    health_r = await client.get("/global/health")
+                    health_r.raise_for_status()
+                    health = health_r.json()
+                    self.opencode_ui.health_check(health)
+                except Exception as e:
+                    debug_log(f"Health check failed: {e}")
+                    self.opencode_ui.error(
+                        f"OpenCode server not responding. Is it running on {self.BASE_URL}?"
+                    )
+                    return None
+
                 # Create a new session
                 r = await client.post("/session", json={})
                 r.raise_for_status()
@@ -115,6 +128,31 @@ class OpenCodeEngineer(BaseEngineer):
 
             # Success
             script_path = str(self.scripts_dir / "api_client.py")
+
+            # Fetch actual provider and model used from session messages
+            try:
+                async with httpx.AsyncClient(
+                    base_url=self.BASE_URL, timeout=10.0
+                ) as client:
+                    messages_r = await client.get(
+                        f"/session/{self._session_id}/message"
+                    )
+                    if messages_r.status_code == 200:
+                        messages = messages_r.json()
+                        # Find first assistant message with provider/model info
+                        for msg in messages:
+                            info = msg.get("info", {})
+                            if info.get("role") == "assistant":
+                                provider_id = info.get("providerID")
+                                model_id = info.get("modelID")
+                                if provider_id and model_id:
+                                    self.opencode_ui.model_info(provider_id, model_id)
+                                    break
+            except Exception as e:
+                debug_log(f"Failed to fetch session messages: {e}")
+
+            # Show session summary before success message
+            self.opencode_ui.session_summary(self.usage_metadata)
             self.opencode_ui.success(script_path)
 
             result_data: Dict[str, Any] = {
@@ -377,25 +415,47 @@ class OpenCodeEngineer(BaseEngineer):
         elif part_type == "step-finish":
             debug_log("Handling step-finish part")
             # Extract usage stats
-            cost = part.get("cost", 0)
+            api_cost = part.get("cost", 0)
             tokens = part.get("tokens", {})
 
-            self.opencode_ui.step_finish(cost, tokens)
+            input_tokens = tokens.get("input", 0)
+            output_tokens = tokens.get("output", 0)
+            reasoning_tokens = tokens.get("reasoning", 0)
+            cache = tokens.get("cache", {})
+            cache_read = cache.get("read", 0)
+            cache_write = cache.get("write", 0)
 
-            # Update usage metadata
+            if api_cost == 0 and (input_tokens > 0 or output_tokens > 0):
+                from .pricing import calculate_cost
+
+                calculated_cost = calculate_cost(
+                    model_id=self.opencode_model,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cache_creation_tokens=cache_write,
+                    cache_read_tokens=cache_read,
+                    reasoning_tokens=reasoning_tokens,
+                )
+                cost = calculated_cost
+                debug_log(f"API cost was 0, calculated locally: ${cost:.4f}")
+            else:
+                cost = api_cost
+
             self.usage_metadata["input_tokens"] = self.usage_metadata.get(
                 "input_tokens", 0
-            ) + tokens.get("input", 0)
+            ) + input_tokens
             self.usage_metadata["output_tokens"] = self.usage_metadata.get(
                 "output_tokens", 0
-            ) + tokens.get("output", 0)
-            cache = tokens.get("cache", {})
+            ) + output_tokens
+            self.usage_metadata["reasoning_tokens"] = self.usage_metadata.get(
+                "reasoning_tokens", 0
+            ) + reasoning_tokens
             self.usage_metadata["cache_read_tokens"] = self.usage_metadata.get(
                 "cache_read_tokens", 0
-            ) + cache.get("read", 0)
+            ) + cache_read
             self.usage_metadata["cache_creation_tokens"] = self.usage_metadata.get(
                 "cache_creation_tokens", 0
-            ) + cache.get("write", 0)
+            ) + cache_write
             self.usage_metadata["cost"] = self.usage_metadata.get("cost", 0) + cost
 
 

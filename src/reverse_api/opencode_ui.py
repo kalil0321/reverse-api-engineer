@@ -46,9 +46,20 @@ class OpenCodeUI:
         self.console.print(f" [dim]decoding starting...[/dim]")
         self.console.print()
 
+    def health_check(self, health: Dict[str, Any]) -> None:
+        """Display server health status."""
+        version = health.get("version", "unknown")
+        self.console.print(f"  [dim]server: OpenCode v{version}[/dim]")
+
     def session_created(self, session_id: str) -> None:
         """Display session creation."""
         self.console.print(f"  [dim]session: {session_id[:16]}...[/dim]")
+
+    def model_info(self, provider: str, model: str) -> None:
+        """Display the actual provider and model being used."""
+        self.console.print(
+            f"  [dim]using: {provider}/{model}[/dim]"
+        )
 
     def start_streaming(self) -> None:
         """Start the live display for streaming updates."""
@@ -76,12 +87,6 @@ class OpenCodeUI:
             display.append(f"{self._current_tool}", style="white")
             display.append(" running...\n", style=THEME_DIM)
 
-        # Show streaming text (last 200 chars)
-        if self._current_text:
-            text_preview = self._current_text[-200:].replace("\n", " ").strip()
-            if len(self._current_text) > 200:
-                text_preview = "..." + text_preview
-            display.append(f"  {text_preview}\n", style=THEME_DIM)
 
         return display
 
@@ -131,13 +136,60 @@ class OpenCodeUI:
         """Display step completion with usage stats."""
         input_tokens = tokens.get("input", 0)
         output_tokens = tokens.get("output", 0)
+        reasoning_tokens = tokens.get("reasoning", 0)
         cache = tokens.get("cache", {})
         cache_read = cache.get("read", 0)
         cache_write = cache.get("write", 0)
 
-        self.console.print(
-            f"  [dim]step: {input_tokens:,}in/{output_tokens:,}out ${cost:.4f}[/dim]"
-        )
+        token_parts = []
+        if input_tokens > 0:
+            token_parts.append(f"{input_tokens:,}in")
+        if output_tokens > 0:
+            token_parts.append(f"{output_tokens:,}out")
+        if reasoning_tokens > 0:
+            token_parts.append(f"{reasoning_tokens:,}rsn")
+        if cache_read > 0:
+            token_parts.append(f"{cache_read:,}cr")
+        if cache_write > 0:
+            token_parts.append(f"{cache_write:,}cw")
+
+        token_summary = "/".join(token_parts)
+
+        if cost > 0.001:
+            self.console.print(f"  [dim]step: {token_summary} ${cost:.4f}[/dim]")
+        elif token_parts:
+            self.console.print(f"  [dim]step: {token_summary}[/dim]")
+
+    def session_summary(self, usage_metadata: Dict[str, Any]) -> None:
+        """Display session usage summary."""
+        input_tokens = usage_metadata.get("input_tokens", 0)
+        output_tokens = usage_metadata.get("output_tokens", 0)
+        reasoning_tokens = usage_metadata.get("reasoning_tokens", 0)
+        cache_read = usage_metadata.get("cache_read_tokens", 0)
+        cache_write = usage_metadata.get("cache_creation_tokens", 0)
+        total_cost = usage_metadata.get("cost", 0)
+
+        if input_tokens > 0 or output_tokens > 0 or total_cost > 0:
+            self.console.print()
+            self.console.print("  [dim]Session Summary[/dim]")
+
+            if input_tokens > 0:
+                self.console.print(f"  [dim]  input: {input_tokens:,} tokens[/dim]")
+            if output_tokens > 0:
+                self.console.print(f"  [dim]  output: {output_tokens:,} tokens[/dim]")
+            if reasoning_tokens > 0:
+                self.console.print(
+                    f"  [dim]  reasoning: {reasoning_tokens:,} tokens[/dim]"
+                )
+            if cache_write > 0:
+                self.console.print(
+                    f"  [dim]  cache write: {cache_write:,} tokens[/dim]"
+                )
+            if cache_read > 0:
+                self.console.print(f"  [dim]  cache read: {cache_read:,} tokens[/dim]")
+
+            if total_cost > 0:
+                self.console.print(f"  [dim]  total cost: ${total_cost:.4f}[/dim]")
 
     def session_status(self, status_type: str) -> None:
         """Update session status."""
@@ -185,18 +237,32 @@ class OpenCodeUI:
         # Count by status
         pending = sum(1 for t in todos if t.get("status") == "pending")
         completed = sum(1 for t in todos if t.get("status") == "completed")
-        in_progress = sum(1 for t in todos if t.get("status") == "in_progress")
+        in_progress_todos = [t for t in todos if t.get("status") == "in_progress"]
 
         parts = []
-        if in_progress:
-            parts.append(f"{in_progress} active")
+        if in_progress_todos:
+            parts.append(f"{len(in_progress_todos)} active")
         if pending:
             parts.append(f"{pending} pending")
         if completed:
             parts.append(f"{completed} done")
 
         status_str = ", ".join(parts) if parts else f"{len(todos)} items"
-        self.console.print(f"  [dim]tasks:[/dim] {status_str}")
+
+        # Show current task if there is one in progress
+        if in_progress_todos:
+            current_task = in_progress_todos[0]
+            task_content = current_task.get("activeForm") or current_task.get(
+                "content", ""
+            )
+            # Truncate if too long
+            if len(task_content) > 50:
+                task_content = task_content[:47] + "..."
+            self.console.print(
+                f"  [dim]tasks:[/dim] {status_str} [dim]→ {task_content}[/dim]"
+            )
+        else:
+            self.console.print(f"  [dim]tasks:[/dim] {status_str}")
 
     def file_edited(self, file_path: str) -> None:
         """Display when a file is edited."""
