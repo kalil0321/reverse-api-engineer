@@ -77,10 +77,15 @@ cython_debug/
 
 # Project specific
 har/
-scripts/
+scripts/*
+!scripts/clean_build.sh
 scripts_built/
-!scripts/*/api_client.py
-!scripts/*/example_usage.py
-!scripts/*/README.md
+src/reverse_api/scripts/
 .reverse-api/
 *.har
+
+RELEASE_NOTES.md
+RELEASE.md
+prompt*.md
+
+test*
