@@ -143,10 +143,13 @@ Fully automated browser interaction using AI agents:
 Settings stored in `~/.reverse-api/config.json`:
 ```json
 {
-  "model": "claude-sonnet-4-5",
+  "claude_code_model": "claude-sonnet-4-5",
+  "opencode_provider": "anthropic",
+  "opencode_model": "claude-sonnet-4-5",
   "sdk": "claude",
   "agent_provider": "browser-use",
-  "agent_model": "bu-llm",
+  "browser_use_model": "bu-llm",
+  "stagehand_model": "openai/computer-use-preview-2025-03-11",
   "output_dir": null
 }
 ```
@@ -162,6 +165,30 @@ Change in `/settings` or via CLI:
 ```bash
 reverse-api-engineer manual --model claude-sonnet-4-5
 ```
+
+### Free Model Options with Antigravity
+
+You can use free models via [Antigravity](https://github.com/NoeFabris/opencode-antigravity-auth) for API generation. See [available models](https://github.com/NoeFabris/opencode-antigravity-auth#available-models) for the full list.
+
+**Setup:**
+1. Follow the [Antigravity setup instructions](https://github.com/NoeFabris/opencode-antigravity-auth)
+2. In `/settings`, configure:
+   - **SDK**: Set to `opencode` (required for Antigravity)
+   - **opencode provider**: Set to `google`
+   - **opencode model**: Set to `gemini-3-flash` (or any available Antigravity model)
+
+**Available Antigravity Models:**
+- `gemini-3-pro-low` - Gemini 3 Pro Low (Antigravity)
+- `gemini-3-pro-high` - Gemini 3 Pro High (Antigravity)
+- `gemini-3-flash` - Gemini 3 Flash (Antigravity) (recommended)
+- `claude-sonnet-4-5` - Claude Sonnet 4.5 (Antigravity)
+- `claude-sonnet-4-5-thinking-low` - Claude Sonnet 4.5 Thinking Low (Antigravity)
+- `claude-sonnet-4-5-thinking-medium` - Claude Sonnet 4.5 Thinking Medium (Antigravity)
+- `claude-sonnet-4-5-thinking-high` - Claude Sonnet 4.5 Thinking High (Antigravity)
+- `claude-opus-4-5-thinking-low` - Claude Opus 4.5 Thinking Low (Antigravity)
+- `claude-opus-4-5-thinking-medium` - Claude Opus 4.5 Thinking Medium (Antigravity)
+- `claude-opus-4-5-thinking-high` - Claude Opus 4.5 Thinking High (Antigravity)
+- `gpt-oss-120b-medium` - GPT-OSS 120B Medium (Antigravity)
 
 ### Agent Configuration
 
