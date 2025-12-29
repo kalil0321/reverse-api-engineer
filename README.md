@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/kalil0321/reverse-api-engineer/main/assets/reverse-api-banner.svg" alt="Reverse API Engineer Banner">
 </div>
 
-[![PyPI version](https://badge.fury.io/py//reverse-api-engineer.svg)](https://badge.fury.io/py/reverse-api-engineer)
+![PyPI](https://img.shields.io/pypi/v/reverse-api-engineer)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
