@@ -1,11 +1,9 @@
 from pathlib import Path
-import json
 
 import click
 import questionary
 from questionary import Choice
 from rich.console import Console
-from rich.panel import Panel
 
 from .browser import ManualBrowser, run_agent_browser
 from .utils import (
@@ -319,12 +317,10 @@ def repl_loop():
                     if len(parts) > 1:
                         handle_messages(parts[1].strip(), mode_color)
                     else:
-                        console.print(
-                            " [dim]![/dim] [red]usage:[/red] /messages <run_id>"
-                        )
+                        console.print(" [red]usage:[/red] /messages <run_id>")
                 else:
                     # Unknown command - show error and available commands
-                    console.print(f" [dim]![/dim] [red]Unknown command:[/red] {cmd}")
+                    console.print(f" [red]Unknown command:[/red] {cmd}")
                     console.print(
                         " [dim]Available commands: /settings, /history, /messages, /help, /exit[/dim]"
                     )
@@ -338,7 +334,7 @@ def repl_loop():
                 run_id = options.get("run_id")
                 if not run_id:
                     console.print(
-                        " [dim]![/dim] [red]error:[/red] enter a run_id to reverse engineer"
+                        " [red]error:[/red] enter a run_id to reverse engineer"
                     )
                     continue
                 run_engineer(run_id, model=options.get("model"))
@@ -366,13 +362,12 @@ def repl_loop():
             console.print("\n [dim]terminated[/dim]")
             return
         except Exception as e:
-            console.print(f" [dim]![/dim] [red]error:[/red] {e}")
+            console.print(f" [red]error:[/red] {e}")
 
 
 def handle_settings(mode_color=THEME_PRIMARY):
     """Display and manage settings with improved layout and descriptions."""
     from rich.table import Table
-    from rich.panel import Panel
 
     console.print()
 
@@ -387,14 +382,11 @@ def handle_settings(mode_color=THEME_PRIMARY):
         key_display = k.replace("_", " ").title()
         config_table.add_row(key_display, display_val)
 
-    # Display in a panel with mode color
-    console.print(Panel(
-        config_table,
-        title="[bold white]⚙ Settings[/bold white]",
-        subtitle="[dim]Current Configuration[/dim]",
-        border_style=mode_color,
-        padding=(1, 2)
-    ))
+    # Display in a clean format
+    console.print(
+        f" [bold white]Settings[/bold white] [dim]Current Configuration[/dim]"
+    )
+    console.print(config_table)
     console.print()
 
     # Settings menu
@@ -414,7 +406,7 @@ def handle_settings(mode_color=THEME_PRIMARY):
     action = questionary.select(
         "    ",  # Add padding via the question prompt
         choices=choices,
-        pointer="❯",
+        pointer=">",
         qmark="",
         style=questionary.Style(
             [
@@ -431,14 +423,14 @@ def handle_settings(mode_color=THEME_PRIMARY):
 
     if action == "claude_code_model":
         model_choices = [
-            Choice(title=c['name'].lower(), value=c["value"])
+            Choice(title=c["name"].lower(), value=c["value"])
             for c in get_model_choices()
         ]
         model_choices.append(Choice(title="back", value="back"))
         model = questionary.select(
             "",
             choices=model_choices,
-            pointer="❯",
+            pointer=">",
             qmark="",
             style=questionary.Style(
                 [
@@ -460,7 +452,7 @@ def handle_settings(mode_color=THEME_PRIMARY):
         sdk = questionary.select(
             "",
             choices=sdk_choices,
-            pointer="❯",
+            pointer=">",
             qmark="",
             style=questionary.Style(
                 [
@@ -482,7 +474,7 @@ def handle_settings(mode_color=THEME_PRIMARY):
         provider = questionary.select(
             "",
             choices=provider_choices,
-            pointer="❯",
+            pointer=">",
             qmark="",
             style=questionary.Style(
                 [
@@ -638,7 +630,7 @@ def handle_settings(mode_color=THEME_PRIMARY):
         sync = questionary.select(
             "",
             choices=sync_choices,
-            pointer="❯",
+            pointer=">",
             qmark="",
             style=questionary.Style(
                 [
@@ -690,7 +682,7 @@ def handle_history(mode_color=THEME_PRIMARY):
     run_id = questionary.select(
         "",
         choices=choices,
-        pointer="❯",
+        pointer=">",
         qmark="",
         style=questionary.Style(
             [
@@ -726,15 +718,13 @@ def handle_history(mode_color=THEME_PRIMARY):
             input_tokens = usage.get("input_tokens", 0)
             output_tokens = usage.get("output_tokens", 0)
             if input_tokens or output_tokens:
-                details_table.add_row("Tokens", f"{input_tokens:,} in / {output_tokens:,} out")
+                details_table.add_row(
+                    "Tokens", f"{input_tokens:,} in / {output_tokens:,} out"
+                )
 
         console.print()
-        console.print(Panel(
-            details_table,
-            title=f"[bold white]📋 Run Details[/bold white]",
-            border_style=mode_color,
-            padding=(1, 2)
-        ))
+        console.print(f" [bold white]Run Details[/bold white]")
+        console.print(details_table)
         console.print()
 
         if questionary.confirm(" > recode?", qmark="").ask():
@@ -760,39 +750,31 @@ def handle_help(mode_color=THEME_PRIMARY):
 
     commands_table.add_row(
         "/settings",
-        "Configure model, SDK, agent provider, and sync settings\n[dim]Usage: /settings[/dim]"
+        "Configure model, SDK, agent provider, and sync settings\n[dim]Usage: /settings[/dim]",
     )
     commands_table.add_row("", "")  # Spacing
 
     commands_table.add_row(
         "/history",
-        "View past runs with timestamps, costs, and status\n[dim]Usage: /history[/dim]"
+        "View past runs with timestamps, costs, and status\n[dim]Usage: /history[/dim]",
     )
     commands_table.add_row("", "")
 
     commands_table.add_row(
         "/messages <run_id>",
-        "View detailed message logs from a specific run\n[dim]Usage: /messages abc123[/dim]"
+        "View detailed message logs from a specific run\n[dim]Usage: /messages abc123[/dim]",
     )
     commands_table.add_row("", "")
 
-    commands_table.add_row(
-        "/help",
-        "Show this help message\n[dim]Usage: /help[/dim]"
-    )
+    commands_table.add_row("/help", "Show this help message\n[dim]Usage: /help[/dim]")
     commands_table.add_row("", "")
 
     commands_table.add_row(
-        "/exit or /quit",
-        "Exit the application\n[dim]Usage: /exit[/dim]"
+        "/exit or /quit", "Exit the application\n[dim]Usage: /exit[/dim]"
     )
 
-    console.print(Panel(
-        commands_table,
-        title="[bold white]📚 Available Commands[/bold white]",
-        border_style=mode_color,
-        padding=(1, 2)
-    ))
+    console.print(f" [bold white]Available Commands[/bold white]")
+    console.print(commands_table)
 
     # Modes table
     console.print()
@@ -804,13 +786,8 @@ def handle_help(mode_color=THEME_PRIMARY):
     modes_table.add_row("engineer", "Reverse engineer only (enter run_id)")
     modes_table.add_row("agent", "Autonomous agent + capture")
 
-    console.print(Panel(
-        modes_table,
-        title="[bold white]🔄 Modes[/bold white]",
-        subtitle="[dim]Shift+Tab to cycle[/dim]",
-        border_style=mode_color,
-        padding=(1, 2)
-    ))
+    console.print(f" [bold white]Modes[/bold white] [dim]Shift+Tab to cycle[/dim]")
+    console.print(modes_table)
     console.print()
 
 
@@ -832,12 +809,8 @@ def handle_messages(run_id: str, mode_color=THEME_PRIMARY):
     header_table.add_row(f"Total Messages: {len(messages)}")
 
     console.print()
-    console.print(Panel(
-        header_table,
-        title="[bold white]💬 Message Log[/bold white]",
-        border_style=mode_color,
-        padding=(1, 2)
-    ))
+    console.print(f" [bold white]Message Log[/bold white]")
+    console.print(header_table)
     console.print()
 
     for msg in messages:
@@ -1089,7 +1062,7 @@ def run_engineer(run_id, har_path=None, prompt=None, model=None, output_dir=None
             har_dir = get_har_dir(run_id, output_dir)
             har_path = har_dir / "recording.har"
             if not har_path.exists():
-                console.print(f" [dim]![/dim] [red]not found:[/red] {run_id}")
+                console.print(f" [red]not found:[/red] {run_id}")
                 return None
             prompt = "Reverse engineer captured APIs"  # Default
         else:

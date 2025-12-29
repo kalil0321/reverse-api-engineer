@@ -1,15 +1,8 @@
 """Rich Terminal UI for Claude SDK interactions."""
 
 from typing import Optional
-from rich.console import Console, Group
-from rich.panel import Panel
-from rich.table import Table
+from rich.console import Console
 from rich.text import Text
-from rich.box import ROUNDED, MINIMAL, HEAVY, DOUBLE_EDGE
-from rich.padding import Padding
-from rich.rule import Rule
-from rich.align import Align
-from rich.columns import Columns
 
 # Theme configuration
 THEME_PRIMARY = "#ff5f50"  # Coral Red
