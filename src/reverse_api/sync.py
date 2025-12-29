@@ -1,0 +1,190 @@
+"""Real-time file synchronization with watchdog."""
+
+import time
+import shutil
+from pathlib import Path
+from typing import Optional, Callable
+from threading import Thread, Event
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler, FileSystemEvent
+
+
+class SyncHandler(FileSystemEventHandler):
+    """Handle file system events for syncing."""
+
+    def __init__(
+        self,
+        source_dir: Path,
+        dest_dir: Path,
+        on_sync: Optional[Callable[[str], None]] = None,
+        on_error: Optional[Callable[[str], None]] = None,
+        debounce_ms: int = 500,
+    ):
+        self.source_dir = source_dir
+        self.dest_dir = dest_dir
+        self.on_sync = on_sync
+        self.on_error = on_error
+        self.debounce_ms = debounce_ms / 1000.0  # Convert to seconds
+        self.pending_events = {}
+        self.last_sync_time = 0
+        self.file_count = 0
+
+    def on_created(self, event: FileSystemEvent):
+        """Handle file creation."""
+        if not event.is_directory:
+            self._queue_sync(event.src_path)
+
+    def on_modified(self, event: FileSystemEvent):
+        """Handle file modification."""
+        if not event.is_directory:
+            self._queue_sync(event.src_path)
+
+    def on_deleted(self, event: FileSystemEvent):
+        """Handle file deletion."""
+        if not event.is_directory:
+            self._queue_sync(event.src_path, is_delete=True)
+
+    def _queue_sync(self, file_path: str, is_delete: bool = False):
+        """Queue a file for syncing with debouncing."""
+        self.pending_events[file_path] = {
+            "time": time.time(),
+            "is_delete": is_delete,
+        }
+
+    def process_pending(self):
+        """Process pending sync events (debounced)."""
+        current_time = time.time()
+        to_sync = []
+
+        # Find events that have passed the debounce period
+        for file_path, event_data in list(self.pending_events.items()):
+            if current_time - event_data["time"] >= self.debounce_ms:
+                to_sync.append((file_path, event_data["is_delete"]))
+                del self.pending_events[file_path]
+
+        # Sync the files
+        for file_path, is_delete in to_sync:
+            try:
+                self._sync_file(file_path, is_delete)
+            except Exception as e:
+                if self.on_error:
+                    self.on_error(f"permission denied: {Path(file_path).name}")
+
+    def _sync_file(self, source_path: str, is_delete: bool = False):
+        """Sync a single file from source to destination."""
+        source = Path(source_path)
+        relative = source.relative_to(self.source_dir)
+        dest = self.dest_dir / relative
+
+        if is_delete:
+            # Delete from destination
+            if dest.exists():
+                dest.unlink()
+                self.file_count -= 1
+        else:
+            # Copy to destination
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, dest)
+            self.file_count += 1
+
+        # Update last sync time
+        self.last_sync_time = time.time()
+
+        # Notify of sync
+        if self.on_sync:
+            action = "Deleted" if is_delete else "Synced"
+            self.on_sync(f"{action} {source.name}")
+
+
+class FileSyncWatcher:
+    """Watch a directory and sync files in real-time."""
+
+    def __init__(
+        self,
+        source_dir: Path,
+        dest_dir: Path,
+        on_sync: Optional[Callable[[str], None]] = None,
+        on_error: Optional[Callable[[str], None]] = None,
+        debounce_ms: int = 500,
+    ):
+        self.source_dir = source_dir
+        self.dest_dir = dest_dir
+        self.debounce_ms = debounce_ms
+
+        # Create handler
+        self.handler = SyncHandler(
+            source_dir=source_dir,
+            dest_dir=dest_dir,
+            on_sync=on_sync,
+            on_error=on_error,
+            debounce_ms=debounce_ms,
+        )
+
+        # Create observer
+        self.observer = Observer()
+        self.observer.schedule(self.handler, str(source_dir), recursive=True)
+
+        # Thread control
+        self.stop_event = Event()
+        self.process_thread: Optional[Thread] = None
+
+    def start(self):
+        """Start watching and syncing."""
+        # Ensure destination exists
+        self.dest_dir.mkdir(parents=True, exist_ok=True)
+
+        # Start observer
+        self.observer.start()
+
+        # Start processing thread for debouncing
+        self.process_thread = Thread(target=self._process_loop, daemon=True)
+        self.process_thread.start()
+
+    def stop(self):
+        """Stop watching and syncing."""
+        self.stop_event.set()
+        self.observer.stop()
+        self.observer.join(timeout=2)
+
+        if self.process_thread:
+            self.process_thread.join(timeout=2)
+
+    def _process_loop(self):
+        """Background loop to process pending sync events."""
+        while not self.stop_event.is_set():
+            self.handler.process_pending()
+            time.sleep(0.1)  # Check every 100ms
+
+    def get_status(self) -> dict:
+        """Get current sync status."""
+        if not self.observer.is_alive():
+            return {
+                "active": False,
+                "error": "Observer stopped",
+            }
+
+        seconds_since_sync = (
+            time.time() - self.handler.last_sync_time
+            if self.handler.last_sync_time > 0
+            else 0
+        )
+
+        return {
+            "active": True,
+            "last_sync": f"{int(seconds_since_sync)}s ago"
+            if self.handler.last_sync_time > 0
+            else "never",
+            "file_count": self.handler.file_count,
+        }
+
+
+def sync_directory_once(source_dir: Path, dest_dir: Path):
+    """Perform a one-time sync of a directory."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    for item in source_dir.rglob("*"):
+        if item.is_file():
+            relative = item.relative_to(source_dir)
+            dest = dest_dir / relative
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(item, dest)

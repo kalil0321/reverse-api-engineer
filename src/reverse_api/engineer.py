@@ -97,7 +97,8 @@ class ClaudeEngineer(BaseEngineer):
                             return None
                         else:
                             script_path = str(self.scripts_dir / "api_client.py")
-                            self.ui.success(script_path)
+                            local_path = str(self.local_scripts_dir / "api_client.py") if self.local_scripts_dir else None
+                            self.ui.success(script_path, local_path)
 
                             # Calculate estimated cost if we have usage data
                             if self.usage_metadata:
@@ -182,6 +183,7 @@ def run_reverse_engineering(
     sdk: str = "claude",
     opencode_provider: Optional[str] = None,
     opencode_model: Optional[str] = None,
+    enable_sync: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Run reverse engineering with the specified SDK.
 
@@ -189,6 +191,7 @@ def run_reverse_engineering(
         sdk: "opencode" or "claude" - determines which SDK to use
         opencode_provider: Provider ID for OpenCode (e.g., "anthropic")
         opencode_model: Model ID for OpenCode (e.g., "claude-sonnet-4-5")
+        enable_sync: Enable real-time file syncing during engineering
     """
     if sdk == "opencode":
         from .opencode_engineer import OpenCodeEngineer
@@ -203,6 +206,8 @@ def run_reverse_engineering(
             verbose=verbose,
             opencode_provider=opencode_provider,
             opencode_model=opencode_model,
+            enable_sync=enable_sync,
+            sdk=sdk,
         )
     else:
         engineer = ClaudeEngineer(
@@ -213,6 +218,17 @@ def run_reverse_engineering(
             additional_instructions=additional_instructions,
             output_dir=output_dir,
             verbose=verbose,
+            enable_sync=enable_sync,
+            sdk=sdk,
         )
 
-    return asyncio.run(engineer.analyze_and_generate())
+    # Start sync before analysis
+    engineer.start_sync()
+
+    try:
+        result = asyncio.run(engineer.analyze_and_generate())
+    finally:
+        # Always stop sync when done
+        engineer.stop_sync()
+
+    return result

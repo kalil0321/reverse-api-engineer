@@ -153,7 +153,8 @@ class OpenCodeEngineer(BaseEngineer):
 
             # Show session summary before success message
             self.opencode_ui.session_summary(self.usage_metadata)
-            self.opencode_ui.success(script_path)
+            local_path = str(self.local_scripts_dir / "api_client.py") if self.local_scripts_dir else None
+            self.opencode_ui.success(script_path, local_path)
 
             result_data: Dict[str, Any] = {
                 "script_path": script_path,

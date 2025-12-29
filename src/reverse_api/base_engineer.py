@@ -4,9 +4,10 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from .utils import get_scripts_dir, get_timestamp
+from .utils import get_scripts_dir, get_timestamp, generate_folder_name
 from .tui import ClaudeUI
 from .messages import MessageStore
+from .sync import FileSyncWatcher
 
 
 class BaseEngineer(ABC):
@@ -21,6 +22,8 @@ class BaseEngineer(ABC):
         additional_instructions: Optional[str] = None,
         output_dir: Optional[str] = None,
         verbose: bool = True,
+        enable_sync: bool = False,
+        sdk: str = "claude",
     ):
         self.run_id = run_id
         self.har_path = har_path
@@ -31,6 +34,58 @@ class BaseEngineer(ABC):
         self.ui = ClaudeUI(verbose=verbose)
         self.usage_metadata: Dict[str, Any] = {}
         self.message_store = MessageStore(run_id, output_dir)
+        self.enable_sync = enable_sync
+        self.sdk = sdk
+        self.sync_watcher: Optional[FileSyncWatcher] = None
+        self.local_scripts_dir: Optional[Path] = None
+
+    def start_sync(self):
+        """Start real-time file sync if enabled."""
+        if not self.enable_sync:
+            return
+
+        # Generate local directory name
+        base_name = generate_folder_name(self.prompt, sdk=self.sdk)
+        folder_name = base_name
+        local_dir = Path.cwd() / "scripts" / folder_name
+
+        # Handle existing folder - append suffix if needed
+        counter = 2
+        while local_dir.exists():
+            folder_name = f"{base_name}_{counter}"
+            local_dir = Path.cwd() / "scripts" / folder_name
+            counter += 1
+
+        self.local_scripts_dir = local_dir
+
+        # Create sync watcher
+        def on_sync(message):
+            self.ui.sync_flash(message)
+
+        def on_error(message):
+            self.ui.sync_error(message)
+
+        self.sync_watcher = FileSyncWatcher(
+            source_dir=self.scripts_dir,
+            dest_dir=local_dir,
+            on_sync=on_sync,
+            on_error=on_error,
+            debounce_ms=500,
+        )
+        self.sync_watcher.start()
+        self.ui.sync_started(str(local_dir))
+
+    def stop_sync(self):
+        """Stop real-time file sync."""
+        if self.sync_watcher:
+            self.sync_watcher.stop()
+            self.sync_watcher = None
+
+    def get_sync_status(self) -> Optional[dict]:
+        """Get current sync status."""
+        if self.sync_watcher:
+            return self.sync_watcher.get_status()
+        return None
 
     def _build_analysis_prompt(self) -> str:
         """Build the prompt for analyzing the HAR file."""

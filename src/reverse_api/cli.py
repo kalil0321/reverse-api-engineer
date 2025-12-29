@@ -75,26 +75,66 @@ def prompt_interactive_options(
         "/commands",
     ]
 
-    class FilteredCompleter(Completer):
+    class EnhancedCompleter(Completer):
+        """Autocomplete for slash commands and run IDs."""
+
         def get_completions(self, document, complete_event):
             text = document.text_before_cursor
-            if not text.startswith("/"):
-                return
 
-            # Only suggest if we are still on the first word (the command)
-            if " " in text:
-                return
+            # Slash command completion
+            if text.startswith("/"):
+                # Check if we're after /messages command
+                if text.startswith("/messages "):
+                    # Run ID completion for /messages
+                    run_id_prefix = text[10:]  # Everything after "/messages "
+                    for run_id in self._get_run_ids():
+                        if run_id.startswith(run_id_prefix):
+                            yield Completion(
+                                run_id,
+                                start_position=-len(run_id_prefix),
+                                display_meta=self._get_run_meta(run_id),
+                            )
+                elif " " not in text:
+                    # Regular slash command completion (no space yet)
+                    for cmd in commands:
+                        if cmd.startswith(text):
+                            yield Completion(cmd, start_position=-len(text))
+            # Run ID completion in engineer mode
+            elif mode_state["mode"] == "engineer" and text:
+                for run_id in self._get_run_ids():
+                    if run_id.startswith(text):
+                        yield Completion(
+                            run_id,
+                            start_position=-len(text),
+                            display_meta=self._get_run_meta(run_id),
+                        )
 
-            for cmd in commands:
-                if cmd.startswith(text):
-                    yield Completion(cmd, start_position=-len(text))
+        def _get_run_ids(self):
+            """Get all run IDs from history (newest first)."""
+            try:
+                history = session_manager.get_history(limit=50)
+                return [run["run_id"] for run in history]
+            except:
+                return []
 
-    command_completer = FilteredCompleter()
+        def _get_run_meta(self, run_id):
+            """Get metadata for a run ID (timestamp + prompt snippet)."""
+            try:
+                run = session_manager.get_run(run_id)
+                if run:
+                    timestamp = run.get("timestamp", "")[:16]  # YYYY-MM-DD HH:MM
+                    prompt = run.get("prompt", "")[:30]
+                    return f"[{timestamp}] {prompt}"
+            except:
+                pass
+            return ""
+
+    command_completer = EnhancedCompleter()
 
     # Track mode state (mutable container for closure)
     mode_state = {"mode": current_mode, "mode_index": MODES.index(current_mode)}
 
-    # Create key bindings for mode cycling
+    # Create key bindings for mode cycling and autocomplete
     kb = KeyBindings()
 
     @kb.add("s-tab")  # Shift+Tab
@@ -104,6 +144,22 @@ def prompt_interactive_options(
         mode_state["mode"] = MODES[mode_state["mode_index"]]
         # Force prompt refresh by invalidating the app
         event.app.invalidate()
+
+    @kb.add("right")  # Right arrow
+    def accept_completion(event):
+        """Accept the current autocomplete suggestion with right arrow."""
+        buff = event.app.current_buffer
+        if buff.complete_state:
+            # Save the current completion before closing
+            completion = buff.complete_state.current_completion
+            if completion:
+                buff.apply_completion(completion)
+            else:
+                # No completion selected, just move cursor right
+                buff.cursor_right()
+        else:
+            # If no completion, just move cursor right
+            buff.cursor_right()
 
     def get_prompt():
         """Generate prompt with current mode indicator."""
@@ -246,26 +302,32 @@ def repl_loop():
 
             if "command" in options:
                 cmd = options["command"]
+                mode_color = MODE_COLORS.get(current_mode, THEME_PRIMARY)
+
                 if cmd == "/empty":
                     continue
                 if cmd == "/exit" or cmd == "/quit":
                     return  # Exit the loop and return to main
                 elif cmd == "/settings":
-                    handle_settings()
+                    handle_settings(mode_color)
                 elif cmd == "/history":
-                    handle_history()
+                    handle_history(mode_color)
                 elif cmd == "/help" or cmd == "/commands":
-                    handle_help()
+                    handle_help(mode_color)
                 elif cmd.startswith("/messages"):
                     parts = cmd.split(maxsplit=1)
                     if len(parts) > 1:
-                        handle_messages(parts[1].strip())
+                        handle_messages(parts[1].strip(), mode_color)
                     else:
                         console.print(
                             " [dim]![/dim] [red]usage:[/red] /messages <run_id>"
                         )
                 else:
-                    console.print(f" [dim]![/dim] [red]unknown command:[/red] {cmd}")
+                    # Unknown command - show error and available commands
+                    console.print(f" [dim]![/dim] [red]Unknown command:[/red] {cmd}")
+                    console.print(
+                        " [dim]Available commands: /settings, /history, /messages, /help, /exit[/dim]"
+                    )
                 continue
 
             mode = options.get("mode", "manual")
@@ -307,52 +369,81 @@ def repl_loop():
             console.print(f" [dim]![/dim] [red]error:[/red] {e}")
 
 
-def handle_settings():
-    """Display and manage settings."""
+def handle_settings(mode_color=THEME_PRIMARY):
+    """Display and manage settings with improved layout and descriptions."""
+    from rich.table import Table
+    from rich.panel import Panel
+
     console.print()
+
+    # Create a table for current configuration
+    config_table = Table(show_header=False, box=None, padding=(0, 1))
+    config_table.add_column(style="dim", justify="left")
+    config_table.add_column(style=mode_color, justify="left")
+
     for k, v in config_manager.config.items():
-        console.print(f" [dim]>[/dim] {k:25} [white]{v}[/white]")
+        display_val = str(v) if v is not None else "default"
+        # Make the key more readable
+        key_display = k.replace("_", " ").title()
+        config_table.add_row(key_display, display_val)
+
+    # Display in a panel with mode color
+    console.print(Panel(
+        config_table,
+        title="[bold white]⚙ Settings[/bold white]",
+        subtitle="[dim]Current Configuration[/dim]",
+        border_style=mode_color,
+        padding=(1, 2)
+    ))
+    console.print()
+
+    # Settings menu
+    choices = [
+        Choice(title="Claude Code Model", value="claude_code_model"),
+        Choice(title="SDK", value="sdk"),
+        Choice(title="OpenCode Provider", value="opencode_provider"),
+        Choice(title="OpenCode Model", value="opencode_model"),
+        Choice(title="Agent Provider", value="agent_provider"),
+        Choice(title="Browser-Use Model", value="browser_use_model"),
+        Choice(title="Stagehand Model", value="stagehand_model"),
+        Choice(title="Real-time Sync", value="real_time_sync"),
+        Choice(title="Output Directory", value="output_dir"),
+        Choice(title="Back", value="back"),
+    ]
 
     action = questionary.select(
-        "",
-        choices=[
-            Choice(title="> change claude code model", value="claude_code_model"),
-            Choice(title="> change sdk", value="sdk"),
-            Choice(title="> opencode provider", value="opencode_provider"),
-            Choice(title="> opencode model", value="opencode_model"),
-            Choice(title="> agent provider", value="agent_provider"),
-            Choice(title="> browser-use model", value="browser_use_model"),
-            Choice(title="> stagehand model", value="stagehand_model"),
-            Choice(title="> output directory", value="output_dir"),
-            Choice(title="> back", value="back"),
-        ],
-        pointer="",
+        "    ",  # Add padding via the question prompt
+        choices=choices,
+        pointer="❯",
         qmark="",
         style=questionary.Style(
             [
-                ("highlighted", f"fg:{THEME_PRIMARY} bold"),
+                ("pointer", f"fg:{mode_color} bold"),
+                ("highlighted", f"fg:{mode_color} bold"),
                 ("selected", "fg:white"),
+                ("question", ""),  # Hide the question text styling
             ]
         ),
     ).ask()
 
     if action is None or action == "back":
-        return
+        return  # Exit settings to main prompt
 
     if action == "claude_code_model":
         model_choices = [
-            Choice(title=f"> {c['name'].lower()}", value=c["value"])
+            Choice(title=c['name'].lower(), value=c["value"])
             for c in get_model_choices()
         ]
-        model_choices.append(Choice(title="> back", value="back"))
+        model_choices.append(Choice(title="back", value="back"))
         model = questionary.select(
             "",
             choices=model_choices,
-            pointer="",
+            pointer="❯",
             qmark="",
             style=questionary.Style(
                 [
-                    ("highlighted", f"fg:{THEME_PRIMARY} bold"),
+                    ("pointer", f"fg:{mode_color} bold"),
+                    ("highlighted", f"fg:{mode_color} bold"),
                 ]
             ),
         ).ask()
@@ -362,18 +453,19 @@ def handle_settings():
 
     elif action == "sdk":
         sdk_choices = [
-            Choice(title="> opencode", value="opencode"),
-            Choice(title="> claude", value="claude"),
-            Choice(title="> back", value="back"),
+            Choice(title="opencode", value="opencode"),
+            Choice(title="claude", value="claude"),
+            Choice(title="back", value="back"),
         ]
         sdk = questionary.select(
             "",
             choices=sdk_choices,
-            pointer="",
+            pointer="❯",
             qmark="",
             style=questionary.Style(
                 [
-                    ("highlighted", f"fg:{THEME_PRIMARY} bold"),
+                    ("pointer", f"fg:{mode_color} bold"),
+                    ("highlighted", f"fg:{mode_color} bold"),
                 ]
             ),
         ).ask()
@@ -383,18 +475,19 @@ def handle_settings():
 
     elif action == "agent_provider":
         provider_choices = [
-            Choice(title="> browser-use", value="browser-use"),
-            Choice(title="> stagehand", value="stagehand"),
-            Choice(title="> back", value="back"),
+            Choice(title="browser-use", value="browser-use"),
+            Choice(title="stagehand", value="stagehand"),
+            Choice(title="back", value="back"),
         ]
         provider = questionary.select(
             "",
             choices=provider_choices,
-            pointer="",
+            pointer="❯",
             qmark="",
             style=questionary.Style(
                 [
-                    ("highlighted", f"fg:{THEME_PRIMARY} bold"),
+                    ("pointer", f"fg:{mode_color} bold"),
+                    ("highlighted", f"fg:{mode_color} bold"),
                 ]
             ),
         ).ask()
@@ -535,6 +628,30 @@ def handle_settings():
                         " [dim]  - anthropic/claude-opus-4-5-20251101[/dim]\n"
                     )
 
+    elif action == "real_time_sync":
+        current = config_manager.get("real_time_sync", True)
+        sync_choices = [
+            Choice(title="Enabled", value=True),
+            Choice(title="Disabled", value=False),
+            Choice(title="Back", value="back"),
+        ]
+        sync = questionary.select(
+            "",
+            choices=sync_choices,
+            pointer="❯",
+            qmark="",
+            style=questionary.Style(
+                [
+                    ("pointer", f"fg:{mode_color} bold"),
+                    ("highlighted", f"fg:{mode_color} bold"),
+                ]
+            ),
+        ).ask()
+        if sync is not None and sync != "back":
+            config_manager.set("real_time_sync", sync)
+            status = "enabled" if sync else "disabled"
+            console.print(f"    [dim]updated[/dim] real-time sync: {status}\n")
+
     elif action == "output_dir":
         current = config_manager.get("output_dir")
         new_dir = questionary.text(
@@ -554,7 +671,7 @@ def handle_settings():
             console.print(" [dim]updated[/dim] output directory\n")
 
 
-def handle_history():
+def handle_history(mode_color=THEME_PRIMARY):
     """Display history of runs."""
     history = session_manager.get_history(limit=15)
     if not history:
@@ -565,19 +682,20 @@ def handle_history():
     for run in history:
         cost = run.get("usage", {}).get("estimated_cost_usd", 0)
         cost_str = f"${cost:.3f}" if cost > 0 else "-"
-        title = f"> {run['run_id']:12}  {run['prompt'][:40]:40}  {cost_str:>8}"
+        title = f"{run['run_id']:12}  {run['prompt'][:40]:40}  {cost_str:>8}"
         choices.append(Choice(title=title, value=run["run_id"]))
 
-    choices.append(Choice(title="> back", value="back"))
+    choices.append(Choice(title="back", value="back"))
 
     run_id = questionary.select(
         "",
         choices=choices,
-        pointer="",
+        pointer="❯",
         qmark="",
         style=questionary.Style(
             [
-                ("highlighted", f"fg:{THEME_PRIMARY} bold"),
+                ("pointer", f"fg:{mode_color} bold"),
+                ("highlighted", f"fg:{mode_color} bold"),
                 ("selected", "fg:white"),
             ]
         ),
@@ -588,8 +706,38 @@ def handle_history():
 
     run = session_manager.get_run(run_id)
     if run:
-        console.print(Panel(json.dumps(run, indent=2), border_style=THEME_DIM))
-        if questionary.confirm(" > recode?").ask():
+        from rich.table import Table
+
+        # Create a formatted display of the run details
+        details_table = Table(show_header=False, box=None, padding=(0, 1))
+        details_table.add_column(style="dim", justify="left", width=20)
+        details_table.add_column(style="white", justify="left")
+
+        details_table.add_row("Run ID", run.get("run_id", "-"))
+        details_table.add_row("Timestamp", run.get("timestamp", "-"))
+        details_table.add_row("Prompt", run.get("prompt", "-"))
+        details_table.add_row("Model", run.get("model", "-"))
+        details_table.add_row("Mode", run.get("mode", "-"))
+
+        usage = run.get("usage", {})
+        if usage:
+            cost = usage.get("estimated_cost_usd", 0)
+            details_table.add_row("Cost", f"${cost:.4f}" if cost > 0 else "-")
+            input_tokens = usage.get("input_tokens", 0)
+            output_tokens = usage.get("output_tokens", 0)
+            if input_tokens or output_tokens:
+                details_table.add_row("Tokens", f"{input_tokens:,} in / {output_tokens:,} out")
+
+        console.print()
+        console.print(Panel(
+            details_table,
+            title=f"[bold white]📋 Run Details[/bold white]",
+            border_style=mode_color,
+            padding=(1, 2)
+        ))
+        console.print()
+
+        if questionary.confirm(" > recode?", qmark="").ask():
             model = run.get("model") or config_manager.get(
                 "claude_code_model", "claude-sonnet-4-5"
             )
@@ -598,29 +746,78 @@ def handle_history():
         console.print(" [dim]> not found[/dim]")
 
 
-def handle_help():
-    """Show help for slash commands."""
+def handle_help(mode_color=THEME_PRIMARY):
+    """Show enhanced help with command details and examples."""
+    from rich.table import Table
+    from rich.text import Text
+
     console.print()
-    console.print(" [white]commands[/white]")
-    console.print(" [dim]>[/dim] /settings   [dim]system[/dim]")
-    console.print(" [dim]>[/dim] /history    [dim]logs[/dim]")
-    console.print(" [dim]>[/dim] /messages   [dim]view run messages[/dim]")
-    console.print(" [dim]>[/dim] /help       [dim]help[/dim]")
-    console.print(" [dim]>[/dim] /exit       [dim]quit[/dim]")
+
+    # Commands table
+    commands_table = Table(show_header=False, box=None, padding=(0, 1))
+    commands_table.add_column(style=f"{mode_color} bold", justify="left", width=20)
+    commands_table.add_column(style="white", justify="left")
+
+    commands_table.add_row(
+        "/settings",
+        "Configure model, SDK, agent provider, and sync settings\n[dim]Usage: /settings[/dim]"
+    )
+    commands_table.add_row("", "")  # Spacing
+
+    commands_table.add_row(
+        "/history",
+        "View past runs with timestamps, costs, and status\n[dim]Usage: /history[/dim]"
+    )
+    commands_table.add_row("", "")
+
+    commands_table.add_row(
+        "/messages <run_id>",
+        "View detailed message logs from a specific run\n[dim]Usage: /messages abc123[/dim]"
+    )
+    commands_table.add_row("", "")
+
+    commands_table.add_row(
+        "/help",
+        "Show this help message\n[dim]Usage: /help[/dim]"
+    )
+    commands_table.add_row("", "")
+
+    commands_table.add_row(
+        "/exit or /quit",
+        "Exit the application\n[dim]Usage: /exit[/dim]"
+    )
+
+    console.print(Panel(
+        commands_table,
+        title="[bold white]📚 Available Commands[/bold white]",
+        border_style=mode_color,
+        padding=(1, 2)
+    ))
+
+    # Modes table
     console.print()
-    console.print(" [white]modes[/white] [dim](shift+tab to cycle)[/dim]")
-    console.print(
-        " [dim]>[/dim] manual      [dim]full pipeline: browser + reverse engineering[/dim]"
-    )
-    console.print(
-        " [dim]>[/dim] engineer    [dim]reverse engineer only (enter run_id)[/dim]"
-    )
-    console.print(" [dim]>[/dim] agent       [dim]autonomous agent + capture[/dim]")
+    modes_table = Table(show_header=False, box=None, padding=(0, 1))
+    modes_table.add_column(style=f"{mode_color} bold", justify="left", width=15)
+    modes_table.add_column(style="dim", justify="left")
+
+    modes_table.add_row("manual", "Full pipeline: browser + reverse engineering")
+    modes_table.add_row("engineer", "Reverse engineer only (enter run_id)")
+    modes_table.add_row("agent", "Autonomous agent + capture")
+
+    console.print(Panel(
+        modes_table,
+        title="[bold white]🔄 Modes[/bold white]",
+        subtitle="[dim]Shift+Tab to cycle[/dim]",
+        border_style=mode_color,
+        padding=(1, 2)
+    ))
     console.print()
 
 
-def handle_messages(run_id: str):
+def handle_messages(run_id: str, mode_color=THEME_PRIMARY):
     """Display messages from a previous run."""
+    from rich.table import Table
+
     store = MessageStore(run_id)
     messages = store.load()
 
@@ -628,8 +825,19 @@ def handle_messages(run_id: str):
         console.print(f" [dim]>[/dim] [red]no messages found for run:[/red] {run_id}")
         return
 
+    # Create header panel
+    header_table = Table(show_header=False, box=None, padding=(0, 0))
+    header_table.add_column(style="white", justify="left")
+    header_table.add_row(f"Run ID: {run_id}")
+    header_table.add_row(f"Total Messages: {len(messages)}")
+
     console.print()
-    console.print(f" [white]messages for {run_id}[/white]")
+    console.print(Panel(
+        header_table,
+        title="[bold white]💬 Message Log[/bold white]",
+        border_style=mode_color,
+        padding=(1, 2)
+    ))
     console.print()
 
     for msg in messages:
@@ -892,6 +1100,8 @@ def run_engineer(run_id, har_path=None, prompt=None, model=None, output_dir=None
             har_path = har_dir / "recording.har"
 
     sdk = config_manager.get("sdk", "claude")
+    enable_sync = config_manager.get("real_time_sync", True)
+
     if sdk == "opencode":
         result = run_reverse_engineering(
             run_id=run_id,
@@ -902,6 +1112,7 @@ def run_engineer(run_id, har_path=None, prompt=None, model=None, output_dir=None
             sdk=sdk,
             opencode_provider=config_manager.get("opencode_provider", "anthropic"),
             opencode_model=config_manager.get("opencode_model", "claude-sonnet-4-5"),
+            enable_sync=enable_sync,
         )
     else:
         result = run_reverse_engineering(
@@ -911,35 +1122,42 @@ def run_engineer(run_id, har_path=None, prompt=None, model=None, output_dir=None
             model=model or config_manager.get("claude_code_model", "claude-sonnet-4-5"),
             output_dir=output_dir,
             sdk=sdk,
+            enable_sync=enable_sync,
         )
 
     if result:
-        # Automatically copy scripts to current directory with a readable name
-        scripts_dir = Path(result["script_path"]).parent
-        base_name = generate_folder_name(prompt, sdk=sdk)
-        folder_name = base_name
-        local_dir = Path.cwd() / "scripts" / folder_name
-
-        # Handle existing folder - append suffix if needed
-        counter = 2
-        while local_dir.exists():
-            folder_name = f"{base_name}_{counter}"
+        # Skip manual copy if real-time sync is enabled (files already synced)
+        if not enable_sync:
+            # Automatically copy scripts to current directory with a readable name
+            scripts_dir = Path(result["script_path"]).parent
+            base_name = generate_folder_name(prompt, sdk=sdk)
+            folder_name = base_name
             local_dir = Path.cwd() / "scripts" / folder_name
-            counter += 1
 
-        local_dir.mkdir(parents=True, exist_ok=True)
+            # Handle existing folder - append suffix if needed
+            counter = 2
+            while local_dir.exists():
+                folder_name = f"{base_name}_{counter}"
+                local_dir = Path.cwd() / "scripts" / folder_name
+                counter += 1
 
-        import shutil
+            local_dir.mkdir(parents=True, exist_ok=True)
 
-        for item in scripts_dir.iterdir():
-            if item.is_file():
-                shutil.copy2(item, local_dir / item.name)
+            import shutil
 
-        console.print(" [dim]>[/dim] [white]decoding complete[/white]")
-        console.print(f" [dim]>[/dim] [white]{result['script_path']}[/white]")
-        console.print(
-            f" [dim]>[/dim] [white]copied to ./scripts/{folder_name}[/white]\n"
-        )
+            for item in scripts_dir.iterdir():
+                if item.is_file():
+                    shutil.copy2(item, local_dir / item.name)
+
+            console.print(" [dim]>[/dim] [white]decoding complete[/white]")
+            console.print(f" [dim]>[/dim] [white]{result['script_path']}[/white]")
+            console.print(
+                f" [dim]>[/dim] [white]copied to ./scripts/{folder_name}[/white]\n"
+            )
+        else:
+            # With sync enabled, just show completion
+            console.print(" [dim]>[/dim] [white]decoding complete[/white]")
+            console.print(f" [dim]>[/dim] [white]{result['script_path']}[/white]\n")
 
         session_manager.update_run(
             run_id=run_id,

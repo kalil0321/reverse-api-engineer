@@ -204,11 +204,13 @@ class OpenCodeUI:
                 display_text += "..."
             self.console.print(f"  .. {display_text}", style=THEME_DIM)
 
-    def success(self, script_path: str) -> None:
+    def success(self, script_path: str, local_path: str = None) -> None:
         """Display success message."""
         self.console.print()
         self.console.print(f" [dim]decoding complete[/dim]")
-        self.console.print(f" [white]{script_path}[/white]")
+        self.console.print(f" [dim]internal:[/dim] [white]{script_path}[/white]")
+        if local_path:
+            self.console.print(f" [dim]synced:[/dim]   [white]{local_path}[/white]")
         self.console.print()
 
     def error(self, message: str) -> None:
@@ -335,3 +337,15 @@ class OpenCodeUI:
         if len(path) <= max_len:
             return path
         return "..." + path[-(max_len - 3) :]
+
+    def sync_started(self, dest_dir: str) -> None:
+        """Display when file sync starts."""
+        self.console.print(f"  [dim]⟳ sync: active → {dest_dir}[/dim]")
+
+    def sync_flash(self, message: str) -> None:
+        """Display a brief sync notification."""
+        self.console.print(f"  [dim]✓ {message}[/dim]")
+
+    def sync_error(self, message: str) -> None:
+        """Display a sync error."""
+        self.console.print(f"  [dim]![/dim] [yellow]sync error:[/yellow] {message}")

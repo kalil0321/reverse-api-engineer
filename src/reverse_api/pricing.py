@@ -189,6 +189,23 @@ def _get_pricing_from_litellm(model_id: str) -> dict[str, float] | None:
         return None
 
 
+def get_model_pricing(model_id: str) -> dict[str, float] | None:
+    """Get pricing dictionary for a model.
+
+    Args:
+        model_id: Model identifier
+
+    Returns:
+        Pricing dictionary with keys: input, output, cache_creation, cache_read, reasoning
+        Returns None if model not found
+    """
+    if model_id in MODEL_PRICING:
+        return MODEL_PRICING[model_id]
+    elif litellm_pricing := _get_pricing_from_litellm(model_id):
+        return litellm_pricing
+    return None
+
+
 def calculate_cost(
     model_id: str | None = None,
     input_tokens: int = 0,

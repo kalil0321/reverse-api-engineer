@@ -13,6 +13,7 @@ DEFAULT_CONFIG = {
     "agent_provider": "browser-use",
     "browser_use_model": "bu-llm",  # "bu-llm" or "{provider}/{model_name}" (e.g. "openai/gpt-5-mini")
     "stagehand_model": "openai/computer-use-preview-2025-03-11",  # "{provider}/{model_name}" format
+    "real_time_sync": True,  # Enable real-time file sync during engineering
 }
 
 
