@@ -112,7 +112,7 @@ def prompt_interactive_options(
             try:
                 history = session_manager.get_history(limit=50)
                 return [run["run_id"] for run in history]
-            except:
+            except Exception:
                 return []
 
         def _get_run_meta(self, run_id):
