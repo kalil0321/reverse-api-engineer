@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.9] - 2025-12-30
+
+### Added
+- **Real-time File Sync**: Watch and automatically sync generated scripts to local directory
+  - Debounced file watching with configurable delay (default 500ms)
+  - Visual feedback for sync operations in terminal UI
+  - Prevents overwriting existing directories by appending counter suffix
+- **MCP Browser Integration**: Native integration with `rae-playwright-mcp` for auto mode
+  - Seamless browser automation via Model Context Protocol
+  - Works with both Claude SDK and OpenCode SDK
+  - Combines browser control and real-time reverse engineering in single workflow
+- **CLAUDE.md Autogeneration**: Automatic generation of project documentation for Claude Code
+
+### Changed
+- **Enhanced Settings Management**: Improved settings configuration and UI
+- **Better Sync Error Handling**: Improved error handling and resource cleanup for sync operations
+
+### Fixed
+- **Sync Directory Overwrite**: Fixed issue where sync would overwrite existing directories
+- **Sync Resource Leaks**: Fixed memory leaks when sync errors occurred
+- **UI Improvements**: Various UI fixes and enhancements
+
 ## [0.2.8] - 2025-12-28
 
 ### Added

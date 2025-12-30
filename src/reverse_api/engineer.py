@@ -19,7 +19,9 @@ from .base_engineer import BaseEngineer
 
 # Suppress claude_agent_sdk logs
 logging.getLogger("claude_agent_sdk").setLevel(logging.WARNING)
-logging.getLogger("claude_agent_sdk._internal.transport.subprocess_cli").setLevel(logging.WARNING)
+logging.getLogger("claude_agent_sdk._internal.transport.subprocess_cli").setLevel(
+    logging.WARNING
+)
 
 
 class ClaudeEngineer(BaseEngineer):
@@ -97,7 +99,11 @@ class ClaudeEngineer(BaseEngineer):
                             return None
                         else:
                             script_path = str(self.scripts_dir / "api_client.py")
-                            local_path = str(self.local_scripts_dir / "api_client.py") if self.local_scripts_dir else None
+                            local_path = (
+                                str(self.local_scripts_dir / "api_client.py")
+                                if self.local_scripts_dir
+                                else None
+                            )
                             self.ui.success(script_path, local_path)
 
                             # Calculate estimated cost if we have usage data
