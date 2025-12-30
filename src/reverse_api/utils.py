@@ -43,10 +43,11 @@ def generate_folder_name(prompt: str, sdk: str = None, session_id: str = None) -
 async def _generate_folder_name_async(prompt: str) -> str:
     """Async helper to generate folder name using Claude Agent SDK."""
     import logging
+
     from claude_agent_sdk import (
-        ClaudeSDKClient,
-        ClaudeAgentOptions,
         AssistantMessage,
+        ClaudeAgentOptions,
+        ClaudeSDKClient,
         TextBlock,
     )
 
@@ -85,17 +86,17 @@ async def _generate_folder_name_async(prompt: str) -> str:
     return name if name else _slugify(prompt)
 
 
-async def _generate_folder_name_opencode_async(
-    prompt: str, session_id: str = None
-) -> str:
+async def _generate_folder_name_opencode_async(prompt: str, session_id: str = None) -> str:
     """Async helper to generate folder name using OpenCode API with event streaming.
 
     Args:
         prompt: The task prompt to generate a folder name for
         session_id: Optional existing session ID to reuse. If None, creates a new session.
     """
-    import httpx
     import json
+
+    import httpx
+
     from .config import ConfigManager
 
     BASE_URL = "http://127.0.0.1:4096"
@@ -113,8 +114,8 @@ async def _generate_folder_name_opencode_async(
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=15.0) as client:
         try:
             await client.get("/global/health")
-        except Exception:
-            raise Exception("OpenCode server not responding")
+        except Exception as e:
+            raise Exception("OpenCode server not responding") from e
 
         session_created = False
         if session_id is None:
@@ -172,7 +173,7 @@ async def _generate_folder_name_opencode_async(
 
             try:
                 await asyncio.wait_for(event_complete.wait(), timeout=10.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass  # Fall through to fetch messages anyway
 
             event_task.cancel()
@@ -214,6 +215,51 @@ def _slugify(text: str) -> str:
     text = re.sub(r"\s+", "_", text)
     words = text.split("_")[:3]  # Take first 3 words
     return "_".join(words)[:50]
+
+
+def parse_engineer_prompt(input_text: str) -> dict:
+    """Parse engineer mode input for tags.
+
+    Returns:
+        dict: {
+            "run_id": str | None,
+            "fresh": bool,
+            "prompt": str,
+            "is_tag_command": bool
+        }
+    """
+    if not input_text:
+        return {
+            "run_id": None,
+            "fresh": False,
+            "prompt": "",
+            "is_tag_command": False,
+        }
+
+    # Regex for @id <run_id> [--fresh] <prompt>
+    # Group 1: run_id
+    # Group 2: fresh flag (optional)
+    # Group 3: prompt (optional)
+    pattern = r"@id\s+([a-zA-Z0-9-_]+)(?:\s+(--fresh))?(?:\s+(.*))?"
+    match = re.match(pattern, input_text.strip())
+
+    if match:
+        run_id = match.group(1)
+        fresh = bool(match.group(2))
+        remaining_prompt = match.group(3) or ""
+        return {
+            "run_id": run_id,
+            "fresh": fresh,
+            "prompt": remaining_prompt,
+            "is_tag_command": True,
+        }
+
+    return {
+        "run_id": None,
+        "fresh": False,
+        "prompt": input_text.strip(),
+        "is_tag_command": False,
+    }
 
 
 def generate_run_id() -> str:

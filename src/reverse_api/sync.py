@@ -1,13 +1,14 @@
 """Real-time file synchronization with watchdog."""
 
-import time
 import shutil
+import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Callable
-from threading import Thread, Event
+from threading import Event, Thread
+
+from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler, FileSystemEvent
 
 
 def get_available_directory(base_path: Path, base_name: str) -> Path:
@@ -20,9 +21,7 @@ def get_available_directory(base_path: Path, base_name: str) -> Path:
     target_dir = base_path / base_name
 
     # If directory doesn't exist or is empty, use it
-    if not target_dir.exists() or (
-        target_dir.is_dir() and not any(target_dir.iterdir())
-    ):
+    if not target_dir.exists() or (target_dir.is_dir() and not any(target_dir.iterdir())):
         return target_dir
 
     # Otherwise, create a new directory with timestamp
@@ -38,8 +37,8 @@ class SyncHandler(FileSystemEventHandler):
         self,
         source_dir: Path,
         dest_dir: Path,
-        on_sync: Optional[Callable[[str], None]] = None,
-        on_error: Optional[Callable[[str], None]] = None,
+        on_sync: Callable[[str], None] | None = None,
+        on_error: Callable[[str], None] | None = None,
         debounce_ms: int = 500,
     ):
         self.source_dir = source_dir
@@ -126,8 +125,8 @@ class FileSyncWatcher:
         self,
         source_dir: Path,
         dest_dir: Path,
-        on_sync: Optional[Callable[[str], None]] = None,
-        on_error: Optional[Callable[[str], None]] = None,
+        on_sync: Callable[[str], None] | None = None,
+        on_error: Callable[[str], None] | None = None,
         debounce_ms: int = 500,
     ):
         self.source_dir = source_dir
@@ -149,7 +148,7 @@ class FileSyncWatcher:
 
         # Thread control
         self.stop_event = Event()
-        self.process_thread: Optional[Thread] = None
+        self.process_thread: Thread | None = None
 
     def start(self):
         """Start watching and syncing."""
@@ -187,9 +186,7 @@ class FileSyncWatcher:
             }
 
         seconds_since_sync = (
-            time.time() - self.handler.last_sync_time
-            if self.handler.last_sync_time > 0
-            else 0
+            time.time() - self.handler.last_sync_time if self.handler.last_sync_time > 0 else 0
         )
 
         return {

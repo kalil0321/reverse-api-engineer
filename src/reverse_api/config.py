@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 DEFAULT_CONFIG = {
     "claude_code_model": "claude-sonnet-4-5",
@@ -29,37 +29,26 @@ class ConfigManager:
         """Load configuration from disk."""
         if self.config_path.exists():
             try:
-                with open(self.config_path, "r") as f:
+                with open(self.config_path) as f:
                     user_config = json.load(f)
 
                     # Backward compatibility: migrate old config keys
                     # Migrate "model" -> "claude_code_model"
-                    if (
-                        "model" in user_config
-                        and "claude_code_model" not in user_config
-                    ):
+                    if "model" in user_config and "claude_code_model" not in user_config:
                         user_config["claude_code_model"] = user_config["model"]
 
                     # Migrate "agent_model" -> "browser_use_model" and "stagehand_model"
                     if "agent_model" in user_config:
-                        agent_provider = user_config.get(
-                            "agent_provider", "browser-use"
-                        )
+                        agent_provider = user_config.get("agent_provider", "browser-use")
                         if agent_provider == "stagehand":
                             if "stagehand_model" not in user_config:
-                                user_config["stagehand_model"] = user_config[
-                                    "agent_model"
-                                ]
+                                user_config["stagehand_model"] = user_config["agent_model"]
                         else:
                             if "browser_use_model" not in user_config:
-                                user_config["browser_use_model"] = user_config[
-                                    "agent_model"
-                                ]
+                                user_config["browser_use_model"] = user_config["agent_model"]
 
                     # Only keep valid keys
-                    valid_config = {
-                        k: v for k, v in user_config.items() if k in self.config
-                    }
+                    valid_config = {k: v for k, v in user_config.items() if k in self.config}
                     self.config.update(valid_config)
             except (json.JSONDecodeError, OSError):
                 # Fallback to defaults if file is corrupted
@@ -80,7 +69,7 @@ class ConfigManager:
         self.config[key] = value
         self.save()
 
-    def update(self, settings: Dict[str, Any]):
+    def update(self, settings: dict[str, Any]):
         """Update multiple settings and save."""
         self.config.update(settings)
         self.save()

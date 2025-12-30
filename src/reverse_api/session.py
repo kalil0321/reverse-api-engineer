@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class SessionManager:
@@ -10,14 +10,14 @@ class SessionManager:
 
     def __init__(self, history_path: Path):
         self.history_path = history_path
-        self.history: List[Dict[str, Any]] = []
+        self.history: list[dict[str, Any]] = []
         self.load()
 
     def load(self):
         """Load history from disk."""
         if self.history_path.exists():
             try:
-                with open(self.history_path, "r") as f:
+                with open(self.history_path) as f:
                     self.history = json.load(f)
             except (json.JSONDecodeError, OSError):
                 # Fallback to empty history if file is corrupted
@@ -38,6 +38,7 @@ class SessionManager:
             "url": kwargs.get("url"),
             "model": kwargs.get("model"),
             "mode": kwargs.get("mode", "manual"),  # Track which mode was used
+            "sdk": kwargs.get("sdk"),
             "usage": kwargs.get("usage", {}),
             "paths": kwargs.get("paths", {}),
         }
@@ -60,13 +61,13 @@ class SessionManager:
                 break
         self.save()
 
-    def get_run(self, run_id: str) -> Optional[Dict[str, Any]]:
+    def get_run(self, run_id: str) -> dict[str, Any] | None:
         """Get data for a specific run."""
         for run in self.history:
             if run["run_id"] == run_id:
                 return run
         return None
 
-    def get_history(self, limit: int = 10) -> List[Dict[str, Any]]:
+    def get_history(self, limit: int = 10) -> list[dict[str, Any]]:
         """Get recent history."""
         return self.history[:limit]

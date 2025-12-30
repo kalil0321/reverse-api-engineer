@@ -1,6 +1,6 @@
 """Reverse API - Browser traffic capture for API reverse engineering."""
 
-from importlib.metadata import version, PackageNotFoundError
+from importlib.metadata import PackageNotFoundError, version
 
 try:
     __version__ = version("reverse-api-engineer")

@@ -1,43 +1,41 @@
+import re
 from pathlib import Path
 
 import click
-import re
 import questionary
+from prompt_toolkit import PromptSession
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.styles import Style as PtStyle
 from questionary import Choice
 from rich.console import Console
 
+from . import __version__
 from .browser import ManualBrowser, run_agent_browser
+from .config import ConfigManager
+from .engineer import run_reverse_engineering
+from .messages import MessageStore
+from .session import SessionManager
+from .tui import (
+    MODE_COLORS,
+    THEME_DIM,
+    THEME_PRIMARY,
+    THEME_SECONDARY,
+    display_banner,
+    display_footer,
+    get_model_choices,
+)
 from .utils import (
-    generate_run_id,
     generate_folder_name,
+    generate_run_id,
     get_config_path,
-    get_history_path,
     get_har_dir,
+    get_history_path,
     get_timestamp,
     parse_engineer_prompt,
 )
-from .tui import (
-    get_model_choices,
-    display_banner,
-    display_footer,
-    THEME_PRIMARY,
-    THEME_SECONDARY,
-    THEME_DIM,
-    MODE_COLORS,
-)
-from .config import ConfigManager
-from .session import SessionManager
-from .engineer import run_reverse_engineering
-from .messages import MessageStore
-from . import __version__
-
-from prompt_toolkit import PromptSession
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.styles import Style as PtStyle
-from prompt_toolkit.formatted_text import HTML
-from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-
 
 console = Console()
 config_manager = ConfigManager(get_config_path())
@@ -147,7 +145,7 @@ def prompt_interactive_options(
                     timestamp = run.get("timestamp", "")[:16]  # YYYY-MM-DD HH:MM
                     prompt = run.get("prompt", "")[:30]
                     return f"[{timestamp}] {prompt}"
-            except:
+            except Exception:
                 pass
             return ""
 
@@ -238,8 +236,7 @@ def prompt_interactive_options(
         return {
             "mode": result_mode,
             "run_id": prompt,
-            "model": model
-            or config_manager.get("claude_code_model", "claude-sonnet-4-5"),
+            "model": model or config_manager.get("claude_code_model", "claude-sonnet-4-5"),
         }
 
     # Agent mode: similar to manual but uses autonomous browser
@@ -409,9 +406,7 @@ def repl_loop():
                     else:
                         # Input is neither a tag command nor a valid run ID
                         console.print(f" [red]error:[/red] run '{user_text}' not found")
-                        console.print(
-                            " [dim]Use @id <run_id> or type a valid run ID[/dim]"
-                        )
+                        console.print(" [dim]Use @id <run_id> or type a valid run ID[/dim]")
                         continue
 
                 run_engineer(
@@ -464,9 +459,7 @@ def repl_loop():
                     else:
                         # Input is neither a tag command nor a valid run ID
                         console.print(f" [red]error:[/red] run '{user_text}' not found")
-                        console.print(
-                            " [dim]Use @id <run_id> or type a valid run ID[/dim]"
-                        )
+                        console.print(" [dim]Use @id <run_id> or type a valid run ID[/dim]")
                         continue
 
                 run_engineer(
@@ -569,9 +562,7 @@ def handle_settings(mode_color=THEME_PRIMARY):
         config_table.add_row(key_display, display_val)
 
     # Display in a clean format
-    console.print(
-        f" [bold white]Settings[/bold white] [dim]Current Configuration[/dim]"
-    )
+    console.print(" [bold white]Settings[/bold white] [dim]Current Configuration[/dim]")
     console.print(config_table)
     console.print()
 
@@ -609,8 +600,7 @@ def handle_settings(mode_color=THEME_PRIMARY):
 
     if action == "claude_code_model":
         model_choices = [
-            Choice(title=c["name"].lower(), value=c["value"])
-            for c in get_model_choices()
+            Choice(title=c["name"].lower(), value=c["value"]) for c in get_model_choices()
         ]
         model_choices.append(Choice(title="back", value="back"))
         model = questionary.select(
@@ -690,14 +680,10 @@ def handle_settings(mode_color=THEME_PRIMARY):
         if new_provider is not None:
             new_provider = new_provider.strip()
             if not new_provider:
-                console.print(
-                    " [yellow]error:[/yellow] opencode provider cannot be empty\n"
-                )
+                console.print(" [yellow]error:[/yellow] opencode provider cannot be empty\n")
             else:
                 config_manager.set("opencode_provider", new_provider)
-                console.print(
-                    f" [dim]updated[/dim] opencode provider: {new_provider}\n"
-                )
+                console.print(f" [dim]updated[/dim] opencode provider: {new_provider}\n")
 
     elif action == "opencode_model":
         current = config_manager.get("opencode_model", "claude-sonnet-4-5")
@@ -716,9 +702,7 @@ def handle_settings(mode_color=THEME_PRIMARY):
         if new_model is not None:
             new_model = new_model.strip()
             if not new_model:
-                console.print(
-                    " [yellow]error:[/yellow] opencode model cannot be empty\n"
-                )
+                console.print(" [yellow]error:[/yellow] opencode model cannot be empty\n")
             else:
                 config_manager.set("opencode_model", new_model)
                 console.print(f" [dim]updated[/dim] opencode model: {new_model}\n")
@@ -744,17 +728,13 @@ def handle_settings(mode_color=THEME_PRIMARY):
         if new_model is not None:
             new_model = new_model.strip()
             if not new_model:
-                console.print(
-                    " [yellow]error:[/yellow] browser-use model cannot be empty\n"
-                )
+                console.print(" [yellow]error:[/yellow] browser-use model cannot be empty\n")
             else:
                 # Validate format for browser-use
                 try:
                     parse_agent_model(new_model, "browser-use")
                     config_manager.set("browser_use_model", new_model)
-                    console.print(
-                        f" [dim]updated[/dim] browser-use model: {new_model}\n"
-                    )
+                    console.print(f" [dim]updated[/dim] browser-use model: {new_model}\n")
                 except ValueError as e:
                     console.print(f" [yellow]error:[/yellow] {e}\n")
                     console.print(
@@ -767,9 +747,7 @@ def handle_settings(mode_color=THEME_PRIMARY):
     elif action == "stagehand_model":
         from .browser import parse_agent_model
 
-        current = config_manager.get(
-            "stagehand_model", "openai/computer-use-preview-2025-03-11"
-        )
+        current = config_manager.get("stagehand_model", "openai/computer-use-preview-2025-03-11")
         instruction = "(Format: 'openai/model' or 'anthropic/model', e.g., 'openai/computer-use-preview-2025-03-11' or 'anthropic/claude-sonnet-4-5-20250929')"
 
         new_model = questionary.text(
@@ -787,9 +765,7 @@ def handle_settings(mode_color=THEME_PRIMARY):
         if new_model is not None:
             new_model = new_model.strip()
             if not new_model:
-                console.print(
-                    " [yellow]error:[/yellow] stagehand model cannot be empty\n"
-                )
+                console.print(" [yellow]error:[/yellow] stagehand model cannot be empty\n")
             else:
                 # Validate format for stagehand
                 try:
@@ -904,19 +880,15 @@ def handle_history(mode_color=THEME_PRIMARY):
             input_tokens = usage.get("input_tokens", 0)
             output_tokens = usage.get("output_tokens", 0)
             if input_tokens or output_tokens:
-                details_table.add_row(
-                    "Tokens", f"{input_tokens:,} in / {output_tokens:,} out"
-                )
+                details_table.add_row("Tokens", f"{input_tokens:,} in / {output_tokens:,} out")
 
         console.print()
-        console.print(f" [bold white]Run Details[/bold white]")
+        console.print(" [bold white]Run Details[/bold white]")
         console.print(details_table)
         console.print()
 
         if questionary.confirm(" > recode?", qmark="").ask():
-            model = run.get("model") or config_manager.get(
-                "claude_code_model", "claude-sonnet-4-5"
-            )
+            model = run.get("model") or config_manager.get("claude_code_model", "claude-sonnet-4-5")
             run_engineer(run_id, model=model)
     else:
         console.print(" [dim]> not found[/dim]")
@@ -925,7 +897,6 @@ def handle_history(mode_color=THEME_PRIMARY):
 def handle_help(mode_color=THEME_PRIMARY):
     """Show enhanced help with command details and examples."""
     from rich.table import Table
-    from rich.text import Text
 
     console.print()
 
@@ -955,11 +926,9 @@ def handle_help(mode_color=THEME_PRIMARY):
     commands_table.add_row("/help", "Show this help message\n[dim]Usage: /help[/dim]")
     commands_table.add_row("", "")
 
-    commands_table.add_row(
-        "/exit or /quit", "Exit the application\n[dim]Usage: /exit[/dim]"
-    )
+    commands_table.add_row("/exit or /quit", "Exit the application\n[dim]Usage: /exit[/dim]")
 
-    console.print(f" [bold white]Available Commands[/bold white]")
+    console.print(" [bold white]Available Commands[/bold white]")
     console.print(commands_table)
 
     # Modes table
@@ -972,7 +941,7 @@ def handle_help(mode_color=THEME_PRIMARY):
     modes_table.add_row("engineer", "Reverse engineer only (enter run_id)")
     modes_table.add_row("agent", "Autonomous agent + capture")
 
-    console.print(f" [bold white]Modes[/bold white] [dim]Shift+Tab to cycle[/dim]")
+    console.print(" [bold white]Modes[/bold white] [dim]Shift+Tab to cycle[/dim]")
     console.print(modes_table)
     console.print()
 
@@ -995,7 +964,7 @@ def handle_messages(run_id: str, mode_color=THEME_PRIMARY):
     header_table.add_row(f"Total Messages: {len(messages)}")
 
     console.print()
-    console.print(f" [bold white]Message Log[/bold white]")
+    console.print(" [bold white]Message Log[/bold white]")
     console.print(header_table)
     console.print()
 
@@ -1057,9 +1026,7 @@ def manual(prompt, url, reverse_engineer, model, output_dir):
     run_manual_capture(prompt, url, reverse_engineer, model, output_dir)
 
 
-def run_manual_capture(
-    prompt=None, url=None, reverse_engineer=True, model=None, output_dir=None
-):
+def run_manual_capture(prompt=None, url=None, reverse_engineer=True, model=None, output_dir=None):
     """Shared logic for manual capture."""
     output_dir = output_dir or config_manager.get("output_dir")
 
@@ -1079,6 +1046,7 @@ def run_manual_capture(
 
     run_id = generate_run_id()
     timestamp = get_timestamp()
+    sdk = config_manager.get("sdk", "claude")
 
     # Record initial session
     session_manager.add_run(
@@ -1088,6 +1056,7 @@ def run_manual_capture(
         url=url,
         model=model,
         mode="manual",  # Track mode in history
+        sdk=sdk,
         paths={"har_dir": str(get_har_dir(run_id, output_dir))},
     )
 
@@ -1103,16 +1072,16 @@ def run_manual_capture(
             output_dir=output_dir,
         )
         if result:
+            sdk = config_manager.get("sdk", "claude")
             session_manager.update_run(
                 run_id=run_id,
+                sdk=sdk,
                 usage=result.get("usage", {}),
                 paths={"script_path": result.get("script_path")},
             )
 
 
-def run_agent_capture(
-    prompt=None, url=None, reverse_engineer=False, model=None, output_dir=None
-):
+def run_agent_capture(prompt=None, url=None, reverse_engineer=False, model=None, output_dir=None):
     """Shared logic for agent capture mode."""
     output_dir = output_dir or config_manager.get("output_dir")
 
@@ -1132,6 +1101,7 @@ def run_agent_capture(
 
     run_id = generate_run_id()
     timestamp = get_timestamp()
+    sdk = config_manager.get("sdk", "claude")
 
     # Get agent models and provider from config
     browser_use_model = config_manager.get("browser_use_model", "bu-llm")
@@ -1148,6 +1118,7 @@ def run_agent_capture(
         url=url,
         model=model,
         mode="agent",  # Track mode in history
+        sdk=sdk,
         paths={"har_dir": str(get_har_dir(run_id, output_dir))},
     )
 
@@ -1212,8 +1183,10 @@ def run_agent_capture(
                 output_dir=output_dir,
             )
             if result:
+                sdk = config_manager.get("sdk", "claude")
                 session_manager.update_run(
                     run_id=run_id,
+                    sdk=sdk,
                     usage=result.get("usage", {}),
                     paths={"script_path": result.get("script_path")},
                 )
@@ -1320,9 +1293,7 @@ def run_engineer(
 
             console.print(" [dim]>[/dim] [white]decoding complete[/white]")
             console.print(f" [dim]>[/dim] [white]{result['script_path']}[/white]")
-            console.print(
-                f" [dim]>[/dim] [white]copied to ./scripts/{local_dir.name}[/white]\n"
-            )
+            console.print(f" [dim]>[/dim] [white]copied to ./scripts/{local_dir.name}[/white]\n")
         else:
             # With sync enabled, just show completion
             console.print(" [dim]>[/dim] [white]decoding complete[/white]")
@@ -1330,6 +1301,7 @@ def run_engineer(
 
         session_manager.update_run(
             run_id=run_id,
+            sdk=sdk,
             usage=result.get("usage", {}),
             paths={"script_path": result.get("script_path")},
         )

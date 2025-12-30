@@ -1,25 +1,23 @@
 """Browser management with Playwright for HAR recording."""
 
+import asyncio
 import io
+import json
 import logging
 import os
-
-import asyncio
-import json
 import random
 import signal
 import sys
 from contextlib import redirect_stderr
 from pathlib import Path
-from typing import Optional
 
-from playwright.sync_api import sync_playwright, Browser, BrowserContext, Page
+from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
 from playwright_stealth import Stealth
 from rich.console import Console
 from rich.status import Status
 
-from .utils import get_har_dir, get_timestamp
 from . import __version__
+from .utils import get_har_dir, get_timestamp
 
 console = Console()
 
@@ -212,9 +210,9 @@ class ManualBrowser:
         self.har_path = self.har_dir / "recording.har"
         self.metadata_path = self.har_dir / "metadata.json"
         self._playwright = None
-        self._browser: Optional[Browser] = None
-        self._context: Optional[BrowserContext] = None
-        self._start_time: Optional[str] = None
+        self._browser: Browser | None = None
+        self._context: BrowserContext | None = None
+        self._start_time: str | None = None
         self._user_agent = random.choice(USER_AGENTS)
         self._using_persistent = False  # Track if using persistent context
 
@@ -232,7 +230,7 @@ class ManualBrowser:
 
     def _handle_signal(self, signum, frame) -> None:
         """Handle interrupt signals gracefully."""
-        console.print(f"\n\n [dim]terminating capture...[/dim]")
+        console.print("\n\n [dim]terminating capture...[/dim]")
         self.close()
         sys.exit(0)
 
@@ -240,7 +238,7 @@ class ManualBrowser:
         """Inject stealth scripts into page before any other scripts run."""
         page.add_init_script(STEALTH_JS)
 
-    def _start_with_real_chrome(self, start_url: Optional[str] = None) -> Path:
+    def _start_with_real_chrome(self, start_url: str | None = None) -> Path:
         """Start using the real Chrome browser with user's profile."""
         import shutil
         import tempfile
@@ -248,16 +246,16 @@ class ManualBrowser:
         chrome_profile = get_chrome_profile_dir()
         if not chrome_profile:
             console.print(
-                f" [yellow]chrome profile not found, falling back to stealth mode[/yellow]"
+                " [yellow]chrome profile not found, falling back to stealth mode[/yellow]"
             )
             return self._start_with_stealth_chromium(start_url)
 
         # Create a temporary profile directory
         temp_profile_dir = Path(tempfile.mkdtemp(prefix="chrome_profile_"))
 
-        console.print(f" [dim]using real chrome (profile copy)[/dim]")
-        console.print(f" [yellow]⚠️  please browse in the FIRST tab only[/yellow]")
-        console.print(f" [yellow]    (new tabs may not be recorded)[/yellow]")
+        console.print(" [dim]using real chrome (profile copy)[/dim]")
+        console.print(" [yellow]⚠️  please browse in the FIRST tab only[/yellow]")
+        console.print(" [yellow]    (new tabs may not be recorded)[/yellow]")
         console.print()
 
         try:
@@ -307,7 +305,7 @@ class ManualBrowser:
             except Exception:
                 pass
 
-    def _start_with_stealth_chromium(self, start_url: Optional[str] = None) -> Path:
+    def _start_with_stealth_chromium(self, start_url: str | None = None) -> Path:
         """Start using Playwright's Chromium with stealth patches."""
         # Comprehensive stealth Chrome arguments
         chrome_args = [
@@ -393,7 +391,7 @@ class ManualBrowser:
 
         return self.close()
 
-    def start(self, start_url: Optional[str] = None) -> Path:
+    def start(self, start_url: str | None = None) -> Path:
         """Start the browser with HAR recording enabled. Returns HAR path when done."""
         self._start_time = get_timestamp()
 
@@ -401,12 +399,12 @@ class ManualBrowser:
         signal.signal(signal.SIGINT, self._handle_signal)
         signal.signal(signal.SIGTERM, self._handle_signal)
 
-        console.print(f" [dim]capture starting...[/dim]")
+        console.print(" [dim]capture starting...[/dim]")
         console.print(f" [dim]━[/dim] [white]{self.run_id}[/white]")
         console.print(f" [dim]goal[/dim]  [white]{self.prompt}[/white]")
         console.print()
-        console.print(f" [dim]navigate and interact to record traffic[/dim]")
-        console.print(f" [dim]close browser or ctrl+c to finalize[/dim]")
+        console.print(" [dim]navigate and interact to record traffic[/dim]")
+        console.print(" [dim]close browser or ctrl+c to finalize[/dim]")
         console.print()
 
         self._playwright = sync_playwright().start()
@@ -421,7 +419,7 @@ class ManualBrowser:
         """Close the browser and save HAR file. Returns HAR path."""
         end_time = get_timestamp()
 
-        console.print(f" [dim]browser closed[/dim]")
+        console.print(" [dim]browser closed[/dim]")
 
         if self._context:
             with Status(
@@ -442,14 +440,12 @@ class ManualBrowser:
                         har_size = self.har_path.stat().st_size
                         status.update(f" [dim]har saved: {har_size:,} bytes[/dim]")
                     else:
-                        console.print(
-                            " [yellow]warning: har file was not created[/yellow]"
-                        )
+                        console.print(" [yellow]warning: har file was not created[/yellow]")
 
                 except Exception as e:
                     console.print(f" [yellow]warning: error saving har: {e}[/yellow]")
                     if self.har_path.exists():
-                        console.print(f" [dim]har file exists despite error[/dim]")
+                        console.print(" [dim]har file exists despite error[/dim]")
                 self._context = None
 
         # Only close browser if not using persistent context
@@ -470,8 +466,8 @@ class ManualBrowser:
         # Save metadata
         self._save_metadata(end_time)
 
-        console.print(f" [dim]capture saved[/dim]")
-        console.print(f" [dim]metadata synced[/dim]")
+        console.print(" [dim]capture saved[/dim]")
+        console.print(" [dim]metadata synced[/dim]")
 
         return self.har_path
 
@@ -539,9 +535,7 @@ def parse_agent_model(
     )
 
 
-def get_required_api_key(
-    provider: str, agent_provider: str = "browser-use"
-) -> tuple[str, str]:
+def get_required_api_key(provider: str, agent_provider: str = "browser-use") -> tuple[str, str]:
     """Get the required API key environment variable name for a provider.
 
     Args:
@@ -569,16 +563,12 @@ def get_required_api_key(
 
     if provider not in provider_map:
         supported = ", ".join(provider_map.keys())
-        raise ValueError(
-            f"Unsupported provider: {provider}. Supported providers: {supported}"
-        )
+        raise ValueError(f"Unsupported provider: {provider}. Supported providers: {supported}")
 
     return provider_map[provider]
 
 
-def validate_api_key(
-    provider: str, agent_provider: str = "browser-use"
-) -> tuple[bool, str | None]:
+def validate_api_key(provider: str, agent_provider: str = "browser-use") -> tuple[bool, str | None]:
     """Validate that the required API key exists for the provider.
 
     Args:
@@ -620,7 +610,7 @@ class AgentBrowser:
         browser_use_model: str = "bu-llm",
         stagehand_model: str = "openai/computer-use-preview-2025-03-11",
         agent_provider: str = "browser-use",
-        start_url: Optional[str] = None,
+        start_url: str | None = None,
     ):
         """Initialize agent browser."""
         self.run_id = run_id
@@ -637,16 +627,14 @@ class AgentBrowser:
         self.har_path = self.har_dir / "recording.har"
         self.metadata_path = self.har_dir / "metadata.json"
 
-        self._start_time: Optional[str] = None
+        self._start_time: str | None = None
         self._cdp_port = 9222
 
     def _save_metadata(self, end_time: str, result: dict | None = None) -> None:
         """Save run metadata to JSON file."""
         # Select the appropriate model based on agent_provider
         agent_model = (
-            self.stagehand_model
-            if self.agent_provider == "stagehand"
-            else self.browser_use_model
+            self.stagehand_model if self.agent_provider == "stagehand" else self.browser_use_model
         )
 
         metadata = {
@@ -679,12 +667,11 @@ class AgentBrowser:
         import os
 
         # Set before importing to ensure it takes effect
-        os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'WARNING'
+        os.environ["BROWSER_USE_LOGGING_LEVEL"] = "WARNING"
 
         # Import browser-use after setting environment variable
         try:
-            from browser_use import Agent, Browser
-            from browser_use import ChatBrowserUse
+            from browser_use import Agent, Browser, ChatBrowserUse
 
             # Suppress all browser-use loggers after import
             def suppress_browser_use_logs():
@@ -763,7 +750,7 @@ class AgentBrowser:
 
             suppress_browser_use_logs()
 
-            console.print(f" [dim]starting browser with har...[/dim]")
+            console.print(" [dim]starting browser with har...[/dim]")
             browser = Browser(
                 record_har_path=str(self.har_path),
                 record_har_mode="full",
@@ -776,7 +763,7 @@ class AgentBrowser:
 
             suppress_browser_use_logs()
 
-            console.print(f" [dim]browser started[/dim]")
+            console.print(" [dim]browser started[/dim]")
 
             task = self.prompt
 
@@ -790,7 +777,9 @@ class AgentBrowser:
             final_message = None
             if agent_result and hasattr(agent_result, "final_result"):
                 final_result_attr = agent_result.final_result
-                final_message = final_result_attr() if callable(final_result_attr) else final_result_attr
+                final_message = (
+                    final_result_attr() if callable(final_result_attr) else final_result_attr
+                )
 
             result["success"] = True
             result["message"] = final_message or "Task completed"
@@ -807,7 +796,7 @@ class AgentBrowser:
                         har_size = self.har_path.stat().st_size
                         console.print(f" [dim]har saved: {har_size} bytes[/dim]")
                     else:
-                        console.print(f" [dim]har not saved by browser-use[/dim]")
+                        console.print(" [dim]har not saved by browser-use[/dim]")
                 except Exception as e:
                     console.print(f" [dim]browser stop error: {e}[/dim]")
 
@@ -831,9 +820,7 @@ class AgentBrowser:
 
         try:
             try:
-                provider, model_name = parse_agent_model(
-                    self.stagehand_model, self.agent_provider
-                )
+                provider, model_name = parse_agent_model(self.stagehand_model, self.agent_provider)
             except ValueError as e:
                 result["error"] = str(e)
                 console.print(f" [red]error:[/red] {e}")
@@ -845,7 +832,7 @@ class AgentBrowser:
                 console.print(f" [red]error:[/red] {error_msg}")
                 return result
 
-            console.print(f" [dim]starting stagehand with har...[/dim]")
+            console.print(" [dim]starting stagehand with har...[/dim]")
 
             env_var_name, _ = get_required_api_key(provider, self.agent_provider)
             api_key = os.getenv(env_var_name)
@@ -884,9 +871,7 @@ class AgentBrowser:
                         not_found="abort",  # Abort requests not in HAR (but we have empty HAR)
                     )
                 except Exception as e:
-                    console.print(
-                        f" [dim]warning: could not set up HAR recording: {e}[/dim]"
-                    )
+                    console.print(f" [dim]warning: could not set up HAR recording: {e}[/dim]")
 
             agent_options = {
                 "api_key": api_key,
@@ -907,7 +892,7 @@ class AgentBrowser:
                         options=agent_options,
                     )
 
-            console.print(f" [dim]stagehand started[/dim]")
+            console.print(" [dim]stagehand started[/dim]")
 
             # Navigate to start URL first if provided (best practice per Stagehand docs)
             if self.start_url:
@@ -953,9 +938,7 @@ class AgentBrowser:
                         final_message = agent_result.text
                     else:
                         # Fallback: try to get message if it exists as attribute
-                        final_message = getattr(
-                            agent_result, "message", "Task completed"
-                        )
+                        final_message = getattr(agent_result, "message", "Task completed")
                 elif isinstance(agent_result, str):
                     # String result (simple form)
                     final_message = agent_result
@@ -999,9 +982,9 @@ class AgentBrowser:
                 if har_size > 100:  # HAR file should have some content
                     console.print(f" [dim]har saved: {har_size} bytes[/dim]")
                 else:
-                    console.print(f" [dim]har file exists but appears empty[/dim]")
+                    console.print(" [dim]har file exists but appears empty[/dim]")
             else:
-                console.print(f" [dim]har not saved[/dim]")
+                console.print(" [dim]har not saved[/dim]")
 
         return result
 
@@ -1009,7 +992,7 @@ class AgentBrowser:
         """Start agent execution with HAR recording. Returns HAR path when done."""
         self._start_time = get_timestamp()
 
-        console.print(f" [dim]agent mode starting...[/dim]")
+        console.print(" [dim]agent mode starting...[/dim]")
         console.print(f" [dim]━[/dim] [white]{self.run_id}[/white]")
         console.print(f" [dim]task[/dim]  [white]{self.prompt}[/white]")
         console.print()
@@ -1020,7 +1003,7 @@ class AgentBrowser:
             result = asyncio.run(self._run_with_har_capture())
 
             if result.get("success"):
-                console.print(f" [green]agent task completed[/green]")
+                console.print(" [green]agent task completed[/green]")
                 msg = result.get("message", "").strip()
                 if msg:
                     if len(msg) > 500:
@@ -1035,7 +1018,7 @@ class AgentBrowser:
             result = {"error": str(e)}
 
         self._save_metadata(get_timestamp(), result)
-        console.print(f" [dim]metadata synced[/dim]")
+        console.print(" [dim]metadata synced[/dim]")
 
         return self.har_path
 
@@ -1048,7 +1031,7 @@ def run_agent_browser(
     browser_use_model: str = "bu-llm",
     stagehand_model: str = "openai/computer-use-preview-2025-03-11",
     agent_provider: str = "browser-use",
-    start_url: Optional[str] = None,
+    start_url: str | None = None,
 ) -> Path:
     """Run agent browser with HAR recording."""
     agent_browser = AgentBrowser(

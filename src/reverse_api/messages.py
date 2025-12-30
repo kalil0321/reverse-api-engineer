@@ -2,8 +2,7 @@
 
 import json
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .utils import get_messages_path
 
@@ -11,7 +10,7 @@ from .utils import get_messages_path
 class MessageStore:
     """Handles saving and loading messages for engineer runs."""
 
-    def __init__(self, run_id: str, output_dir: Optional[str] = None):
+    def __init__(self, run_id: str, output_dir: str | None = None):
         self.run_id = run_id
         self.messages_path = get_messages_path(run_id, output_dir)
         self.messages_path.parent.mkdir(parents=True, exist_ok=True)
@@ -40,7 +39,7 @@ class MessageStore:
         self.append("tool_start", {"name": tool_name, "input": tool_input})
 
     def save_tool_result(
-        self, tool_name: str, is_error: bool = False, output: Optional[str] = None
+        self, tool_name: str, is_error: bool = False, output: str | None = None
     ) -> None:
         """Save a tool result event."""
         self.append(
@@ -56,16 +55,16 @@ class MessageStore:
         """Save an error event."""
         self.append("error", error)
 
-    def save_result(self, result: Dict[str, Any]) -> None:
+    def save_result(self, result: dict[str, Any]) -> None:
         """Save the final result."""
         self.append("result", result)
 
-    def load(self) -> List[Dict[str, Any]]:
+    def load(self) -> list[dict[str, Any]]:
         """Load all messages from the JSONL file."""
         if not self.messages_path.exists():
             return []
         messages = []
-        with open(self.messages_path, "r") as f:
+        with open(self.messages_path) as f:
             for line in f:
                 line = line.strip()
                 if line:
@@ -76,7 +75,7 @@ class MessageStore:
         return messages
 
     @classmethod
-    def exists(cls, run_id: str, output_dir: Optional[str] = None) -> bool:
+    def exists(cls, run_id: str, output_dir: str | None = None) -> bool:
         """Check if messages exist for a run."""
         from .utils import get_messages_path
 

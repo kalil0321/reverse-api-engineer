@@ -1,6 +1,7 @@
 """OpenCode-specific Terminal UI with live streaming updates."""
 
-from typing import Optional, Dict, Any
+from typing import Any
+
 from rich.console import Console
 from rich.live import Live
 from rich.text import Text
@@ -15,12 +16,12 @@ THEME_SUCCESS = "#ff5f50"
 class OpenCodeUI:
     """Terminal UI for OpenCode with live streaming support."""
 
-    def __init__(self, console: Optional[Console] = None, verbose: bool = True):
+    def __init__(self, console: Console | None = None, verbose: bool = True):
         self.console = console or Console()
         self.verbose = verbose
-        self._live: Optional[Live] = None
+        self._live: Live | None = None
         self._current_text = ""
-        self._current_tool: Optional[str] = None
+        self._current_tool: str | None = None
         self._tool_status: str = ""
         self._session_status: str = "idle"
         self._tools_used: list[str] = []
@@ -29,8 +30,8 @@ class OpenCodeUI:
         self,
         run_id: str,
         prompt: str,
-        model: Optional[str] = None,
-        sdk: Optional[str] = None,
+        model: str | None = None,
+        sdk: str | None = None,
     ) -> None:
         """Display the session header."""
         from . import __version__
@@ -44,17 +45,15 @@ class OpenCodeUI:
             )
         else:
             self.console.print(f" [dim]model[/dim] [white]{model or '---'}[/white]")
-        self.console.print(
-            f" [{THEME_PRIMARY}]task[/{THEME_PRIMARY}]   [white]{prompt}[/white]"
-        )
+        self.console.print(f" [{THEME_PRIMARY}]task[/{THEME_PRIMARY}]   [white]{prompt}[/white]")
         self.console.print()
 
     def start_analysis(self) -> None:
         """Display analysis start message."""
-        self.console.print(f" [dim]decoding starting...[/dim]")
+        self.console.print(" [dim]decoding starting...[/dim]")
         self.console.print()
 
-    def health_check(self, health: Dict[str, Any]) -> None:
+    def health_check(self, health: dict[str, Any]) -> None:
         """Display server health status."""
         version = health.get("version", "unknown")
         self.console.print(f"  [dim]server: OpenCode v{version}[/dim]")
@@ -89,13 +88,13 @@ class OpenCodeUI:
 
         # Show current tool if running
         if self._current_tool and self._tool_status == "running":
-            display.append(f"  ⟳ ", style=THEME_PRIMARY)
+            display.append("  ⟳ ", style=THEME_PRIMARY)
             display.append(f"{self._current_tool}", style="white")
             display.append(" running...\n", style=THEME_DIM)
 
         return display
 
-    def update_text(self, text: str, delta: Optional[str] = None) -> None:
+    def update_text(self, text: str, delta: str | None = None) -> None:
         """Update the streaming text display."""
         if delta:
             self._current_text += delta
@@ -105,7 +104,7 @@ class OpenCodeUI:
         if self._live:
             self._live.update(self._build_display())
 
-    def tool_start(self, tool_name: str, tool_input: Optional[Dict] = None) -> None:
+    def tool_start(self, tool_name: str, tool_input: dict | None = None) -> None:
         """Display when a tool starts execution."""
         self._current_tool = tool_name
         self._tool_status = "running"
@@ -119,7 +118,7 @@ class OpenCodeUI:
             self._live.update(self._build_display())
 
     def tool_result(
-        self, tool_name: str, is_error: bool = False, output: Optional[str] = None
+        self, tool_name: str, is_error: bool = False, output: str | None = None
     ) -> None:
         """Display when a tool completes."""
         self._current_tool = None
@@ -129,15 +128,13 @@ class OpenCodeUI:
             self._live.update(self._build_display())
 
         if is_error:
-            self.console.print(
-                f"  [red]![/red] {tool_name.lower()} failed", style=THEME_DIM
-            )
+            self.console.print(f"  [red]![/red] {tool_name.lower()} failed", style=THEME_DIM)
             if output:
                 # Show first 100 chars of error
                 error_preview = str(output)[:100].replace("\n", " ")
                 self.console.print(f"    {error_preview}", style=THEME_DIM)
 
-    def step_finish(self, cost: float, tokens: Dict[str, Any]) -> None:
+    def step_finish(self, cost: float, tokens: dict[str, Any]) -> None:
         """Display step completion with usage stats."""
         input_tokens = tokens.get("input", 0)
         output_tokens = tokens.get("output", 0)
@@ -165,7 +162,7 @@ class OpenCodeUI:
         elif token_parts:
             self.console.print(f"  [dim]step: {token_summary}[/dim]")
 
-    def session_summary(self, usage_metadata: Dict[str, Any]) -> None:
+    def session_summary(self, usage_metadata: dict[str, Any]) -> None:
         """Display session usage summary."""
         input_tokens = usage_metadata.get("input_tokens", 0)
         output_tokens = usage_metadata.get("output_tokens", 0)
@@ -183,13 +180,9 @@ class OpenCodeUI:
             if output_tokens > 0:
                 self.console.print(f"  [dim]  output: {output_tokens:,} tokens[/dim]")
             if reasoning_tokens > 0:
-                self.console.print(
-                    f"  [dim]  reasoning: {reasoning_tokens:,} tokens[/dim]"
-                )
+                self.console.print(f"  [dim]  reasoning: {reasoning_tokens:,} tokens[/dim]")
             if cache_write > 0:
-                self.console.print(
-                    f"  [dim]  cache write: {cache_write:,} tokens[/dim]"
-                )
+                self.console.print(f"  [dim]  cache write: {cache_write:,} tokens[/dim]")
             if cache_read > 0:
                 self.console.print(f"  [dim]  cache read: {cache_read:,} tokens[/dim]")
 
@@ -215,7 +208,7 @@ class OpenCodeUI:
     def success(self, script_path: str, local_path: str = None) -> None:
         """Display success message."""
         self.console.print()
-        self.console.print(f" [dim]decoding complete[/dim]")
+        self.console.print(" [dim]decoding complete[/dim]")
         self.console.print(f" [dim]internal:[/dim] [white]{script_path}[/white]")
         if local_path:
             self.console.print(f" [dim]synced:[/dim]   [white]{local_path}[/white]")
@@ -228,9 +221,7 @@ class OpenCodeUI:
 
     def permission_requested(self, perm_type: str, title: str) -> None:
         """Display when a permission is requested."""
-        self.console.print(
-            f"  [yellow]?[/yellow] [dim]permission:[/dim] {title}", style=THEME_DIM
-        )
+        self.console.print(f"  [yellow]?[/yellow] [dim]permission:[/dim] {title}", style=THEME_DIM)
 
     def permission_approved(self, perm_type: str) -> None:
         """Display when a permission is auto-approved."""
@@ -259,15 +250,11 @@ class OpenCodeUI:
         # Show current task if there is one in progress
         if in_progress_todos:
             current_task = in_progress_todos[0]
-            task_content = current_task.get("activeForm") or current_task.get(
-                "content", ""
-            )
+            task_content = current_task.get("activeForm") or current_task.get("content", "")
             # Truncate if too long
             if len(task_content) > 50:
                 task_content = task_content[:47] + "..."
-            self.console.print(
-                f"  [dim]tasks:[/dim] {status_str} [dim]→ {task_content}[/dim]"
-            )
+            self.console.print(f"  [dim]tasks:[/dim] {status_str} [dim]→ {task_content}[/dim]")
         else:
             self.console.print(f"  [dim]tasks:[/dim] {status_str}")
 
@@ -306,14 +293,12 @@ class OpenCodeUI:
 
     def session_compacted(self) -> None:
         """Display context compaction notification."""
-        self.console.print(f"  [dim]context compacted[/dim]")
+        self.console.print("  [dim]context compacted[/dim]")
 
     def session_retry(self, attempt: int, message: str) -> None:
         """Display retry status."""
         reason = message if message else "retrying..."
-        self.console.print(
-            f"  [yellow]⟳[/yellow] [dim]attempt {attempt}:[/dim] {reason}"
-        )
+        self.console.print(f"  [yellow]⟳[/yellow] [dim]attempt {attempt}:[/dim] {reason}")
 
     def _summarize_input(self, tool_name: str, tool_input: dict) -> str:
         """Create a brief summary of tool input."""
