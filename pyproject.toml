@@ -69,7 +69,7 @@ dev = [
 ]
 
 [tool.ruff]
-line-length = 100
+line-length = 150
 target-version = "py311"
 
 [tool.ruff.lint]
@@ -83,6 +83,9 @@ select = [
     "UP",  # pyupgrade
 ]
 ignore = []
+
+[tool.ruff.lint.mccabe]
+max-complexity = 25
 
 [tool.ruff.format]
 quote-style = "double"
