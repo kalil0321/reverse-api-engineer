@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 import click
@@ -469,6 +470,7 @@ def handle_settings(mode_color=THEME_PRIMARY):
         provider_choices = [
             Choice(title="browser-use", value="browser-use"),
             Choice(title="stagehand", value="stagehand"),
+            Choice(title="auto", value="auto"),
             Choice(title="back", value="back"),
         ]
         provider = questionary.select(
@@ -954,6 +956,15 @@ def run_agent_capture(
     )
     agent_provider = config_manager.get("agent_provider", "browser-use")
 
+    # Route to auto mode if configured
+    if agent_provider == "auto":
+        return run_auto_capture(
+            prompt=prompt,
+            url=url,
+            model=model,
+            output_dir=output_dir,
+        )
+
     # Record initial session
     session_manager.add_run(
         run_id=run_id,
@@ -1036,6 +1047,93 @@ def run_agent_capture(
         import traceback
 
         traceback.print_exc()
+
+
+def run_auto_capture(prompt=None, url=None, model=None, output_dir=None):
+    """Auto mode: LLM-driven browser automation + real-time reverse engineering."""
+    output_dir = output_dir or config_manager.get("output_dir")
+
+    if prompt is None:
+        options = prompt_interactive_options(
+            prompt=prompt,
+            url=url,
+            reverse_engineer=False,  # Not applicable for auto mode
+            model=model,
+        )
+        if "command" in options:
+            return
+        prompt = options["prompt"]
+        url = options.get("url")
+        model = options["model"]
+
+    run_id = generate_run_id()
+    timestamp = get_timestamp()
+
+    # Record initial session with mode="auto"
+    session_manager.add_run(
+        run_id=run_id,
+        prompt=prompt,
+        timestamp=timestamp,
+        url=url,
+        model=model,
+        mode="auto",  # Track auto mode in history
+        paths={"har_dir": str(get_har_dir(run_id, output_dir))},
+    )
+
+    # Get SDK configuration
+    sdk = config_manager.get("sdk", "claude")
+
+    # Run auto engineer based on SDK
+    try:
+        if sdk == "opencode":
+            from .auto_engineer import OpenCodeAutoEngineer
+
+            engineer = OpenCodeAutoEngineer(
+                run_id=run_id,
+                prompt=prompt,
+                output_dir=output_dir,
+                opencode_provider=config_manager.get("opencode_provider", "anthropic"),
+                opencode_model=config_manager.get("opencode_model", "claude-sonnet-4-5"),
+                enable_sync=config_manager.get("real_time_sync", False),
+                sdk=sdk,
+            )
+        else:
+            from .auto_engineer import ClaudeAutoEngineer
+
+            engineer = ClaudeAutoEngineer(
+                run_id=run_id,
+                prompt=prompt,
+                model=model or config_manager.get("claude_code_model", "claude-sonnet-4-5"),
+                output_dir=output_dir,
+                enable_sync=config_manager.get("real_time_sync", False),
+                sdk=sdk,
+            )
+
+        # Start sync before analysis
+        engineer.start_sync()
+
+        try:
+            result = asyncio.run(engineer.analyze_and_generate())
+        finally:
+            # Always stop sync when done
+            engineer.stop_sync()
+
+        # Update session with results
+        if result:
+            session_manager.update_run(
+                run_id=run_id,
+                usage=result.get("usage", {}),
+                paths={"script_path": result.get("script_path")},
+            )
+
+        return result
+
+    except Exception as e:
+        console.print(f" [red]auto mode error: {e}[/red]")
+        import traceback
+
+        traceback.print_exc()
+        return None
 
 
 @main.command()

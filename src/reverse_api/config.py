@@ -10,7 +10,7 @@ DEFAULT_CONFIG = {
     "opencode_model": "claude-sonnet-4-5",
     "output_dir": None,  # None means use ~/.reverse-api/runs
     "sdk": "claude",  # "opencode" or "claude"
-    "agent_provider": "browser-use",
+    "agent_provider": "browser-use",  # "browser-use", "stagehand", or "auto" (MCP-based browser + engineering)
     "browser_use_model": "bu-llm",  # "bu-llm" or "{provider}/{model_name}" (e.g. "openai/gpt-5-mini")
     "stagehand_model": "openai/computer-use-preview-2025-03-11",  # "{provider}/{model_name}" format
     "real_time_sync": True,  # Enable real-time file sync during engineering
