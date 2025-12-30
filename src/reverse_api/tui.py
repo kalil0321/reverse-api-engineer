@@ -10,7 +10,7 @@ THEME_DIM = "#555555"
 THEME_SUCCESS = "#ff5f50"
 THEME_ERROR = "bold white on #ff5f50"
 
-ERROR_CTA = "If an unexpected error occured, please create an issue at https://github.com/kalil0321/reverse-api-engineer/issues/new"
+ERROR_CTA = "If an unexpected error occurred, please create an issue at https://github.com/kalil0321/reverse-api-engineer/issues/new"
 
 
 MODE_COLORS = {
