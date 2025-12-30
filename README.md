@@ -32,7 +32,7 @@ CLI tool that captures browser traffic and automatically generates production-re
 ## ✨ Features
 
 - 🌐 **Browser Automation**: Built on Playwright with stealth mode for realistic browsing
-- 🤖 **Autonomous Agent Mode**: Fully automated browser interaction using AI agents (browser-use, stagehand)
+- 🤖 **Autonomous Agent Mode**: Fully automated browser interaction using AI agents (auto mode with MCP, browser-use, stagehand)
 - 📊 **HAR Recording**: Captures all network traffic in HTTP Archive format
 - 🧠 **AI-Powered Generation**: Uses Claude 4.5 to analyze traffic and generate clean Python code
 - 🔌 **Multi-SDK Support**: Native integration with Claude and OpenCode SDKs
@@ -102,7 +102,7 @@ reverse-api-engineer
 The CLI has three modes (cycle with **Shift+Tab**):
 - **manual**: Browser capture + AI generation
 - **engineer**: Re-process existing captures
-- **agent**: Autonomous AI browser agent
+- **agent**: Autonomous AI browser agent (default: auto mode with MCP-based browser + real-time reverse engineering)
 
 Example workflow:
 ```bash
@@ -146,15 +146,20 @@ reverse-api-engineer engineer <run_id>
 
 Fully automated browser interaction using AI agents:
 
-1. Install with agent support (see [Installation](#-installation))
-2. Start CLI and switch to agent mode (Shift+Tab)
-3. Enter task description (e.g., "Click on the first job listing")
-4. Optionally provide starting URL
-5. Agent automatically navigates and interacts
-6. HAR captured automatically
-7. Optionally generate API client
+1. Start CLI and switch to agent mode (Shift+Tab)
+2. Enter task description (e.g., "Click on the first job listing")
+3. Optionally provide starting URL
+4. Agent automatically navigates and interacts
+5. HAR captured automatically
+6. API client generated automatically
 
-**Note:** Requires browser-use from the specific git commit shown in installation instructions (includes HAR recording support).
+**Agent Provider Options:**
+
+- **auto** (default): Uses MCP-based browser automation with Claude Agent SDK & Opencode. Combines browser control and real-time reverse engineering in a single workflow. No additional installation required beyond the base package.
+- **browser-use**: Uses browser-use library for browser automation. Requires installation with `[agent]` extra and browser-use from specific git commit (includes HAR recording support).
+- **stagehand**: Uses Stagehand for browser automation with Computer Use models.
+
+Change agent provider in `/settings` → "agent provider".
 
 ## 🔧 Configuration
 
@@ -165,7 +170,7 @@ Settings stored in `~/.reverse-api/config.json`:
   "opencode_provider": "anthropic",
   "opencode_model": "claude-sonnet-4-5",
   "sdk": "claude",
-  "agent_provider": "browser-use",
+  "agent_provider": "auto",
   "browser_use_model": "bu-llm",
   "stagehand_model": "openai/computer-use-preview-2025-03-11",
   "output_dir": null
@@ -213,7 +218,8 @@ You can use free models via [Antigravity](https://github.com/NoeFabris/opencode-
 Configure AI agents for autonomous browser automation.
 
 **Agent Providers:**
-- **browser-use** (default): Supports Browser-Use LLM, OpenAI, and Google models
+- **auto** (default): MCP-based browser automation with real-time reverse engineering. Uses Claude Agent SDK with browser MCP tools. Combines browser control and API reverse engineering in a single unified workflow. Works with Claude SDK (default) or OpenCode SDK.
+- **browser-use**: Supports Browser-Use LLM, OpenAI, and Google models. Requires installation with `[agent]` extra.
 - **stagehand**: Supports OpenAI and Anthropic Computer Use models
 
 **Agent Models:**
