@@ -90,7 +90,8 @@ class BaseEngineer(ABC):
 
     def _build_analysis_prompt(self) -> str:
         """Build the prompt for analyzing the HAR file."""
-        base_prompt = f"""You are tasked with analyzing a HAR (HTTP Archive) file to reverse engineer API calls and generate production-ready Python code that replicates those calls.
+        base_prompt = f"""You are tasked with analyzing a HAR (HTTP Archive) file to reverse engineer API calls,
+         and generate production-ready Python code that replicates those calls.
 
 Here is the HAR file path you need to analyze:
 <har_path>
@@ -194,7 +195,8 @@ After testing, provide your final response with:
 - Any limitations or caveats
 - The paths to the generated files
 
-Your final output should confirm that the files have been created and provide a brief summary of what was accomplished. Do not include the full code in your response - just confirm the files were saved and summarize the key findings.
+Your final output should confirm that the files have been created and provide a brief summary of what was accomplished.
+Do not include the full code in your response - just confirm the files were saved and summarize the key findings.
 """
         if self.additional_instructions:
             base_prompt += f"\n\nAdditional instructions:\n{self.additional_instructions}"
