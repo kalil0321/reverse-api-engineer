@@ -43,9 +43,9 @@ class OpenCodeEngineer(BaseEngineer):
         # Pop OpenCode-specific kwargs before passing to parent class
         self.opencode_provider = kwargs.pop("opencode_provider", "anthropic")
         self.opencode_model = kwargs.pop("opencode_model", "claude-sonnet-4-5")
-        
+
         super().__init__(*args, **kwargs)
-        
+
         # Override UI with OpenCode-specific version
         self.opencode_ui = OpenCodeUI(verbose=kwargs.get("verbose", True))
         self.ui = self.opencode_ui  # Ensure base class uses our specialized UI
@@ -153,7 +153,11 @@ class OpenCodeEngineer(BaseEngineer):
 
             # Show session summary before success message
             self.opencode_ui.session_summary(self.usage_metadata)
-            local_path = str(self.local_scripts_dir / "api_client.py") if self.local_scripts_dir else None
+            local_path = (
+                str(self.local_scripts_dir / "api_client.py")
+                if self.local_scripts_dir
+                else None
+            )
             self.opencode_ui.success(script_path, local_path)
 
             result_data: Dict[str, Any] = {
@@ -216,6 +220,21 @@ class OpenCodeEngineer(BaseEngineer):
                     try:
                         data = json.loads(line_data)
                     except json.JSONDecodeError as e:
+                        error_str = str(e)
+                        # Check if this is a buffer size error
+                        if (
+                            "buffer size" in error_str.lower()
+                            or "1048576" in error_str
+                            or "exceeded maximum buffer" in error_str.lower()
+                        ):
+                            debug_log(f"Buffer size error detected: {e}")
+                            self._last_error = "Screenshot too large (exceeds 1MB limit). Try element-specific screenshots instead of full-page screenshots."
+                            self.opencode_ui.error(self._last_error)
+                            self.opencode_ui.console.print(
+                                "[dim]Tip: Use browser_snapshot() for page structure or take smaller, element-specific screenshots.[/dim]"
+                            )
+                            # Don't continue - this is a fatal error for the session
+                            return
                         debug_log(f"JSON decode error: {e}, data: {line_data[:100]}")
                         continue
 
@@ -442,21 +461,21 @@ class OpenCodeEngineer(BaseEngineer):
             else:
                 cost = api_cost
 
-            self.usage_metadata["input_tokens"] = self.usage_metadata.get(
-                "input_tokens", 0
-            ) + input_tokens
-            self.usage_metadata["output_tokens"] = self.usage_metadata.get(
-                "output_tokens", 0
-            ) + output_tokens
-            self.usage_metadata["reasoning_tokens"] = self.usage_metadata.get(
-                "reasoning_tokens", 0
-            ) + reasoning_tokens
-            self.usage_metadata["cache_read_tokens"] = self.usage_metadata.get(
-                "cache_read_tokens", 0
-            ) + cache_read
-            self.usage_metadata["cache_creation_tokens"] = self.usage_metadata.get(
-                "cache_creation_tokens", 0
-            ) + cache_write
+            self.usage_metadata["input_tokens"] = (
+                self.usage_metadata.get("input_tokens", 0) + input_tokens
+            )
+            self.usage_metadata["output_tokens"] = (
+                self.usage_metadata.get("output_tokens", 0) + output_tokens
+            )
+            self.usage_metadata["reasoning_tokens"] = (
+                self.usage_metadata.get("reasoning_tokens", 0) + reasoning_tokens
+            )
+            self.usage_metadata["cache_read_tokens"] = (
+                self.usage_metadata.get("cache_read_tokens", 0) + cache_read
+            )
+            self.usage_metadata["cache_creation_tokens"] = (
+                self.usage_metadata.get("cache_creation_tokens", 0) + cache_write
+            )
             self.usage_metadata["cost"] = self.usage_metadata.get("cost", 0) + cost
 
 

@@ -1849,7 +1849,7 @@ wheels = [
 
 [[package]]
 name = "reverse-api-engineer"
-version = "0.2.8"
+version = "0.2.9"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },

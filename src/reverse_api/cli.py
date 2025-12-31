@@ -1093,7 +1093,9 @@ def run_auto_capture(prompt=None, url=None, model=None, output_dir=None):
                 prompt=prompt,
                 output_dir=output_dir,
                 opencode_provider=config_manager.get("opencode_provider", "anthropic"),
-                opencode_model=config_manager.get("opencode_model", "claude-sonnet-4-5"),
+                opencode_model=config_manager.get(
+                    "opencode_model", "claude-sonnet-4-5"
+                ),
                 enable_sync=config_manager.get("real_time_sync", False),
                 sdk=sdk,
             )
@@ -1103,7 +1105,8 @@ def run_auto_capture(prompt=None, url=None, model=None, output_dir=None):
             engineer = ClaudeAutoEngineer(
                 run_id=run_id,
                 prompt=prompt,
-                model=model or config_manager.get("claude_code_model", "claude-sonnet-4-5"),
+                model=model
+                or config_manager.get("claude_code_model", "claude-sonnet-4-5"),
                 output_dir=output_dir,
                 enable_sync=config_manager.get("real_time_sync", False),
                 sdk=sdk,

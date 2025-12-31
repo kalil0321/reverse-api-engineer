@@ -54,9 +54,7 @@ class OpenCodeUI:
 
     def model_info(self, provider: str, model: str) -> None:
         """Display the actual provider and model being used."""
-        self.console.print(
-            f"  [dim]using: {provider}/{model}[/dim]"
-        )
+        self.console.print(f"  [dim]using: {provider}/{model}[/dim]")
 
     def start_streaming(self) -> None:
         """Start the live display for streaming updates."""
@@ -83,7 +81,6 @@ class OpenCodeUI:
             display.append(f"  ⟳ ", style=THEME_PRIMARY)
             display.append(f"{self._current_tool}", style="white")
             display.append(" running...\n", style=THEME_DIM)
-
 
         return display
 

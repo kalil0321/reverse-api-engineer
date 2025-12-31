@@ -75,16 +75,29 @@ class ClaudeAutoEngineer(ClaudeEngineer):
 Follow this workflow step-by-step:
 
 ### Phase 1: BROWSE
-Use browser MCP tools to accomplish the mission goal:
-- `browser_navigate(url: str)` - Navigate to a URL
-- `browser_click(selector: str)` - Click an element
-- `browser_type(selector: str, text: str)` - Type text into input
-- `browser_wait_for_selector(selector: str)` - Wait for element
-- `browser_screenshot()` - Take screenshot for context
+Use browser MCP tools to accomplish the mission goal, here are some of the tools you can use.
+This list is not exhaustive, but it's a good starting point:
+- `browser_navigate` - Navigate to a URL
+- `browser_click` - Click an element
+- `browser_scroll` - Scroll the page
+- `browser_close` - Close the browser
+- `browser_evaluate` - Evaluate JavaScript code
+- `browser_press_key` - Press a key
+- `browser_run_code` - Run Playwright code
+- `browser_type` - Type text into input
+- `browser_wait_for` - Wait for text to appear or disappear or a specified time to pass
+- `browser_snapshot` - Get accessibility tree (useful alternative to screenshots for understanding page structure)
+- `browser_take_screenshot` - Take screenshot for context (IMPORTANT: Prefer element-specific screenshots over full-page to avoid size limits)
 - And other browser MCP tools available
 
+**Screenshot Guidelines:**
+- Screenshots have a 1MB size limit - avoid full-page screenshots when possible
+- Prefer taking element-specific screenshots using CSS selectors
+- If you need context, take multiple smaller screenshots of key areas
+- Use `browser_snapshot()` when you need page structure information without visual details
+
 ### Phase 2: MONITOR
-While browsing, periodically call `browser_network_requests()` to monitor API traffic in real-time if needed, keep in mind that you will also have access to the full network traffic when closing the browser:
+While browsing, periodically call `browser_network_requests` to monitor API traffic in real-time if needed, keep in mind that you will also have access to the full network traffic when closing the browser:
 - Analyze requests and responses
 - Identify authentication patterns (cookies, tokens, headers)
 - Note API endpoints, methods, parameters
@@ -129,6 +142,7 @@ Based on the network traffic you observed, generate production-ready Python code
 - Don't rush - ensure you capture all necessary API calls before closing browser
 - After generating code, always test it to verify it works
 - Handle bot detection by switching to Playwright with CDP if needed
+- **Screenshot size limit**: Screenshots must be under 1MB. Prefer element-specific screenshots over full-page screenshots to avoid errors
 
 ## OUTPUT FILES REQUIRED
 
@@ -148,7 +162,6 @@ Your final response should confirm the files were created and provide a brief su
         self.ui.start_analysis()
         self.message_store.save_prompt(self._build_auto_prompt())
 
-        # Configure MCP server
         mcp_config = {
             "type": "stdio",
             "command": "npx",
@@ -295,8 +308,23 @@ Your final response should confirm the files were created and provide a brief su
             self.ui.error(error_msg)
             self.message_store.save_error(error_msg)
 
+            # Handle screenshot buffer size errors specifically
+            if (
+                "buffer size" in error_msg.lower()
+                or "1048576" in error_msg
+                or "exceeded maximum buffer" in error_msg.lower()
+            ):
+                self.ui.console.print(
+                    "\n[yellow]⚠ Screenshot too large (exceeds 1MB limit)[/yellow]"
+                )
+                self.ui.console.print(
+                    "[dim]Tip: The AI should take element-specific screenshots instead of full-page screenshots.[/dim]"
+                )
+                self.ui.console.print(
+                    "[dim]Consider using browser_snapshot() for accessibility tree information when screenshots aren't needed.[/dim]"
+                )
             # Provide helpful error messages
-            if "MCP server" in error_msg or "npx" in error_msg:
+            elif "MCP server" in error_msg or "npx" in error_msg:
                 self.ui.console.print(
                     "\n[dim]Make sure rae-playwright-mcp is installed: "
                     "npm install -g rae-playwright-mcp[/dim]"
@@ -494,6 +522,23 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
             error_msg = str(e) if str(e) else "Unknown error"
             self.opencode_ui.error(error_msg)
             self.message_store.save_error(error_msg)
+
+            # Handle screenshot buffer size errors specifically
+            if (
+                "buffer size" in error_msg.lower()
+                or "1048576" in error_msg
+                or "exceeded maximum buffer" in error_msg.lower()
+            ):
+                self.opencode_ui.console.print(
+                    "\n[yellow]⚠ Screenshot too large (exceeds 1MB limit)[/yellow]"
+                )
+                self.opencode_ui.console.print(
+                    "[dim]Tip: The AI should take element-specific screenshots instead of full-page screenshots.[/dim]"
+                )
+                self.opencode_ui.console.print(
+                    "[dim]Consider using browser_snapshot() for accessibility tree information when screenshots aren't needed.[/dim]"
+                )
+
             return None
 
         finally:
