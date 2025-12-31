@@ -216,6 +216,17 @@ class OpenCodeEngineer(BaseEngineer):
                     try:
                         data = json.loads(line_data)
                     except json.JSONDecodeError as e:
+                        error_str = str(e)
+                        # Check if this is a buffer size error
+                        if "buffer size" in error_str.lower() or "1048576" in error_str or "exceeded maximum buffer" in error_str.lower():
+                            debug_log(f"Buffer size error detected: {e}")
+                            self._last_error = "Screenshot too large (exceeds 1MB limit). Try element-specific screenshots instead of full-page screenshots."
+                            self.opencode_ui.error(self._last_error)
+                            self.opencode_ui.console.print(
+                                "[dim]Tip: Use browser_snapshot() for page structure or take smaller, element-specific screenshots.[/dim]"
+                            )
+                            # Don't continue - this is a fatal error for the session
+                            return
                         debug_log(f"JSON decode error: {e}, data: {line_data[:100]}")
                         continue
 
