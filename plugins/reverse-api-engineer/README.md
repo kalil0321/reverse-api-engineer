@@ -14,13 +14,17 @@ Claude Code plugin for reverse engineering web APIs by capturing browser traffic
 ### From Marketplace
 
 ```bash
-cc plugin install reverse-api-engineer
+claude # Open REPL
+/plugin marketplace add kalil0321/reverse-api-engineer
+/plugin install reverse-api-engineer@reverse-api-engineer
 ```
 
 ### Local Development
 
 ```bash
-cc --plugin-dir /path/to/reverse-api/agents/test-marketplace/reverse-api-engineer
+claude
+/plugin marketplace add .
+/plugin install reverse-api-engineer@reverse-api-engineer
 ```
 
 ## Prerequisites

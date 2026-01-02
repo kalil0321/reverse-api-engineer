@@ -25,6 +25,7 @@ CLI tool that captures browser traffic and automatically generates production-re
   - [Agent Configuration](#agent-configuration)
   - [SDK Selection](#sdk-selection)
 - [CLI Commands](#-cli-commands)
+- [Claude Code Plugin](#-claude-code-plugin)
 - [Examples](#-examples)
 - [Development](#-development)
 - [Contributing](#-contributing)
@@ -262,6 +263,18 @@ Use these slash commands while in the CLI:
 - `/messages <run_id>` - View detailed message logs
 - `/help` - Show all commands
 - `/exit` - Quit
+
+## 🔌 Claude Code Plugin
+
+Install the plugin in [Claude Code](https://claude.com/claude-code):
+
+```bash
+claude # Open REPL
+/plugin marketplace add kalil0321/reverse-api-engineer
+/plugin install reverse-api-engineer@reverse-api-engineer
+```
+
+See [plugin documentation](plugins/reverse-api-engineer/README.md) for commands, agents, skills, and usage examples.
 
 ## 💡 Examples
 
