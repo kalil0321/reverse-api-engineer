@@ -21,7 +21,7 @@ CLI tool that captures browser traffic and automatically generates production-re
   - [Agent Mode](#agent-mode)
 - [Configuration](#-configuration)
   - [Model Selection](#model-selection)
-  - [💸 Free Models with Antigravity](#-free-model-options-with-antigravity)
+  - [💸 Free Models with Antigravity](#free-model-options-with-antigravity)
   - [Agent Configuration](#agent-configuration)
   - [SDK Selection](#sdk-selection)
 - [CLI Commands](#-cli-commands)
@@ -188,6 +188,8 @@ Change in `/settings` or via CLI:
 ```bash
 reverse-api-engineer manual --model claude-sonnet-4-5
 ```
+
+If you use Opencode, look at the [models](https://models.dev). Some are free like `opencode/grok-code`).
 
 ### Free Model Options with Antigravity
 
