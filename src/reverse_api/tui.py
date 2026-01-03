@@ -31,6 +31,7 @@ TOOL_ICONS = {
     "WebSearch": "ws",
     "WebFetch": "wf",
     "Task": "tk",
+    "AskUserQuestion": "??",
     "default": "> ",
 }
 
