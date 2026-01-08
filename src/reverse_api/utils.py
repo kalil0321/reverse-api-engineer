@@ -215,49 +215,116 @@ def _slugify(text: str) -> str:
     return "_".join(words)[:50]
 
 
-def parse_engineer_prompt(input_text: str) -> dict:
+def parse_engineer_prompt(input_text: str, session_manager=None) -> dict:
     """Parse engineer mode input for tags.
+
+    Args:
+        input_text: The raw input text to parse
+        session_manager: Optional SessionManager to resolve latest run_id when needed
 
     Returns:
         dict: {
             "run_id": str | None,
             "fresh": bool,
+            "docs": bool,
             "prompt": str,
-            "is_tag_command": bool
+            "is_tag_command": bool,
+            "error": str | None  # Error message if validation failed
         }
     """
     if not input_text:
         return {
             "run_id": None,
             "fresh": False,
+            "docs": False,
             "prompt": "",
             "is_tag_command": False,
+            "error": None,
         }
 
-    # Regex for @id <run_id> [--fresh] <prompt>
+    # Check for standalone @docs first (no prompt parameter)
+    if input_text.strip() == "@docs":
+        # Resolve latest run if session_manager provided
+        run_id = None
+        error = None
+        if session_manager:
+            latest_runs = session_manager.get_history(limit=1)
+            if not latest_runs:
+                error = "no runs found in history"
+            else:
+                run_id = latest_runs[0]["run_id"]
+
+        return {
+            "run_id": run_id,
+            "fresh": False,
+            "docs": True,
+            "prompt": "",
+            "is_tag_command": True,
+            "error": error,
+        }
+
+    # Enhanced regex for @id <run_id> [--fresh] [@docs] <prompt>
     # Group 1: run_id
     # Group 2: fresh flag (optional)
-    # Group 3: prompt (optional)
-    pattern = r"@id\s+([a-zA-Z0-9-_]+)(?:\s+(--fresh))?(?:\s+(.*))?"
+    # Group 3: docs flag (optional)
+    # Group 4: prompt (optional)
+    pattern = r"@id\s+([a-zA-Z0-9-_]+)(?:\s+(--fresh))?(?:\s+(@docs))?(?:\s+(.*))?"
     match = re.match(pattern, input_text.strip())
 
     if match:
         run_id = match.group(1)
         fresh = bool(match.group(2))
-        remaining_prompt = match.group(3) or ""
+        docs = bool(match.group(3))
+        remaining_prompt = match.group(4) or ""
         return {
             "run_id": run_id,
             "fresh": fresh,
+            "docs": docs,
             "prompt": remaining_prompt,
             "is_tag_command": True,
+            "error": None,
         }
 
+    # Implicit mode - resolve latest run if session_manager provided
+    run_id = None
+    error = None
+    if session_manager:
+        latest_runs = session_manager.get_history(limit=1)
+        if not latest_runs:
+            error = "no runs found in history"
+        else:
+            run_id = latest_runs[0]["run_id"]
+
     return {
-        "run_id": None,
+        "run_id": run_id,
         "fresh": False,
+        "docs": False,
         "prompt": input_text.strip(),
         "is_tag_command": False,
+        "error": error,
     }
+
+
+def parse_record_only_tag(prompt: str) -> tuple[str, bool]:
+    """Parse @record-only tag from prompt.
+
+    When present, skips reverse engineering and only records HAR.
+
+    Args:
+        prompt: The user prompt that may contain @record-only tag
+
+    Returns:
+        tuple: (cleaned_prompt, is_record_only)
+    """
+    if not prompt:
+        return "", False
+
+    # Match @record-only anywhere in the prompt (case-insensitive)
+    pattern = r"@record-only\s*"
+    if re.search(pattern, prompt, re.IGNORECASE):
+        cleaned = re.sub(pattern, "", prompt, flags=re.IGNORECASE).strip()
+        return cleaned, True
+    return prompt, False
 
 
 def generate_run_id() -> str:
@@ -308,6 +375,14 @@ def get_scripts_dir(run_id: str, output_dir: str | None = None) -> Path:
     scripts_dir = base_dir / "scripts" / run_id
     scripts_dir.mkdir(parents=True, exist_ok=True)
     return scripts_dir
+
+
+def get_docs_dir(run_id: str, output_dir: str | None = None) -> Path:
+    """Get the docs directory for a specific run."""
+    base_dir = get_base_output_dir(output_dir)
+    docs_dir = base_dir / "docs" / run_id
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    return docs_dir
 
 
 def get_messages_path(run_id: str, output_dir: str | None = None) -> Path:

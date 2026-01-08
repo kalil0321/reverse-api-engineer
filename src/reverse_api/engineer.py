@@ -287,6 +287,7 @@ def run_reverse_engineering(
     enable_sync: bool = False,
     is_fresh: bool = False,
     output_language: str = "python",
+    output_mode: str = "client",
 ) -> dict[str, Any] | None:
     """Run reverse engineering with the specified SDK.
 
@@ -297,6 +298,7 @@ def run_reverse_engineering(
         enable_sync: Enable real-time file syncing during engineering
         is_fresh: Whether to start fresh (ignore previous scripts)
         output_language: Target language - "python", "javascript", or "typescript"
+        output_mode: Output mode - "client" for API client code, "docs" for OpenAPI specification
     """
     if sdk == "opencode":
         from .opencode_engineer import OpenCodeEngineer
@@ -315,6 +317,7 @@ def run_reverse_engineering(
             sdk=sdk,
             is_fresh=is_fresh,
             output_language=output_language,
+            output_mode=output_mode,
         )
     else:
         engineer = ClaudeEngineer(
@@ -329,6 +332,7 @@ def run_reverse_engineering(
             sdk=sdk,
             is_fresh=is_fresh,
             output_language=output_language,
+            output_mode=output_mode,
         )
 
     # Start sync before analysis

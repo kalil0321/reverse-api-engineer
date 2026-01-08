@@ -7,7 +7,7 @@ from typing import Any
 from .messages import MessageStore
 from .sync import FileSyncWatcher, get_available_directory
 from .tui import ClaudeUI
-from .utils import generate_folder_name, get_scripts_dir
+from .utils import generate_folder_name, get_docs_dir, get_scripts_dir
 
 
 class BaseEngineer(ABC):
@@ -26,13 +26,21 @@ class BaseEngineer(ABC):
         sdk: str = "claude",
         is_fresh: bool = False,
         output_language: str = "python",
+        output_mode: str = "client",
     ):
         self.run_id = run_id
         self.har_path = har_path
         self.prompt = prompt
         self.model = model
         self.additional_instructions = additional_instructions
-        self.scripts_dir = get_scripts_dir(run_id, output_dir)
+        self.output_mode = output_mode
+
+        # Select output directory based on mode
+        if output_mode == "docs":
+            self.scripts_dir = get_docs_dir(run_id, output_dir)
+        else:
+            self.scripts_dir = get_scripts_dir(run_id, output_dir)
+
         self.ui = ClaudeUI(verbose=verbose)
         self.usage_metadata: dict[str, Any] = {}
         self.message_store = MessageStore(run_id, output_dir)
@@ -50,10 +58,15 @@ class BaseEngineer(ABC):
 
         # Generate local directory name
         base_name = generate_folder_name(self.prompt, sdk=self.sdk)
-        scripts_base_path = Path.cwd() / "scripts"
+
+        # Choose base path based on output mode
+        if self.output_mode == "docs":
+            base_path = Path.cwd() / "docs"
+        else:
+            base_path = Path.cwd() / "scripts"
 
         # Get available directory (won't overwrite existing non-empty dirs)
-        local_dir = get_available_directory(scripts_base_path, base_name)
+        local_dir = get_available_directory(base_path, base_name)
 
         self.local_scripts_dir = local_dir
 
@@ -99,7 +112,9 @@ class BaseEngineer(ABC):
         }.get(self.output_language, ".py")
 
     def _get_client_filename(self) -> str:
-        """Return the API client filename."""
+        """Return the output filename based on mode."""
+        if self.output_mode == "docs":
+            return "openapi.json"
         return f"api_client{self._get_output_extension()}"
 
     def _get_run_command(self) -> str:
@@ -234,16 +249,73 @@ After your analysis, generate the files:
 1. Save the Python script to: {self.scripts_dir}/{client_filename}
 2. Save the documentation to: {self.scripts_dir}/README.md"""
 
+    def _get_docs_instructions(self) -> str:
+        """Return OpenAPI documentation generation instructions."""
+        return f"""4. **Generate an OpenAPI 3.0 specification** that documents these API endpoints:
+   - Use OpenAPI 3.0.0 format (https://swagger.io/specification/)
+   - Include all discovered endpoints with:
+     - Correct HTTP methods (GET, POST, PUT, DELETE, etc.)
+     - Path parameters and query parameters
+     - Request body schemas (JSON Schema format)
+     - Response schemas for common status codes (200, 400, 401, 404, 500)
+     - Authentication/security schemes (API keys, Bearer tokens, OAuth, etc.)
+   - Organize endpoints into logical tags/groups (e.g., "Users", "Products", "Orders")
+   - Infer meaningful descriptions for:
+     - Each endpoint's purpose (what it does)
+     - Parameters (what they control)
+     - Response fields (what they represent)
+   - Include examples where patterns are clear from the HAR data
+   - Use JSON Schema $ref for shared components/schemas
+   - Document authentication requirements in security schemes
+   - Add a servers array with the base URL from the HAR file
+
+5. **Enhance documentation with AI inference**:
+   - Analyze request/response patterns to infer parameter types and constraints
+   - Group related endpoints into logical operations
+   - Generate human-readable descriptions (not just field names)
+   - Identify required vs optional parameters based on HAR observations
+   - Add example values from actual captured requests
+   - Document error responses observed in the HAR
+   - Note rate limiting headers if present
+   - Describe authentication flow if multi-step
+
+6. **Create supplementary documentation**:
+   - Generate a README.md file that explains:
+     - API overview and purpose
+     - Authentication method and how to obtain credentials
+     - Base URL and versioning
+     - Common use cases with example requests
+     - Rate limiting information (if observed)
+     - Any special headers or requirements
+     - Link to view the OpenAPI spec (e.g., in Swagger UI)
+
+After your analysis, generate the files:
+
+1. Save the OpenAPI spec to: {self.scripts_dir}/openapi.json
+2. Save the README to: {self.scripts_dir}/README.md
+3. Optionally create: {self.scripts_dir}/examples.md with curl examples
+
+Your OpenAPI spec should be production-ready and suitable for:
+- API documentation portals (Swagger UI, Redoc, Stoplight)
+- Code generation (OpenAPI Generator, swagger-codegen)
+- API testing (Postman, Insomnia)
+- Contract testing and validation"""
+
     def _build_analysis_prompt(self) -> str:
         """Build the prompt for analyzing the HAR file."""
-        language_name = {
-            "python": "Python",
-            "javascript": "JavaScript",
-            "typescript": "TypeScript",
-        }.get(self.output_language, "Python")
+        if self.output_mode == "docs":
+            mode_description = "generate an OpenAPI 3.0 specification documenting"
+            task_description = "OpenAPI documentation"
+        else:
+            language_name = {
+                "python": "Python",
+                "javascript": "JavaScript",
+                "typescript": "TypeScript",
+            }.get(self.output_language, "Python")
+            mode_description = f"reverse engineer API calls and generate production-ready {language_name} code that replicates"
+            task_description = f"{language_name} API client"
 
-        base_prompt = f"""You are tasked with analyzing a HAR (HTTP Archive) file to reverse engineer API calls,
-         and generate production-ready {language_name} code that replicates those calls.
+        base_prompt = f"""You are tasked with analyzing a HAR (HTTP Archive) file to {mode_description} those calls.
 
 Here is the HAR file path you need to analyze:
 <har_path>
@@ -261,7 +333,7 @@ Here is the output directory where you should save your generated files:
 </output_dir>
 
 **IMPORTANT: You have access to the AskUserQuestion tool to ask clarifying questions during your analysis.**
-Use this tool when you need to clarify functional requirements, prioritize features, choose between implementation approaches, or gather any other information that would help you generate better code.
+Use this tool when you need to clarify functional requirements, prioritize features, choose between implementation approaches, or gather any other information that would help you generate better {task_description}.
 
 Your task is to:
 
@@ -289,24 +361,24 @@ Your task is to:
    - When multiple authentication methods are found, ask which to prioritize
    - If uncertain about feature priorities, ask the user
    - When implementation approaches are ambiguous, ask for preferences
-   - Use the tool for any clarifications that would improve the final code
+   - Use the tool for any clarifications that would improve the final output
 
-{self._get_language_instructions()}
+{self._get_docs_instructions() if self.output_mode == "docs" else self._get_language_instructions()}
 
-Before generating your code, use a scratchpad to plan your approach:
+Before generating your output, use a scratchpad to plan your approach:
 
 <scratchpad>
 In your scratchpad:
 - Summarize the key API endpoints found in the HAR file
 - Note the authentication mechanism being used
 - Identify any patterns or commonalities between requests
-- Plan the structure of your {language_name} code
-- Consider potential issues (rate limiting, bot detection, etc.)
-- Decide whether `requests` will be sufficient or if Playwright is needed
+- Plan the structure of your {task_description}
+- Consider potential issues (rate limiting, versioning, etc.)
+{"- Decide whether `requests` will be sufficient or if Playwright is needed" if self.output_mode != "docs" else ""}
 - Identify any ambiguities or questions you should ask the user using AskUserQuestion
 </scratchpad>
 
-If your first attempt doesn't work, analyze what went wrong and try again. Document each attempt and what you learned.
+{"" if self.output_mode == "docs" else """If your first attempt doesn't work, analyze what went wrong and try again. Document each attempt and what you learned.
 
 <attempt_log>
 For each attempt (up to 5), document:
@@ -316,15 +388,15 @@ For each attempt (up to 5), document:
 - What you changed for the next attempt
 </attempt_log>
 
-After testing, provide your final response with:
+"""}After {"documenting" if self.output_mode == "docs" else "testing"}, provide your final response with:
 - A summary of the APIs discovered
 - The authentication method used
-- Whether the implementation works
+- {"The completeness and accuracy of the OpenAPI spec" if self.output_mode == "docs" else "Whether the implementation works"}
 - Any limitations or caveats
 - The paths to the generated files
 
 Your final output should confirm that the files have been created and provide a brief summary of what was accomplished.
-Do not include the full code in your response - just confirm the files were saved and summarize the key findings.
+Do not include the full {"spec" if self.output_mode == "docs" else "code"} in your response - just confirm the files were saved and summarize the key findings.
 """
         if self.additional_instructions:
             base_prompt += f"\n\nAdditional instructions:\n{self.additional_instructions}"
@@ -334,15 +406,15 @@ Do not include the full code in your response - just confirm the files were save
 
 This session uses tag-based context loading:
 
-- **@id <run_id>**: Re-engineer mode active
+- **@id <run_id>** {"@docs" if self.output_mode == "docs" else ""}: {"Documentation" if self.output_mode == "docs" else "Re-engineer"} mode active
   - Target run: {self.run_id}
   - HAR location: {self.har_path.parent}
-  - Existing scripts: {self.scripts_dir}
+  - Existing {"docs" if self.output_mode == "docs" else "scripts"}: {self.scripts_dir}
   - Message history: {self.message_store.messages_path.parent} (available for reference if needed)
   - Fresh mode: {str(self.is_fresh).lower()}
 
 By default, treat this as an iterative refinement. The user's prompt describes
-changes or improvements to make to the existing script. If fresh mode is enabled,
+changes or improvements to make to the existing {"documentation" if self.output_mode == "docs" else "script"}. If fresh mode is enabled,
 ignore previous implementation and start from scratch.
 
 Note: Full message history is available at the messages path above if you need

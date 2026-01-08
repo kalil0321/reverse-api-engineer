@@ -37,6 +37,7 @@ from .utils import (
     get_history_path,
     get_timestamp,
     parse_engineer_prompt,
+    parse_record_only_tag,
 )
 
 console = Console()
@@ -99,11 +100,29 @@ def prompt_interactive_options(
                     for cmd in commands:
                         if cmd.startswith(text):
                             yield Completion(cmd, start_position=-len(text))
+            # Tag completion for manual/agent modes
+            elif mode_state["mode"] in ("manual", "agent") and text.startswith("@"):
+                # Tags for manual/agent modes with descriptions
+                tags = [
+                    ("@record-only", "record HAR only, skip reverse engineering"),
+                    ("@help", "show mode-specific help"),
+                ]
+                for tag, meta in tags:
+                    if tag.startswith(text):
+                        yield Completion(
+                            tag,
+                            start_position=-len(text),
+                            display_meta=meta,
+                        )
             # Tag completion in engineer mode
             elif mode_state["mode"] == "engineer" and text:
                 if text.startswith("@"):
-                    # Tag completion
-                    tags = ["@id", "@help"]  # @docs, @build coming in next phases
+                    # Tag completion with descriptions
+                    tags = [
+                        ("@id", "switch context to run ID"),
+                        ("@docs", "generate API documentation"),
+                        ("@help", "show engineer mode help"),
+                    ]
 
                     # specific check for @id completion
                     id_match = re.match(r"@id\s+(.*)", text)
@@ -117,10 +136,14 @@ def prompt_interactive_options(
                                     display_meta=self._get_run_meta(run_id),
                                 )
                     else:
-                        # Suggest tags
-                        for tag in tags:
+                        # Suggest tags with descriptions
+                        for tag, meta in tags:
                             if tag.startswith(text):
-                                yield Completion(tag, start_position=-len(text))
+                                yield Completion(
+                                    tag,
+                                    start_position=-len(text),
+                                    display_meta=meta,
+                                )
 
                 else:
                     for run_id in self._get_run_ids():
@@ -373,21 +396,44 @@ def repl_loop():
                 # Handle empty input
                 if not raw_input:
                     console.print(" [dim]Usage:[/dim] @id <run_id> [instructions]")
+                    console.print(" [dim]       [/dim] @docs (generate docs for latest run)")
+                    console.print(" [dim]       [/dim] @id <run_id> @docs [prompt]")
                     console.print(" [dim]       [/dim] <run_id> (to switch context)")
                     continue
 
-                # Parse tag
-                parsed = parse_engineer_prompt(raw_input)
+                # Parse tag with session_manager to resolve latest run centrally
+                parsed = parse_engineer_prompt(raw_input, session_manager)
+
+                # Handle parser errors
+                if parsed["error"]:
+                    console.print(f" [red]error:[/red] {parsed['error']}")
+                    continue
 
                 target_run_id = parsed["run_id"]
                 is_fresh = parsed["fresh"]
+                is_docs = parsed["docs"]
                 user_text = parsed["prompt"]
 
                 main_prompt = None
                 add_instr = None
 
                 if parsed["is_tag_command"]:
-                    # Explicit @id command
+                    # Explicit @id or @docs command
+                    # Validate HAR file exists for @docs mode
+                    if is_docs and target_run_id:
+                        run_data = session_manager.get_run(target_run_id)
+                        if run_data:
+                            paths = run_data.get("paths", {})
+                            har_dir = Path(paths.get("har_dir", get_har_dir(target_run_id, None)))
+                        else:
+                            har_dir = get_har_dir(target_run_id, None)
+
+                        har_path = har_dir / "recording.har"
+                        if not har_path.exists():
+                            console.print(f" [red]error:[/red] run {target_run_id} has no HAR file")
+                            console.print(" [dim]tip:[/dim] use @id <run_id> @docs to specify a run with captured traffic")
+                            continue
+
                     if not target_run_id:
                         console.print(" [red]error:[/red] invalid @id syntax")
                         continue
@@ -399,20 +445,13 @@ def repl_loop():
                         add_instr = user_text if user_text else None
 
                 else:
-                    # Implicit mode
-                    # Check if input is just a run_id
+                    # Implicit mode - parser already resolved latest run
+                    # Check if input is just a run_id (switching context)
                     if session_manager.get_run(user_text):
                         target_run_id = user_text
                         # Just switching run, no new instructions
                     else:
-                        # Implicit @id on latest run
-                        latest_runs = session_manager.get_history(limit=1)
-                        if not latest_runs:
-                            console.print(" [red]error:[/red] no runs found in history")
-                            continue
-                        target_run_id = latest_runs[0]["run_id"]
-
-                        # Treat input as additive instructions
+                        # Parser resolved latest run, treat input as additive instructions
                         add_instr = user_text
 
                 run_engineer(
@@ -421,6 +460,7 @@ def repl_loop():
                     model=options.get("model"),
                     additional_instructions=add_instr,
                     is_fresh=is_fresh,
+                    output_mode="docs" if is_docs else "client",
                 )
                 continue
 
@@ -842,6 +882,9 @@ def handle_manual_help(mode_color=THEME_PRIMARY):
     table.add_row("<prompt>", "Describe the task/goal for the session.\n[dim]Example: extract jobs from apple.com[/dim]")
     table.add_row("", "")
 
+    table.add_row("@record-only [prompt]", "Record HAR only, skip reverse engineering.\n[dim]Example: @record-only[/dim]")
+    table.add_row("", "")
+
     table.add_row("Shift+Tab", "Cycle to other modes (Engineer, Agent).")
 
     console.print(table)
@@ -862,6 +905,9 @@ def handle_agent_help(mode_color=THEME_PRIMARY):
     table.add_column(style="white", justify="left")
 
     table.add_row("<prompt>", "Instruction for the autonomous agent.\n[dim]Example: Go to google.com and search for 'OpenAI'[/dim]")
+    table.add_row("", "")
+
+    table.add_row("@record-only <prompt>", "Record HAR only, skip reverse engineering.\n[dim]Example: @record-only navigate checkout flow[/dim]")
     table.add_row("", "")
 
     table.add_row("Shift+Tab", "Cycle to other modes (Manual, Engineer).")
@@ -900,6 +946,12 @@ def handle_engineer_help(mode_color=THEME_PRIMARY):
     table.add_row("", "")
 
     table.add_row("<prompt>", "Run engineer on the *current* context/latest run.\n[dim]Example: improve error handling[/dim]")
+    table.add_row("", "")
+
+    table.add_row("@docs", "Generate API documentation (OpenAPI spec) for the latest run.\n[dim]Example: @docs[/dim]")
+    table.add_row("", "")
+
+    table.add_row("@id <run_id> @docs", "Generate API documentation for a specific run.\n[dim]Example: @id abc123 @docs[/dim]")
 
     console.print(table)
     console.print()
@@ -1055,6 +1107,11 @@ def run_manual_capture(prompt=None, url=None, reverse_engineer=True, model=None,
         reverse_engineer = options["reverse_engineer"]
         model = options["model"]
 
+    # Parse @record-only tag - if present, skip reverse engineering
+    prompt, is_record_only = parse_record_only_tag(prompt)
+    if is_record_only:
+        reverse_engineer = False
+
     run_id = generate_run_id()
     timestamp = get_timestamp()
     sdk = config_manager.get("sdk", "claude")
@@ -1090,6 +1147,11 @@ def run_manual_capture(prompt=None, url=None, reverse_engineer=True, model=None,
                 usage=result.get("usage", {}),
                 paths={"script_path": result.get("script_path")},
             )
+    elif is_record_only:
+        # Show helpful message for record-only mode
+        console.print(" [dim]>[/dim] [white]recording complete[/white]")
+        console.print(f" [dim]>[/dim] [white]run_id: {run_id}[/white]")
+        console.print(f" [dim]>[/dim] [dim]use @id {run_id} <prompt> to engineer later[/dim]\n")
 
 
 def run_agent_capture(prompt=None, url=None, reverse_engineer=False, model=None, output_dir=None):
@@ -1109,6 +1171,16 @@ def run_agent_capture(prompt=None, url=None, reverse_engineer=False, model=None,
         url = options["url"]
         reverse_engineer = options["reverse_engineer"]
         model = options["model"]
+
+    # Parse @record-only tag - if present, skip reverse engineering
+    prompt, is_record_only = parse_record_only_tag(prompt)
+    if is_record_only:
+        reverse_engineer = False
+        # Agent mode requires a prompt for @record-only
+        if not prompt or not prompt.strip():
+            console.print(" [red]error:[/red] @record-only requires a prompt in agent mode")
+            console.print(" [dim]tip:[/dim] @record-only <prompt> - e.g., @record-only navigate checkout flow")
+            return
 
     run_id = generate_run_id()
     timestamp = get_timestamp()
@@ -1208,6 +1280,11 @@ def run_agent_capture(prompt=None, url=None, reverse_engineer=False, model=None,
                     usage=result.get("usage", {}),
                     paths={"script_path": result.get("script_path")},
                 )
+        elif is_record_only:
+            # Show helpful message for record-only mode
+            console.print(" [dim]>[/dim] [white]recording complete[/white]")
+            console.print(f" [dim]>[/dim] [white]run_id: {run_id}[/white]")
+            console.print(f" [dim]>[/dim] [dim]use @id {run_id} <prompt> to engineer later[/dim]\n")
     except Exception as e:
         console.print(f" [red]agent mode error: {e}[/red]")
         console.print(f" [dim]{ERROR_CTA}[/dim]")
@@ -1329,6 +1406,7 @@ def run_engineer(
     output_dir=None,
     additional_instructions=None,
     is_fresh=False,
+    output_mode="client",
 ):
     """Shared logic for reverse engineering."""
     if not har_path or not prompt:
@@ -1342,7 +1420,7 @@ def run_engineer(
                 console.print(f" [red]not found:[/red] {run_id}")
                 return None
             if not prompt:
-                prompt = "Reverse engineer captured APIs"  # Default
+                prompt = "Reverse engineer captured APIs" if output_mode == "client" else "Generate OpenAPI documentation"
         else:
             if not prompt:
                 prompt = run_data["prompt"]
@@ -1369,6 +1447,7 @@ def run_engineer(
             additional_instructions=additional_instructions,
             is_fresh=is_fresh,
             output_language=output_language,
+            output_mode=output_mode,
         )
     else:
         result = run_reverse_engineering(
@@ -1382,39 +1461,55 @@ def run_engineer(
             additional_instructions=additional_instructions,
             is_fresh=is_fresh,
             output_language=output_language,
+            output_mode=output_mode,
         )
 
     if result:
         # Skip manual copy if real-time sync is enabled (files already synced)
         if not enable_sync:
-            # Automatically copy scripts to current directory with a readable name
-            scripts_dir = Path(result["script_path"]).parent
+            # Automatically copy to current directory with a readable name
+            output_dir_path = Path(result["script_path"]).parent
             base_name = generate_folder_name(prompt, sdk=sdk)
-            scripts_base_path = Path.cwd() / "scripts"
+
+            # Choose base path based on output mode
+            if output_mode == "docs":
+                base_path = Path.cwd() / "docs"
+            else:
+                base_path = Path.cwd() / "scripts"
 
             from .sync import get_available_directory
 
             # Get available directory (won't overwrite existing non-empty dirs)
-            local_dir = get_available_directory(scripts_base_path, base_name)
+            local_dir = get_available_directory(base_path, base_name)
             local_dir.mkdir(parents=True, exist_ok=True)
 
             import shutil
 
-            for item in scripts_dir.iterdir():
+            for item in output_dir_path.iterdir():
                 if item.is_file():
                     shutil.copy2(item, local_dir / item.name)
 
-            console.print(" [dim]>[/dim] [white]decoding complete[/white]")
-            console.print(f" [dim]>[/dim] [white]{result['script_path']}[/white]")
-            console.print(f" [dim]>[/dim] [white]copied to ./scripts/{local_dir.name}[/white]\n")
+            # Different messages for docs vs client mode
+            if output_mode == "docs":
+                console.print(" [dim]>[/dim] [white]documentation complete[/white]")
+                console.print(f" [dim]>[/dim] [white]{result['script_path']}[/white]")
+                console.print(f" [dim]>[/dim] [white]copied to ./docs/{local_dir.name}[/white]\n")
+            else:
+                console.print(" [dim]>[/dim] [white]decoding complete[/white]")
+                console.print(f" [dim]>[/dim] [white]{result['script_path']}[/white]")
+                console.print(f" [dim]>[/dim] [white]copied to ./scripts/{local_dir.name}[/white]\n")
         else:
             # With sync enabled, just show completion
-            console.print(" [dim]>[/dim] [white]decoding complete[/white]")
+            if output_mode == "docs":
+                console.print(" [dim]>[/dim] [white]documentation complete[/white]")
+            else:
+                console.print(" [dim]>[/dim] [white]decoding complete[/white]")
             console.print(f" [dim]>[/dim] [white]{result['script_path']}[/white]\n")
 
         session_manager.update_run(
             run_id=run_id,
             sdk=sdk,
+            output_mode=output_mode,
             usage=result.get("usage", {}),
             paths={"script_path": result.get("script_path")},
         )

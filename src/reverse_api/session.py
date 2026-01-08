@@ -39,6 +39,7 @@ class SessionManager:
             "model": kwargs.get("model"),
             "mode": kwargs.get("mode", "manual"),  # Track which mode was used
             "sdk": kwargs.get("sdk"),
+            "output_mode": kwargs.get("output_mode", "client"),  # Track output format (client/docs)
             "usage": kwargs.get("usage", {}),
             "paths": kwargs.get("paths", {}),
         }
