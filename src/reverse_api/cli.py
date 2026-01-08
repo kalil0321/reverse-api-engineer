@@ -461,7 +461,8 @@ def handle_settings(mode_color=THEME_PRIMARY):
     config_table.add_column(style="dim", justify="left")
     config_table.add_column(style=mode_color, justify="left")
 
-    for k, v in config_manager.config.items():
+    # Sort config items alphabetically by key
+    for k, v in sorted(config_manager.config.items()):
         display_val = str(v) if v is not None else "default"
         # Make the key more readable
         key_display = k.replace("_", " ").title()
@@ -472,17 +473,18 @@ def handle_settings(mode_color=THEME_PRIMARY):
     console.print(config_table)
     console.print()
 
-    # Settings menu
+    # Settings menu (sorted alphabetically)
     choices = [
-        Choice(title="Claude Code Model", value="claude_code_model"),
-        Choice(title="SDK", value="sdk"),
-        Choice(title="OpenCode Provider", value="opencode_provider"),
-        Choice(title="OpenCode Model", value="opencode_model"),
         Choice(title="Agent Provider", value="agent_provider"),
         Choice(title="Browser-Use Model", value="browser_use_model"),
-        Choice(title="Stagehand Model", value="stagehand_model"),
-        Choice(title="Real-time Sync", value="real_time_sync"),
+        Choice(title="Claude Code Model", value="claude_code_model"),
+        Choice(title="OpenCode Model", value="opencode_model"),
+        Choice(title="OpenCode Provider", value="opencode_provider"),
         Choice(title="Output Directory", value="output_dir"),
+        Choice(title="Output Language", value="output_language"),
+        Choice(title="Real-time Sync", value="real_time_sync"),
+        Choice(title="SDK", value="sdk"),
+        Choice(title="Stagehand Model", value="stagehand_model"),
         Choice(title="Back", value="back"),
     ]
 
@@ -544,6 +546,29 @@ def handle_settings(mode_color=THEME_PRIMARY):
         if sdk and sdk != "back":
             config_manager.set("sdk", sdk)
             console.print(f" [dim]updated[/dim] sdk: {sdk}\n")
+
+    elif action == "output_language":
+        lang_choices = [
+            Choice(title="python", value="python"),
+            Choice(title="javascript", value="javascript"),
+            Choice(title="typescript", value="typescript"),
+            Choice(title="back", value="back"),
+        ]
+        lang = questionary.select(
+            "",
+            choices=lang_choices,
+            pointer=">",
+            qmark="",
+            style=questionary.Style(
+                [
+                    ("pointer", f"fg:{mode_color} bold"),
+                    ("highlighted", f"fg:{mode_color} bold"),
+                ]
+            ),
+        ).ask()
+        if lang and lang != "back":
+            config_manager.set("output_language", lang)
+            console.print(f" [dim]updated[/dim] output language: {lang}\n")
 
     elif action == "agent_provider":
         provider_choices = [
@@ -1227,6 +1252,7 @@ def run_auto_capture(prompt=None, url=None, model=None, output_dir=None):
 
     # Run auto engineer based on SDK
     try:
+        output_language = config_manager.get("output_language", "python")
         if sdk == "opencode":
             from .auto_engineer import OpenCodeAutoEngineer
 
@@ -1235,11 +1261,10 @@ def run_auto_capture(prompt=None, url=None, model=None, output_dir=None):
                 prompt=prompt,
                 output_dir=output_dir,
                 opencode_provider=config_manager.get("opencode_provider", "anthropic"),
-                opencode_model=config_manager.get(
-                    "opencode_model", "claude-sonnet-4-5"
-                ),
+                opencode_model=config_manager.get("opencode_model", "claude-sonnet-4-5"),
                 enable_sync=config_manager.get("real_time_sync", False),
                 sdk=sdk,
+                output_language=output_language,
             )
         else:
             from .auto_engineer import ClaudeAutoEngineer
@@ -1247,11 +1272,11 @@ def run_auto_capture(prompt=None, url=None, model=None, output_dir=None):
             engineer = ClaudeAutoEngineer(
                 run_id=run_id,
                 prompt=prompt,
-                model=model
-                or config_manager.get("claude_code_model", "claude-sonnet-4-5"),
+                model=model or config_manager.get("claude_code_model", "claude-sonnet-4-5"),
                 output_dir=output_dir,
                 enable_sync=config_manager.get("real_time_sync", False),
                 sdk=sdk,
+                output_language=output_language,
             )
 
         # Start sync before analysis
@@ -1328,6 +1353,7 @@ def run_engineer(
 
     sdk = config_manager.get("sdk", "claude")
     enable_sync = config_manager.get("real_time_sync", True)
+    output_language = config_manager.get("output_language", "python")
 
     if sdk == "opencode":
         result = run_reverse_engineering(
@@ -1342,6 +1368,7 @@ def run_engineer(
             enable_sync=enable_sync,
             additional_instructions=additional_instructions,
             is_fresh=is_fresh,
+            output_language=output_language,
         )
     else:
         result = run_reverse_engineering(
@@ -1354,6 +1381,7 @@ def run_engineer(
             enable_sync=enable_sync,
             additional_instructions=additional_instructions,
             is_fresh=is_fresh,
+            output_language=output_language,
         )
 
     if result:

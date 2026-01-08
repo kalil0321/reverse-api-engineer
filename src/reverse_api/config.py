@@ -5,15 +5,16 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_CONFIG = {
-    "claude_code_model": "claude-sonnet-4-5",
-    "opencode_provider": "anthropic",
-    "opencode_model": "claude-sonnet-4-5",
-    "output_dir": None,  # None means use ~/.reverse-api/runs
-    "sdk": "claude",  # "opencode" or "claude"
     "agent_provider": "auto",  # "auto" (default, MCP-based browser + engineering), "browser-use", or "stagehand"
     "browser_use_model": "bu-llm",  # "bu-llm" or "{provider}/{model_name}" (e.g. "openai/gpt-5-mini")
-    "stagehand_model": "openai/computer-use-preview-2025-03-11",  # "{provider}/{model_name}" format
+    "claude_code_model": "claude-sonnet-4-5",
+    "opencode_model": "claude-sonnet-4-5",
+    "opencode_provider": "anthropic",
+    "output_dir": None,  # None means use ~/.reverse-api/runs
+    "output_language": "python",  # "python", "javascript", or "typescript"
     "real_time_sync": True,  # Enable real-time file sync during engineering
+    "sdk": "claude",  # "opencode" or "claude"
+    "stagehand_model": "openai/computer-use-preview-2025-03-11",  # "{provider}/{model_name}" format
 }
 
 

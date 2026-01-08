@@ -53,9 +53,7 @@ async def _generate_folder_name_async(prompt: str) -> str:
 
     # Suppress claude_agent_sdk logs
     logging.getLogger("claude_agent_sdk").setLevel(logging.WARNING)
-    logging.getLogger("claude_agent_sdk._internal.transport.subprocess_cli").setLevel(
-        logging.WARNING
-    )
+    logging.getLogger("claude_agent_sdk._internal.transport.subprocess_cli").setLevel(logging.WARNING)
 
     options = ClaudeAgentOptions(
         allowed_tools=[],  # No tools needed for simple text generation

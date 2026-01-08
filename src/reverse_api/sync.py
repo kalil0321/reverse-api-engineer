@@ -244,15 +244,11 @@ class FileSyncWatcher:
                 "error": "Observer stopped",
             }
 
-        seconds_since_sync = (
-            time.time() - self.handler.last_sync_time if self.handler.last_sync_time > 0 else 0
-        )
+        seconds_since_sync = time.time() - self.handler.last_sync_time if self.handler.last_sync_time > 0 else 0
 
         return {
             "active": True,
-            "last_sync": f"{int(seconds_since_sync)}s ago"
-            if self.handler.last_sync_time > 0
-            else "never",
+            "last_sync": f"{int(seconds_since_sync)}s ago" if self.handler.last_sync_time > 0 else "never",
             "file_count": self.handler.file_count,
         }
 

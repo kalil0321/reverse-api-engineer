@@ -38,9 +38,7 @@ class MessageStore:
         """Save a tool start event."""
         self.append("tool_start", {"name": tool_name, "input": tool_input})
 
-    def save_tool_result(
-        self, tool_name: str, is_error: bool = False, output: str | None = None
-    ) -> None:
+    def save_tool_result(self, tool_name: str, is_error: bool = False, output: str | None = None) -> None:
         """Save a tool result event."""
         self.append(
             "tool_result",

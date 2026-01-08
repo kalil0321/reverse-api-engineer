@@ -58,9 +58,7 @@ class ClaudeUI:
         self._tool_count = 0
         self._tools_used: list[str] = []
 
-    def header(
-        self, run_id: str, prompt: str, model: str | None = None, sdk: str | None = None
-    ) -> None:
+    def header(self, run_id: str, prompt: str, model: str | None = None, sdk: str | None = None) -> None:
         """Display the session header."""
         from . import __version__
 
@@ -68,9 +66,7 @@ class ClaudeUI:
         self.console.print(f" [white]reverse-api[/white] [dim]v{__version__}[/dim]")
         self.console.print(f" [dim]━[/dim] [white]{run_id}[/white]")
         if sdk:
-            self.console.print(
-                f" [red]sdk[/red] [red]{sdk}[/red] [red]|[/red] [red]model[/red] [red]{model or '---'}[/red]"
-            )
+            self.console.print(f" [red]sdk[/red] [red]{sdk}[/red] [red]|[/red] [red]model[/red] [red]{model or '---'}[/red]")
         else:
             self.console.print(f" [dim]model[/dim] [white]{model or '---'}[/white]")
         self.console.print(f" [{THEME_PRIMARY}]task[/{THEME_PRIMARY}]   [white]{prompt}[/white]")
@@ -92,13 +88,9 @@ class ClaudeUI:
         input_summary = self._summarize_input(tool_name, tool_input)
 
         # Compact single-line format
-        self.console.print(
-            f"  [dim]>[/dim] {icon} [white]{tool_name.lower():8}[/white] {input_summary}"
-        )
+        self.console.print(f"  [dim]>[/dim] {icon} [white]{tool_name.lower():8}[/white] {input_summary}")
 
-    def tool_result(
-        self, tool_name: str, is_error: bool = False, output: str | None = None
-    ) -> None:
+    def tool_result(self, tool_name: str, is_error: bool = False, output: str | None = None) -> None:
         """Display when a tool completes."""
         if is_error:
             self.console.print(f"  [dim]![/dim] [red]{tool_name.lower()} failed[/red]")
@@ -111,9 +103,7 @@ class ClaudeUI:
                 for line in output_lines[:max_lines]:
                     self.console.print(f"  [dim]│[/dim] [dim]{line}[/dim]")
                 if len(output_lines) > max_lines:
-                    self.console.print(
-                        f"  [dim]│[/dim] [dim]... ({len(output_lines) - max_lines} more lines)[/dim]"
-                    )
+                    self.console.print(f"  [dim]│[/dim] [dim]... ({len(output_lines) - max_lines} more lines)[/dim]")
 
     def thinking(self, text: str, max_length: int = 100) -> None:
         """Display Claude's thinking/response text."""
@@ -210,9 +200,7 @@ def display_banner(console: Console, sdk: str | None = None, model: str | None =
     console.print("  [bold white]reverse-api[/bold white]")
     console.print(f"  [bold {THEME_PRIMARY}]━━[/bold {THEME_PRIMARY}]")
     if sdk and model:
-        console.print(
-            f"  [red]sdk[/red] [red]{sdk}[/red] [red]|[/red] [red]model[/red] [red]{model}[/red]"
-        )
+        console.print(f"  [red]sdk[/red] [red]{sdk}[/red] [red]|[/red] [red]model[/red] [red]{model}[/red]")
     console.print()
     console.print("  [dim white]AI agents for API reverse engineering.[/dim white]")
     console.print()

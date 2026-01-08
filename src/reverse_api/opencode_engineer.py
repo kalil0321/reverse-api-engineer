@@ -44,7 +44,6 @@ class OpenCodeEngineer(BaseEngineer):
         self.opencode_provider = kwargs.pop("opencode_provider", "anthropic")
         self.opencode_model = kwargs.pop("opencode_model", "claude-sonnet-4-5")
 
-
         super().__init__(*args, **kwargs)
 
         # Override UI with OpenCode-specific version
@@ -72,9 +71,7 @@ class OpenCodeEngineer(BaseEngineer):
                     self.opencode_ui.health_check(health)
                 except Exception as e:
                     debug_log(f"Health check failed: {e}")
-                    self.opencode_ui.error(
-                        f"OpenCode server not responding. Is it running on {self.BASE_URL}?"
-                    )
+                    self.opencode_ui.error(f"OpenCode server not responding. Is it running on {self.BASE_URL}?")
                     return None
 
                 # Create a new session
@@ -104,9 +101,7 @@ class OpenCodeEngineer(BaseEngineer):
                     "parts": [{"type": "text", "text": self._build_analysis_prompt()}],
                 }
 
-                prompt_r = await client.post(
-                    f"/session/{self._session_id}/message", json=prompt_body
-                )
+                prompt_r = await client.post(f"/session/{self._session_id}/message", json=prompt_body)
                 prompt_r.raise_for_status()
 
                 # Wait for events to complete
@@ -126,7 +121,7 @@ class OpenCodeEngineer(BaseEngineer):
                     return None
 
             # Success
-            script_path = str(self.scripts_dir / "api_client.py")
+            script_path = str(self.scripts_dir / self._get_client_filename())
 
             # Fetch actual provider and model used from session messages
             try:
@@ -148,11 +143,7 @@ class OpenCodeEngineer(BaseEngineer):
 
             # Show session summary before success message
             self.opencode_ui.session_summary(self.usage_metadata)
-            local_path = (
-                str(self.local_scripts_dir / "api_client.py")
-                if self.local_scripts_dir
-                else None
-            )
+            local_path = str(self.local_scripts_dir / self._get_client_filename()) if self.local_scripts_dir else None
             self.opencode_ui.success(script_path, local_path)
 
             result_data: dict[str, Any] = {
@@ -215,13 +206,11 @@ class OpenCodeEngineer(BaseEngineer):
                     except json.JSONDecodeError as e:
                         error_str = str(e)
                         # Check if this is a buffer size error
-                        if (
-                            "buffer size" in error_str.lower()
-                            or "1048576" in error_str
-                            or "exceeded maximum buffer" in error_str.lower()
-                        ):
+                        if "buffer size" in error_str.lower() or "1048576" in error_str or "exceeded maximum buffer" in error_str.lower():
                             debug_log(f"Buffer size error detected: {e}")
-                            self._last_error = "Screenshot too large (exceeds 1MB limit). Try element-specific screenshots instead of full-page screenshots."
+                            self._last_error = (
+                                "Screenshot too large (exceeds 1MB limit). Try element-specific screenshots instead of full-page screenshots."
+                            )
                             self.opencode_ui.error(self._last_error)
                             self.opencode_ui.console.print(
                                 "[dim]Tip: Use browser_snapshot() for page structure or take smaller, element-specific screenshots.[/dim]"
@@ -242,9 +231,7 @@ class OpenCodeEngineer(BaseEngineer):
 
                     elif event_type == "session.idle":
                         event_sid = properties.get("sessionID")
-                        debug_log(
-                            f"session.idle: sessionID={event_sid}, our session={self._session_id}"
-                        )
+                        debug_log(f"session.idle: sessionID={event_sid}, our session={self._session_id}")
                         if event_sid == self._session_id:
                             debug_log("Our session is idle, returning!")
                             self.opencode_ui.session_status("idle")
@@ -274,9 +261,7 @@ class OpenCodeEngineer(BaseEngineer):
                         perm_type = properties.get("type", "")
                         perm_title = properties.get("title", "")
 
-                        debug_log(
-                            f"permission.updated: id={permission_id}, type={perm_type}, title={perm_title}"
-                        )
+                        debug_log(f"permission.updated: id={permission_id}, type={perm_type}, title={perm_title}")
 
                         if perm_session == self._session_id and permission_id:
                             # Show permission request in UI
@@ -343,17 +328,11 @@ class OpenCodeEngineer(BaseEngineer):
                             elif error_name == "APIError":
                                 msg = error_data.get("message", "API error")
                                 status = error_data.get("statusCode", "")
-                                self._last_error = (
-                                    f"API error{' (' + str(status) + ')' if status else ''}: {msg}"
-                                )
+                                self._last_error = f"API error{' (' + str(status) + ')' if status else ''}: {msg}"
                             elif error_name == "MessageAbortedError":
                                 self._last_error = "Aborted"
                             else:
-                                msg = (
-                                    error_data.get("message", "")
-                                    if isinstance(error_data, dict)
-                                    else str(error_data)
-                                )
+                                msg = error_data.get("message", "") if isinstance(error_data, dict) else str(error_data)
                                 self._last_error = f"{error_name}: {msg}" if msg else error_name
                         else:
                             self._last_error = str(error_obj)
@@ -381,9 +360,7 @@ class OpenCodeEngineer(BaseEngineer):
 
         if part_type == "text":
             text = part.get("text", "")
-            debug_log(
-                f"Handling text part: id={part_id}, delta={'yes' if delta else 'no'}, len={len(text)}"
-            )
+            debug_log(f"Handling text part: id={part_id}, delta={'yes' if delta else 'no'}, len={len(text)}")
             # Use delta for incremental updates if available
             self.opencode_ui.update_text(text, delta)
 
@@ -444,36 +421,11 @@ class OpenCodeEngineer(BaseEngineer):
             else:
                 cost = api_cost
 
-            self.usage_metadata["input_tokens"] = (
-                self.usage_metadata.get("input_tokens", 0) + input_tokens
-            )
-            self.usage_metadata["output_tokens"] = (
-                self.usage_metadata.get("output_tokens", 0) + output_tokens
-            )
-            self.usage_metadata["reasoning_tokens"] = (
-                self.usage_metadata.get("reasoning_tokens", 0) + reasoning_tokens
-            )
-            self.usage_metadata["cache_read_tokens"] = (
-                self.usage_metadata.get("cache_read_tokens", 0) + cache_read
-            )
-            self.usage_metadata["cache_creation_tokens"] = (
-                self.usage_metadata.get("cache_creation_tokens", 0) + cache_write
-            )
-            self.usage_metadata["input_tokens"] = (
-                self.usage_metadata.get("input_tokens", 0) + input_tokens
-            )
-            self.usage_metadata["output_tokens"] = (
-                self.usage_metadata.get("output_tokens", 0) + output_tokens
-            )
-            self.usage_metadata["reasoning_tokens"] = (
-                self.usage_metadata.get("reasoning_tokens", 0) + reasoning_tokens
-            )
-            self.usage_metadata["cache_read_tokens"] = (
-                self.usage_metadata.get("cache_read_tokens", 0) + cache_read
-            )
-            self.usage_metadata["cache_creation_tokens"] = (
-                self.usage_metadata.get("cache_creation_tokens", 0) + cache_write
-            )
+            self.usage_metadata["input_tokens"] = self.usage_metadata.get("input_tokens", 0) + input_tokens
+            self.usage_metadata["output_tokens"] = self.usage_metadata.get("output_tokens", 0) + output_tokens
+            self.usage_metadata["reasoning_tokens"] = self.usage_metadata.get("reasoning_tokens", 0) + reasoning_tokens
+            self.usage_metadata["cache_read_tokens"] = self.usage_metadata.get("cache_read_tokens", 0) + cache_read
+            self.usage_metadata["cache_creation_tokens"] = self.usage_metadata.get("cache_creation_tokens", 0) + cache_write
             self.usage_metadata["cost"] = self.usage_metadata.get("cost", 0) + cost
 
 

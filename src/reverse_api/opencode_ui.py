@@ -42,9 +42,7 @@ class OpenCodeUI:
         self.console.print(f" [white]reverse-api[/white] [dim]v{__version__}[/dim]")
         self.console.print(f" [dim]━[/dim] [white]{run_id}[/white]")
         if sdk:
-            self.console.print(
-                f" [red]sdk[/red] [red]{sdk}[/red] [red]|[/red] [red]model[/red] [red]{model or '---'}[/red]"
-            )
+            self.console.print(f" [red]sdk[/red] [red]{sdk}[/red] [red]|[/red] [red]model[/red] [red]{model or '---'}[/red]")
         else:
             self.console.print(f" [dim]model[/dim] [white]{model or '---'}[/white]")
         self.console.print(f" [{THEME_PRIMARY}]task[/{THEME_PRIMARY}]   [white]{prompt}[/white]")
@@ -119,9 +117,7 @@ class OpenCodeUI:
         if self._live:
             self._live.update(self._build_display())
 
-    def tool_result(
-        self, tool_name: str, is_error: bool = False, output: str | None = None
-    ) -> None:
+    def tool_result(self, tool_name: str, is_error: bool = False, output: str | None = None) -> None:
         """Display when a tool completes."""
         self._current_tool = None
         self._tool_status = "completed" if not is_error else "error"

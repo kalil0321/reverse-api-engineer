@@ -5,7 +5,7 @@ Combines browser automation via MCP with simultaneous API reverse engineering.
 
 import asyncio
 import logging
-from typing import Any, Dict
+from typing import Any
 
 import httpx
 from claude_agent_sdk import (
@@ -24,9 +24,7 @@ from .utils import get_har_dir
 
 # Suppress claude_agent_sdk logs
 logging.getLogger("claude_agent_sdk").setLevel(logging.WARNING)
-logging.getLogger("claude_agent_sdk._internal.transport.subprocess_cli").setLevel(
-    logging.WARNING
-)
+logging.getLogger("claude_agent_sdk._internal.transport.subprocess_cli").setLevel(logging.WARNING)
 
 
 class ClaudeAutoEngineer(ClaudeEngineer):
@@ -58,8 +56,99 @@ class ClaudeAutoEngineer(ClaudeEngineer):
 
     def _build_auto_prompt(self) -> str:
         """Build autonomous browsing + engineering prompt."""
+        language_name = {
+            "python": "Python",
+            "javascript": "JavaScript",
+            "typescript": "TypeScript",
+        }.get(self.output_language, "Python")
+
+        client_filename = self._get_client_filename()
+        run_command = self._get_run_command()
+
+        # Build language-specific generation instructions
+        if self.output_language == "javascript":
+            generation_instructions = f"""2. **Generate JavaScript API client** at `{self.scripts_dir}/{client_filename}`:
+   - Use modern JavaScript (ES2022+) with ESM modules (import/export)
+   - Use native `fetch` API for HTTP requests (Node.js 18+ built-in)
+   - If advanced features needed (retries, interceptors), use `axios`
+   - Include proper authentication handling
+   - Create separate async functions for each API endpoint
+   - Add JSDoc comments for type documentation
+   - Include example usage in main section
+   - Make it production-ready and maintainable
+   - If using external dependencies, generate package.json
+
+3. **Create documentation** at `{self.scripts_dir}/README.md`:
+   - Explain what APIs were discovered
+   - How authentication works
+   - How to use each function
+   - Requirements: Node.js 18+
+   - Any limitations or requirements
+
+4. **Test your implementation**:
+   - If package.json was generated, first run: npm install
+   - Run with: {run_command}
+   - You have up to 5 attempts to fix any issues
+   - If initial implementation fails, analyze errors and iterate"""
+            output_files = f"""1. `{self.scripts_dir}/{client_filename}` - Production JavaScript API client
+2. `{self.scripts_dir}/README.md` - Documentation with usage examples
+3. `{self.scripts_dir}/package.json` - Only if external dependencies are needed"""
+
+        elif self.output_language == "typescript":
+            generation_instructions = f"""2. **Generate TypeScript API client** at `{self.scripts_dir}/{client_filename}`:
+   - Use TypeScript with strict typing enabled
+   - Use ESM modules (import/export syntax)
+   - Use native `fetch` API for HTTP requests (Node.js 18+ built-in)
+   - If advanced features needed, use `axios`
+   - Define TypeScript interfaces for all request/response types
+   - Include proper authentication handling
+   - Create separate async functions for each API endpoint
+   - Export a class-based API client with proper encapsulation
+   - Include example usage in main section
+   - Make it production-ready and maintainable
+   - Generate package.json with tsx, typescript, @types/node
+
+3. **Create documentation** at `{self.scripts_dir}/README.md`:
+   - Explain what APIs were discovered
+   - How authentication works
+   - How to use each function
+   - Requirements: Node.js 18+
+   - Any limitations or requirements
+
+4. **Test your implementation**:
+   - Run: npm install && {run_command}
+   - You have up to 5 attempts to fix any issues
+   - If initial implementation fails, analyze errors and iterate"""
+            output_files = f"""1. `{self.scripts_dir}/{client_filename}` - Production TypeScript API client
+2. `{self.scripts_dir}/README.md` - Documentation with usage examples
+3. `{self.scripts_dir}/package.json` - Dependencies and run scripts"""
+
+        else:  # python
+            generation_instructions = f"""2. **Generate Python API client** at `{self.scripts_dir}/{client_filename}`:
+   - Use `requests` library as default (or Playwright if needed for bot detection)
+   - Include proper authentication handling
+   - Create separate functions for each API endpoint
+   - Add type hints, docstrings, error handling
+   - Include example usage in main section
+   - Make it production-ready and maintainable
+
+3. **Create documentation** at `{self.scripts_dir}/README.md`:
+   - Explain what APIs were discovered
+   - How authentication works
+   - How to use each function
+   - Example usage
+   - Any limitations or requirements
+
+4. **Test your implementation**:
+   - After generating the code, test it to ensure it works
+   - Run with: {run_command}
+   - You have up to 5 attempts to fix any issues
+   - If initial implementation fails, analyze errors and iterate"""
+            output_files = f"""1. `{self.scripts_dir}/{client_filename}` - Production Python API client
+2. `{self.scripts_dir}/README.md` - Documentation with usage examples"""
+
         return f"""You are an autonomous AI agent with browser control via MCP tools.
-        Your mission is to browse, monitor network traffic, and generate production-ready Python API code.
+        Your mission is to browse, monitor network traffic, and generate production-ready {language_name} API code.
 
 <mission>
 {self.prompt}
@@ -109,31 +198,13 @@ When you have sufficient data or have accomplished the mission goal, call `brows
 - Returns: {{"har_path": str, "resources": {{...}}}}
 
 ### Phase 4: REVERSE ENGINEER
-Based on the network traffic you observed, generate production-ready Python code:
+Based on the network traffic you observed, generate production-ready {language_name} code:
 
 1. **Analyze the HAR file** you just captured at {self.har_path}
    - Read and parse the HAR file
    - Extract all API calls, authentication, patterns
 
-2. **Generate Python API client** at `{self.scripts_dir}/api_client.py`:
-   - Use `requests` library as default (or Playwright if needed for bot detection)
-   - Include proper authentication handling
-   - Create separate functions for each API endpoint
-   - Add type hints, docstrings, error handling
-   - Include example usage in main section
-   - Make it production-ready and maintainable
-
-3. **Create documentation** at `{self.scripts_dir}/README.md`:
-   - Explain what APIs were discovered
-   - How authentication works
-   - How to use each function
-   - Example usage
-   - Any limitations or requirements
-
-4. **Test your implementation**:
-   - After generating the code, test it to ensure it works
-   - You have up to 5 attempts to fix any issues
-   - If initial implementation fails, analyze errors and iterate
+{generation_instructions}
 
 ## IMPORTANT NOTES
 
@@ -146,8 +217,7 @@ Based on the network traffic you observed, generate production-ready Python code
 
 ## OUTPUT FILES REQUIRED
 
-1. `{self.scripts_dir}/api_client.py` - Production Python API client
-2. `{self.scripts_dir}/README.md` - Documentation with usage examples
+{output_files}
 
 Your final response should confirm the files were created and provide a brief summary of:
 - What APIs were discovered
@@ -156,7 +226,7 @@ Your final response should confirm the files were created and provide a brief su
 - Any limitations or caveats
 """
 
-    async def analyze_and_generate(self) -> Dict[str, Any] | None:
+    async def analyze_and_generate(self) -> dict[str, Any] | None:
         """Run auto mode with MCP browser integration."""
         self.ui.header(self.run_id, self.prompt, self.model)
         self.ui.start_analysis()
@@ -196,9 +266,7 @@ Your final response should confirm the files were created and provide a brief su
                 # Process response and show progress with TUI
                 async for message in client.receive_response():
                     # Check for usage metadata
-                    if hasattr(message, "usage") and isinstance(
-                        message.usage, dict
-                    ):
+                    if hasattr(message, "usage") and isinstance(message.usage, dict):
                         self.usage_metadata.update(message.usage)
 
                     if isinstance(message, AssistantMessage):
@@ -207,9 +275,7 @@ Your final response should confirm the files were created and provide a brief su
                             if isinstance(block, ToolUseBlock):
                                 last_tool_name = block.name
                                 self.ui.tool_start(block.name, block.input)
-                                self.message_store.save_tool_start(
-                                    block.name, block.input
-                                )
+                                self.message_store.save_tool_start(block.name, block.input)
                             elif isinstance(block, ToolResultBlock):
                                 is_error = block.is_error if block.is_error else False
 
@@ -224,9 +290,7 @@ Your final response should confirm the files were created and provide a brief su
 
                                 tool_name = last_tool_name or "Tool"
                                 self.ui.tool_result(tool_name, is_error, output)
-                                self.message_store.save_tool_result(
-                                    tool_name, is_error, str(output) if output else None
-                                )
+                                self.message_store.save_tool_result(tool_name, is_error, str(output) if output else None)
                             elif isinstance(block, TextBlock):
                                 self.ui.thinking(block.text)
                                 self.message_store.save_thinking(block.text)
@@ -234,33 +298,19 @@ Your final response should confirm the files were created and provide a brief su
                     elif isinstance(message, ResultMessage):
                         if message.is_error:
                             self.ui.error(message.result or "Unknown error")
-                            self.message_store.save_error(
-                                message.result or "Unknown error"
-                            )
+                            self.message_store.save_error(message.result or "Unknown error")
                             return None
                         else:
-                            script_path = str(self.scripts_dir / "api_client.py")
-                            local_path = (
-                                str(self.local_scripts_dir / "api_client.py")
-                                if self.local_scripts_dir
-                                else None
-                            )
+                            script_path = str(self.scripts_dir / self._get_client_filename())
+                            local_path = str(self.local_scripts_dir / self._get_client_filename()) if self.local_scripts_dir else None
                             self.ui.success(script_path, local_path)
 
                             # Calculate estimated cost if we have usage data
                             if self.usage_metadata:
-                                input_tokens = self.usage_metadata.get(
-                                    "input_tokens", 0
-                                )
-                                output_tokens = self.usage_metadata.get(
-                                    "output_tokens", 0
-                                )
-                                cache_creation_tokens = self.usage_metadata.get(
-                                    "cache_creation_input_tokens", 0
-                                )
-                                cache_read_tokens = self.usage_metadata.get(
-                                    "cache_read_input_tokens", 0
-                                )
+                                input_tokens = self.usage_metadata.get("input_tokens", 0)
+                                output_tokens = self.usage_metadata.get("output_tokens", 0)
+                                cache_creation_tokens = self.usage_metadata.get("cache_creation_input_tokens", 0)
+                                cache_read_tokens = self.usage_metadata.get("cache_read_input_tokens", 0)
 
                                 # Calculate cost using shared pricing module
                                 from .pricing import calculate_cost
@@ -277,26 +327,16 @@ Your final response should confirm the files were created and provide a brief su
                                 # Display usage breakdown
                                 self.ui.console.print(f"  [dim]Usage:[/dim]")  # noqa: F541
                                 if input_tokens > 0:
-                                    self.ui.console.print(
-                                        f"  [dim]  input: {input_tokens:,} tokens[/dim]"
-                                    )
+                                    self.ui.console.print(f"  [dim]  input: {input_tokens:,} tokens[/dim]")
                                 if cache_creation_tokens > 0:
-                                    self.ui.console.print(
-                                        f"  [dim]  cache creation: {cache_creation_tokens:,} tokens[/dim]"
-                                    )
+                                    self.ui.console.print(f"  [dim]  cache creation: {cache_creation_tokens:,} tokens[/dim]")
                                 if cache_read_tokens > 0:
-                                    self.ui.console.print(
-                                        f"  [dim]  cache read: {cache_read_tokens:,} tokens[/dim]"
-                                    )
+                                    self.ui.console.print(f"  [dim]  cache read: {cache_read_tokens:,} tokens[/dim]")
                                 if output_tokens > 0:
-                                    self.ui.console.print(
-                                        f"  [dim]  output: {output_tokens:,} tokens[/dim]"
-                                    )
-                                self.ui.console.print(
-                                    f"  [dim]  total cost: ${cost:.4f}[/dim]"
-                                )
+                                    self.ui.console.print(f"  [dim]  output: {output_tokens:,} tokens[/dim]")
+                                self.ui.console.print(f"  [dim]  total cost: ${cost:.4f}[/dim]")
 
-                            result: Dict[str, Any] = {
+                            result: dict[str, Any] = {
                                 "script_path": script_path,
                                 "usage": self.usage_metadata,
                             }
@@ -309,31 +349,17 @@ Your final response should confirm the files were created and provide a brief su
             self.message_store.save_error(error_msg)
 
             # Handle screenshot buffer size errors specifically
-            if (
-                "buffer size" in error_msg.lower()
-                or "1048576" in error_msg
-                or "exceeded maximum buffer" in error_msg.lower()
-            ):
-                self.ui.console.print(
-                    "\n[yellow]⚠ Screenshot too large (exceeds 1MB limit)[/yellow]"
-                )
-                self.ui.console.print(
-                    "[dim]Tip: The AI should take element-specific screenshots instead of full-page screenshots.[/dim]"
-                )
+            if "buffer size" in error_msg.lower() or "1048576" in error_msg or "exceeded maximum buffer" in error_msg.lower():
+                self.ui.console.print("\n[yellow]⚠ Screenshot too large (exceeds 1MB limit)[/yellow]")
+                self.ui.console.print("[dim]Tip: The AI should take element-specific screenshots instead of full-page screenshots.[/dim]")
                 self.ui.console.print(
                     "[dim]Consider using browser_snapshot() for accessibility tree information when screenshots aren't needed.[/dim]"
                 )
             # Provide helpful error messages
             elif "MCP server" in error_msg or "npx" in error_msg:
-                self.ui.console.print(
-                    "\n[dim]Make sure rae-playwright-mcp is installed: "
-                    "npm install -g rae-playwright-mcp[/dim]"
-                )
+                self.ui.console.print("\n[dim]Make sure rae-playwright-mcp is installed: npm install -g rae-playwright-mcp[/dim]")
             else:
-                self.ui.console.print(
-                    "\n[dim]Make sure Claude Code CLI is installed: "
-                    "npm install -g @anthropic-ai/claude-code[/dim]"
-                )
+                self.ui.console.print("\n[dim]Make sure Claude Code CLI is installed: npm install -g @anthropic-ai/claude-code[/dim]")
             return None
 
         return None
@@ -342,9 +368,7 @@ Your final response should confirm the files were created and provide a brief su
 class OpenCodeAutoEngineer(OpenCodeEngineer):
     """Auto mode using OpenCode SDK: Register MCP server dynamically."""
 
-    def __init__(
-        self, run_id: str, prompt: str, output_dir: str | None = None, **kwargs
-    ):
+    def __init__(self, run_id: str, prompt: str, output_dir: str | None = None, **kwargs):
         """Initialize auto engineer with expected HAR path (created by MCP)."""
         # Calculate expected HAR path - MCP will create it during execution
         har_dir = get_har_dir(run_id, output_dir)
@@ -365,16 +389,14 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
         # Reuse the same prompt from ClaudeAutoEngineer
         return ClaudeAutoEngineer._build_auto_prompt(self)
 
-    async def analyze_and_generate(self) -> Dict[str, Any] | None:
+    async def analyze_and_generate(self) -> dict[str, Any] | None:
         """Run auto mode with OpenCode MCP integration."""
         self.opencode_ui.header(self.run_id, self.prompt, self.opencode_model)
         self.opencode_ui.start_analysis()
         self.message_store.save_prompt(self._build_auto_prompt())
 
         try:
-            async with httpx.AsyncClient(
-                base_url=self.BASE_URL, timeout=600.0
-            ) as client:
+            async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=600.0) as client:
                 try:
                     health_r = await client.get("/global/health")
                     health_r.raise_for_status()
@@ -382,9 +404,7 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
                     self.opencode_ui.health_check(health)
                 except Exception as e:
                     debug_log(f"Health check failed: {e}")
-                    self.opencode_ui.error(
-                        f"OpenCode server not responding. Is it running on {self.BASE_URL}?"
-                    )
+                    self.opencode_ui.error(f"OpenCode server not responding. Is it running on {self.BASE_URL}?")
                     return None
 
                 # Create session first
@@ -439,9 +459,7 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
                     "parts": [{"type": "text", "text": self._build_auto_prompt()}],
                 }
 
-                prompt_r = await client.post(
-                    f"/session/{self._session_id}/message", json=prompt_body
-                )
+                prompt_r = await client.post(f"/session/{self._session_id}/message", json=prompt_body)
                 prompt_r.raise_for_status()
 
                 # Wait for events to complete
@@ -470,16 +488,12 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
                     return None
 
             # Success
-            script_path = str(self.scripts_dir / "api_client.py")
+            script_path = str(self.scripts_dir / self._get_client_filename())
 
             # Fetch actual provider and model used
             try:
-                async with httpx.AsyncClient(
-                    base_url=self.BASE_URL, timeout=10.0
-                ) as client:
-                    messages_r = await client.get(
-                        f"/session/{self._session_id}/message"
-                    )
+                async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=10.0) as client:
+                    messages_r = await client.get(f"/session/{self._session_id}/message")
                     if messages_r.status_code == 200:
                         messages = messages_r.json()
                         for msg in messages:
@@ -495,14 +509,10 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
 
             # Show session summary
             self.opencode_ui.session_summary(self.usage_metadata)
-            local_path = (
-                str(self.local_scripts_dir / "api_client.py")
-                if self.local_scripts_dir
-                else None
-            )
+            local_path = str(self.local_scripts_dir / self._get_client_filename()) if self.local_scripts_dir else None
             self.opencode_ui.success(script_path, local_path)
 
-            result_data: Dict[str, Any] = {
+            result_data: dict[str, Any] = {
                 "script_path": script_path,
                 "usage": self.usage_metadata,
                 "session_id": self._session_id,
@@ -512,9 +522,7 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
 
         except httpx.ConnectError:
             self.opencode_ui.error("Connection error")
-            self.opencode_ui.console.print(
-                "\n[dim]Make sure OpenCode is running: opencode[/dim]"
-            )
+            self.opencode_ui.console.print("\n[dim]Make sure OpenCode is running: opencode[/dim]")
             self.message_store.save_error("Connection error")
             return None
 
@@ -524,17 +532,9 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
             self.message_store.save_error(error_msg)
 
             # Handle screenshot buffer size errors specifically
-            if (
-                "buffer size" in error_msg.lower()
-                or "1048576" in error_msg
-                or "exceeded maximum buffer" in error_msg.lower()
-            ):
-                self.opencode_ui.console.print(
-                    "\n[yellow]⚠ Screenshot too large (exceeds 1MB limit)[/yellow]"
-                )
-                self.opencode_ui.console.print(
-                    "[dim]Tip: The AI should take element-specific screenshots instead of full-page screenshots.[/dim]"
-                )
+            if "buffer size" in error_msg.lower() or "1048576" in error_msg or "exceeded maximum buffer" in error_msg.lower():
+                self.opencode_ui.console.print("\n[yellow]⚠ Screenshot too large (exceeds 1MB limit)[/yellow]")
+                self.opencode_ui.console.print("[dim]Tip: The AI should take element-specific screenshots instead of full-page screenshots.[/dim]")
                 self.opencode_ui.console.print(
                     "[dim]Consider using browser_snapshot() for accessibility tree information when screenshots aren't needed.[/dim]"
                 )
@@ -545,9 +545,7 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
             # Best effort cleanup - deregister MCP server
             if self.mcp_name:
                 try:
-                    async with httpx.AsyncClient(
-                        base_url=self.BASE_URL, timeout=5.0
-                    ) as client:
+                    async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=5.0) as client:
                         await client.delete(f"/mcp/{self.mcp_name}")
                         debug_log(f"Cleaned up MCP server: {self.mcp_name}")
                 except Exception:

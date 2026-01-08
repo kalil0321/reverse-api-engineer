@@ -22,9 +22,7 @@ from .tui import THEME_PRIMARY, THEME_SECONDARY
 
 # Suppress claude_agent_sdk logs
 logging.getLogger("claude_agent_sdk").setLevel(logging.WARNING)
-logging.getLogger("claude_agent_sdk._internal.transport.subprocess_cli").setLevel(
-    logging.WARNING
-)
+logging.getLogger("claude_agent_sdk._internal.transport.subprocess_cli").setLevel(logging.WARNING)
 
 
 class ClaudeEngineer(BaseEngineer):
@@ -209,9 +207,7 @@ class ClaudeEngineer(BaseEngineer):
 
                                 tool_name = last_tool_name or "Tool"
                                 self.ui.tool_result(tool_name, is_error, output)
-                                self.message_store.save_tool_result(
-                                    tool_name, is_error, str(output) if output else None
-                                )
+                                self.message_store.save_tool_result(tool_name, is_error, str(output) if output else None)
                             elif isinstance(block, TextBlock):
                                 self.ui.thinking(block.text)
                                 self.message_store.save_thinking(block.text)
@@ -222,24 +218,16 @@ class ClaudeEngineer(BaseEngineer):
                             self.message_store.save_error(message.result or "Unknown error")
                             return None
                         else:
-                            script_path = str(self.scripts_dir / "api_client.py")
-                            local_path = (
-                                str(self.local_scripts_dir / "api_client.py")
-                                if self.local_scripts_dir
-                                else None
-                            )
+                            script_path = str(self.scripts_dir / self._get_client_filename())
+                            local_path = str(self.local_scripts_dir / self._get_client_filename()) if self.local_scripts_dir else None
                             self.ui.success(script_path, local_path)
 
                             # Calculate estimated cost if we have usage data
                             if self.usage_metadata:
                                 input_tokens = self.usage_metadata.get("input_tokens", 0)
                                 output_tokens = self.usage_metadata.get("output_tokens", 0)
-                                cache_creation_tokens = self.usage_metadata.get(
-                                    "cache_creation_input_tokens", 0
-                                )
-                                cache_read_tokens = self.usage_metadata.get(
-                                    "cache_read_input_tokens", 0
-                                )
+                                cache_creation_tokens = self.usage_metadata.get("cache_creation_input_tokens", 0)
+                                cache_read_tokens = self.usage_metadata.get("cache_read_input_tokens", 0)
 
                                 # Calculate cost using shared pricing module
                                 from .pricing import calculate_cost
@@ -256,21 +244,13 @@ class ClaudeEngineer(BaseEngineer):
                                 # Display usage breakdown
                                 self.ui.console.print("  [dim]Usage:[/dim]")
                                 if input_tokens > 0:
-                                    self.ui.console.print(
-                                        f"  [dim]  input: {input_tokens:,} tokens[/dim]"
-                                    )
+                                    self.ui.console.print(f"  [dim]  input: {input_tokens:,} tokens[/dim]")
                                 if cache_creation_tokens > 0:
-                                    self.ui.console.print(
-                                        f"  [dim]  cache creation: {cache_creation_tokens:,} tokens[/dim]"
-                                    )
+                                    self.ui.console.print(f"  [dim]  cache creation: {cache_creation_tokens:,} tokens[/dim]")
                                 if cache_read_tokens > 0:
-                                    self.ui.console.print(
-                                        f"  [dim]  cache read: {cache_read_tokens:,} tokens[/dim]"
-                                    )
+                                    self.ui.console.print(f"  [dim]  cache read: {cache_read_tokens:,} tokens[/dim]")
                                 if output_tokens > 0:
-                                    self.ui.console.print(
-                                        f"  [dim]  output: {output_tokens:,} tokens[/dim]"
-                                    )
+                                    self.ui.console.print(f"  [dim]  output: {output_tokens:,} tokens[/dim]")
                                 self.ui.console.print(f"  [dim]  total cost: ${cost:.4f}[/dim]")
 
                             result: dict[str, Any] = {
@@ -283,10 +263,7 @@ class ClaudeEngineer(BaseEngineer):
         except Exception as e:
             self.ui.error(str(e))
             self.message_store.save_error(str(e))
-            self.ui.console.print(
-                "\n[dim]Make sure Claude Code CLI is installed: "
-                "npm install -g @anthropic-ai/claude-code[/dim]"
-            )
+            self.ui.console.print("\n[dim]Make sure Claude Code CLI is installed: npm install -g @anthropic-ai/claude-code[/dim]")
             return None
 
         return None
@@ -309,6 +286,7 @@ def run_reverse_engineering(
     opencode_model: str | None = None,
     enable_sync: bool = False,
     is_fresh: bool = False,
+    output_language: str = "python",
 ) -> dict[str, Any] | None:
     """Run reverse engineering with the specified SDK.
 
@@ -318,6 +296,7 @@ def run_reverse_engineering(
         opencode_model: Model ID for OpenCode (e.g., "claude-sonnet-4-5")
         enable_sync: Enable real-time file syncing during engineering
         is_fresh: Whether to start fresh (ignore previous scripts)
+        output_language: Target language - "python", "javascript", or "typescript"
     """
     if sdk == "opencode":
         from .opencode_engineer import OpenCodeEngineer
@@ -335,6 +314,7 @@ def run_reverse_engineering(
             enable_sync=enable_sync,
             sdk=sdk,
             is_fresh=is_fresh,
+            output_language=output_language,
         )
     else:
         engineer = ClaudeEngineer(
@@ -348,6 +328,7 @@ def run_reverse_engineering(
             enable_sync=enable_sync,
             sdk=sdk,
             is_fresh=is_fresh,
+            output_language=output_language,
         )
 
     # Start sync before analysis

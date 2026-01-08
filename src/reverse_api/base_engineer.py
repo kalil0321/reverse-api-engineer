@@ -25,6 +25,7 @@ class BaseEngineer(ABC):
         enable_sync: bool = False,
         sdk: str = "claude",
         is_fresh: bool = False,
+        output_language: str = "python",
     ):
         self.run_id = run_id
         self.har_path = har_path
@@ -38,6 +39,7 @@ class BaseEngineer(ABC):
         self.enable_sync = enable_sync
         self.sdk = sdk
         self.is_fresh = is_fresh
+        self.output_language = output_language
         self.sync_watcher: FileSyncWatcher | None = None
         self.local_scripts_dir: Path | None = None
 
@@ -88,10 +90,160 @@ class BaseEngineer(ABC):
             return self.sync_watcher.get_status()
         return None
 
+    def _get_output_extension(self) -> str:
+        """Return file extension based on output language."""
+        return {
+            "python": ".py",
+            "javascript": ".js",
+            "typescript": ".ts",
+        }.get(self.output_language, ".py")
+
+    def _get_client_filename(self) -> str:
+        """Return the API client filename."""
+        return f"api_client{self._get_output_extension()}"
+
+    def _get_run_command(self) -> str:
+        """Return the command to run the generated client."""
+        return {
+            "python": "python api_client.py",
+            "javascript": "node api_client.js",
+            "typescript": "npx tsx api_client.ts",
+        }.get(self.output_language, "python api_client.py")
+
+    def _get_language_instructions(self) -> str:
+        """Return language-specific code generation instructions."""
+        client_filename = self._get_client_filename()
+        run_command = self._get_run_command()
+
+        if self.output_language == "javascript":
+            return f"""4. **Generate a JavaScript module** that replicates these API calls with the following requirements:
+   - Use modern JavaScript (ES2022+) with ESM modules (import/export)
+   - Use native `fetch` API for HTTP requests (Node.js 18+ built-in)
+   - If advanced features are needed (retries, interceptors), use `axios` instead
+   - Include proper authentication handling (sessions, headers, tokens)
+   - Create separate async functions for each distinct API endpoint
+   - Use JSDoc comments for type documentation on all functions
+   - Implement proper error handling with try-catch blocks
+   - Create custom Error classes for API errors
+   - Add console logging for debugging purposes
+   - Make the code production-ready and maintainable
+   - Include a main section with example usage (wrapped in async IIFE or top-level await)
+   - If using external dependencies (like axios), generate a package.json with:
+     - "type": "module" for ESM support
+     - Required dependencies
+     - scripts: {{ "start": "node api_client.js" }}
+
+5. **Create documentation**:
+   - Generate a README.md file that explains:
+     - What APIs were discovered
+     - How authentication works
+     - How to use each function
+     - Example usage
+     - Requirements: Node.js 18+
+     - Any limitations or requirements
+
+6. **Test your implementation**:
+   - If package.json was generated, first run: npm install
+   - Run with: {run_command}
+   - You have up to 5 attempts to fix any issues
+   - If the initial implementation fails, analyze the error and try again
+
+After your analysis, generate the files:
+
+1. Save the JavaScript module to: {self.scripts_dir}/{client_filename}
+2. Save the documentation to: {self.scripts_dir}/README.md
+3. If external dependencies are used, save: {self.scripts_dir}/package.json"""
+
+        elif self.output_language == "typescript":
+            return f"""4. **Generate a TypeScript module** that replicates these API calls with the following requirements:
+   - Use TypeScript with strict typing enabled
+   - Use ESM modules (import/export syntax)
+   - Use native `fetch` API for HTTP requests (Node.js 18+ built-in)
+   - If advanced features are needed (retries, interceptors), use `axios` instead
+   - Define TypeScript interfaces for all request/response types
+   - Include proper authentication handling (sessions, headers, tokens)
+   - Create separate async functions for each distinct API endpoint
+   - Use async/await patterns throughout
+   - Export a class-based API client with proper encapsulation
+   - Implement proper error handling with custom error types
+   - Add console logging for debugging purposes
+   - Make the code production-ready and maintainable
+   - Include a main section with example usage
+   - Generate a package.json with:
+     - "type": "module" for ESM support
+     - devDependencies: tsx, typescript, @types/node
+     - dependencies: axios (only if used)
+     - scripts: {{ "start": "npx tsx api_client.ts" }}
+
+5. **Create documentation**:
+   - Generate a README.md file that explains:
+     - What APIs were discovered
+     - How authentication works
+     - How to use each function
+     - Example usage
+     - Requirements: Node.js 18+
+     - Any limitations or requirements
+
+6. **Test your implementation**:
+   - Run: npm install && {run_command}
+   - npx auto-downloads tsx if not installed
+   - You have up to 5 attempts to fix any issues
+   - If the initial implementation fails, analyze the error and try again
+
+After your analysis, generate the files:
+
+1. Save the TypeScript module to: {self.scripts_dir}/{client_filename}
+2. Save the documentation to: {self.scripts_dir}/README.md
+3. Save the package.json to: {self.scripts_dir}/package.json"""
+
+        else:  # python (default)
+            return f"""4. **Generate a Python script** that replicates these API calls with the following requirements:
+   - Use the `requests` library as the default choice
+   - Include proper authentication handling (sessions, headers, tokens)
+   - Create separate functions for each distinct API endpoint
+   - Include type hints for all function parameters and return values
+   - Write comprehensive docstrings for each function
+   - Implement proper error handling with try-except blocks
+   - Add logging for debugging purposes
+   - Make the code production-ready and maintainable
+   - Include a main section with example usage
+
+5. **Create documentation**:
+   - Generate a README.md file that explains:
+     - What APIs were discovered
+     - How authentication works
+     - How to use each function
+     - Example usage
+     - Any limitations or requirements
+
+6. **Test your implementation**:
+   - After generating the code, test it to ensure it works
+   - Run with: {run_command}
+   - You have up to 5 attempts to fix any issues
+   - If the initial implementation fails, analyze the error and try again
+   - Keep in mind that some websites have bot detection mechanisms
+
+7. **Handle bot detection**:
+   - If you encounter bot detection, CAPTCHA, or anti-scraping measures with `requests`
+   - Consider switching to Playwright with CDP (Chrome DevTools Protocol)
+   - Use the real user browser context to bypass detection
+   - Maintain the same code quality standards regardless of approach
+
+After your analysis, generate the files:
+
+1. Save the Python script to: {self.scripts_dir}/{client_filename}
+2. Save the documentation to: {self.scripts_dir}/README.md"""
+
     def _build_analysis_prompt(self) -> str:
         """Build the prompt for analyzing the HAR file."""
+        language_name = {
+            "python": "Python",
+            "javascript": "JavaScript",
+            "typescript": "TypeScript",
+        }.get(self.output_language, "Python")
+
         base_prompt = f"""You are tasked with analyzing a HAR (HTTP Archive) file to reverse engineer API calls,
-         and generate production-ready Python code that replicates those calls.
+         and generate production-ready {language_name} code that replicates those calls.
 
 Here is the HAR file path you need to analyze:
 <har_path>
@@ -139,36 +291,7 @@ Your task is to:
    - When implementation approaches are ambiguous, ask for preferences
    - Use the tool for any clarifications that would improve the final code
 
-5. **Generate a Python script** that replicates these API calls with the following requirements:
-   - Use the `requests` library as the default choice
-   - Include proper authentication handling (sessions, headers, tokens)
-   - Create separate functions for each distinct API endpoint
-   - Include type hints for all function parameters and return values
-   - Write comprehensive docstrings for each function
-   - Implement proper error handling with try-except blocks
-   - Add logging for debugging purposes
-   - Make the code production-ready and maintainable
-   - Include a main section with example usage
-
-6. **Create documentation**:
-   - Generate a README.md file that explains:
-     - What APIs were discovered
-     - How authentication works
-     - How to use each function
-     - Example usage
-     - Any limitations or requirements
-
-7. **Test your implementation**:
-   - After generating the code, test it to ensure it works
-   - You have up to 5 attempts to fix any issues
-   - If the initial implementation fails, analyze the error and try again
-   - Keep in mind that some websites have bot detection mechanisms
-
-8. **Handle bot detection**:
-   - If you encounter bot detection, CAPTCHA, or anti-scraping measures with `requests`
-   - Consider switching to Playwright with CDP (Chrome DevTools Protocol)
-   - Use the real user browser context to bypass detection
-   - Maintain the same code quality standards regardless of approach
+{self._get_language_instructions()}
 
 Before generating your code, use a scratchpad to plan your approach:
 
@@ -177,16 +300,11 @@ In your scratchpad:
 - Summarize the key API endpoints found in the HAR file
 - Note the authentication mechanism being used
 - Identify any patterns or commonalities between requests
-- Plan the structure of your Python script
+- Plan the structure of your {language_name} code
 - Consider potential issues (rate limiting, bot detection, etc.)
 - Decide whether `requests` will be sufficient or if Playwright is needed
 - Identify any ambiguities or questions you should ask the user using AskUserQuestion
 </scratchpad>
-
-After your analysis, generate the files:
-
-1. Save the Python script to: {self.scripts_dir}/api_client.py
-2. Save the documentation to: {self.scripts_dir}/README.md
 
 If your first attempt doesn't work, analyze what went wrong and try again. Document each attempt and what you learned.
 
@@ -210,115 +328,6 @@ Do not include the full code in your response - just confirm the files were save
 """
         if self.additional_instructions:
             base_prompt += f"\n\nAdditional instructions:\n{self.additional_instructions}"
-
-        # Add AskUserQuestion tool guidance
-        base_prompt += """
-
-## Interactive Clarification with AskUserQuestion
-
-You have access to the `AskUserQuestion` tool to ask clarifying questions during analysis:
-
-<ask_user_question_guidelines>
-Use AskUserQuestion when uncertain about:
-- Functional requirements or expected behavior
-- Which features to prioritize
-- Implementation approach choices
-- API authentication details the user might know
-- Specific use cases or workflows to support
-
-The tool accepts a list of questions with the following structure:
-
-```json
-{
-  "questions": [
-    {
-      "question": "Which authentication should I prioritize?",
-      "header": "Authentication",
-      "options": [
-        {"label": "Cookie-based session", "description": "Uses session cookies for auth"},
-        {"label": "Bearer token", "description": "Uses JWT or API tokens"},
-        {"label": "Both", "description": "Auto-detect and support both methods"}
-      ],
-      "multiSelect": false
-    }
-  ]
-}
-```
-
-Question Structure:
-- `question` (required): The question text
-- `header` (optional): Short category label for context
-- `options` (required): List of choices with labels and descriptions
-- `multiSelect` (optional): true for checkbox selection, false for single select (default: false)
-
-Examples:
-
-1. Single-select question (authentication method):
-```json
-{
-  "questions": [{
-    "question": "Which authentication method should I implement?",
-    "header": "Auth Method",
-    "options": [
-      {"label": "Cookie-based", "description": "Session cookies"},
-      {"label": "Bearer token", "description": "JWT tokens"},
-      {"label": "Both", "description": "Support both methods"}
-    ],
-    "multiSelect": false
-  }]
-}
-```
-
-2. Multi-select question (features):
-```json
-{
-  "questions": [{
-    "question": "Which features should I include?",
-    "header": "Features",
-    "options": [
-      {"label": "Retry logic", "description": "Auto-retry failed requests"},
-      {"label": "Rate limiting", "description": "Throttle requests"},
-      {"label": "Caching", "description": "Cache responses"}
-    ],
-    "multiSelect": true
-  }]
-}
-```
-
-3. Multiple questions in one call:
-```json
-{
-  "questions": [
-    {
-      "question": "Which authentication method?",
-      "header": "Auth",
-      "options": [
-        {"label": "Cookies", "description": "Session-based"},
-        {"label": "Tokens", "description": "Token-based"}
-      ],
-      "multiSelect": false
-    },
-    {
-      "question": "Which features to enable?",
-      "header": "Features",
-      "options": [
-        {"label": "Retry", "description": "Auto-retry"},
-        {"label": "Logging", "description": "Debug logs"}
-      ],
-      "multiSelect": true
-    }
-  ]
-}
-```
-
-Guidelines:
-- Ask 1-3 well-targeted questions that materially impact implementation
-- Always provide `options` with clear labels and descriptions
-- Use `multiSelect: true` when multiple options can be selected
-- Use meaningful `header` values to provide context
-- The user's answers will be returned in the tool result
-</ask_user_question_guidelines>
-"""
 
         tag_context = f"""
 ## Tag-Based Workflows

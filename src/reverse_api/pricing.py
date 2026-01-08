@@ -167,8 +167,7 @@ def _get_pricing_from_litellm(model_id: str) -> dict[str, float] | None:
                 pricing = {
                     "input": litellm_pricing.get("input_cost_per_token", 0) * 1_000_000,
                     "output": litellm_pricing.get("output_cost_per_token", 0) * 1_000_000,
-                    "cache_creation": litellm_pricing.get("cache_creation_input_token_cost", 0)
-                    * 1_000_000,
+                    "cache_creation": litellm_pricing.get("cache_creation_input_token_cost", 0) * 1_000_000,
                     "cache_read": litellm_pricing.get("cache_read_input_token_cost", 0) * 1_000_000,
                     "reasoning": litellm_pricing.get("output_cost_per_token", 0) * 1_000_000,
                 }

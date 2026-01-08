@@ -246,9 +246,7 @@ class ManualBrowser:
 
         chrome_profile = get_chrome_profile_dir()
         if not chrome_profile:
-            console.print(
-                " [yellow]chrome profile not found, falling back to stealth mode[/yellow]"
-            )
+            console.print(" [yellow]chrome profile not found, falling back to stealth mode[/yellow]")
             return self._start_with_stealth_chromium(start_url)
 
         # Create a temporary profile directory
@@ -473,9 +471,7 @@ class ManualBrowser:
         return self.har_path
 
 
-def parse_agent_model(
-    agent_model: str, agent_provider: str = "browser-use"
-) -> tuple[str, str | None]:
+def parse_agent_model(agent_model: str, agent_provider: str = "browser-use") -> tuple[str, str | None]:
     """Parse agent_model string into provider and model name.
 
     Args:
@@ -512,15 +508,11 @@ def parse_agent_model(
 
                 if provider == "openai":
                     if model_name not in openai_cua_models:
-                        raise ValueError(
-                            f"Unsupported OpenAI model: {model_name}. "
-                            f"Supported OpenAI CUA models: {', '.join(openai_cua_models)}"
-                        )
+                        raise ValueError(f"Unsupported OpenAI model: {model_name}. Supported OpenAI CUA models: {', '.join(openai_cua_models)}")
                 elif provider == "anthropic":
                     if model_name not in anthropic_cua_models:
                         raise ValueError(
-                            f"Unsupported Anthropic model: {model_name}. "
-                            f"Supported Anthropic CUA models: {', '.join(anthropic_cua_models)}"
+                            f"Unsupported Anthropic model: {model_name}. Supported Anthropic CUA models: {', '.join(anthropic_cua_models)}"
                         )
                 else:
                     raise ValueError(
@@ -530,10 +522,7 @@ def parse_agent_model(
 
             return (provider, model_name)
 
-    raise ValueError(
-        f"Invalid agent_model format: {agent_model}. "
-        f"Expected 'bu-llm' or '{{provider}}/{{model_name}}' (e.g., 'openai/gpt-4')"
-    )
+    raise ValueError(f"Invalid agent_model format: {agent_model}. Expected 'bu-llm' or '{{provider}}/{{model_name}}' (e.g., 'openai/gpt-4')")
 
 
 def get_required_api_key(provider: str, agent_provider: str = "browser-use") -> tuple[str, str]:
@@ -634,9 +623,7 @@ class AgentBrowser:
     def _save_metadata(self, end_time: str, result: dict | None = None) -> None:
         """Save run metadata to JSON file."""
         # Select the appropriate model based on agent_provider
-        agent_model = (
-            self.stagehand_model if self.agent_provider == "stagehand" else self.browser_use_model
-        )
+        agent_model = self.stagehand_model if self.agent_provider == "stagehand" else self.browser_use_model
 
         metadata = {
             "run_id": self.run_id,
@@ -707,9 +694,7 @@ class AgentBrowser:
         try:
             # Parse agent model and validate API key
             try:
-                provider, model_name = parse_agent_model(
-                    self.browser_use_model, self.agent_provider
-                )
+                provider, model_name = parse_agent_model(self.browser_use_model, self.agent_provider)
             except ValueError as e:
                 result["error"] = str(e)
                 console.print(f" [red]error:[/red] {e}")
@@ -785,11 +770,7 @@ class AgentBrowser:
             final_message = None
             if agent_result and hasattr(agent_result, "final_result"):
                 final_result_attr = agent_result.final_result
-                final_message = (
-                    final_result_attr()
-                    if callable(final_result_attr)
-                    else final_result_attr
-                )
+                final_message = final_result_attr() if callable(final_result_attr) else final_result_attr
 
             result["success"] = True
             result["message"] = final_message or "Task completed"
@@ -919,8 +900,7 @@ class AgentBrowser:
                 agent_result = await agent.execute(
                     {
                         "instruction": task_instruction,
-                        "maxSteps": self.timeout
-                        // 10,  # Convert timeout seconds to reasonable step limit
+                        "maxSteps": self.timeout // 10,  # Convert timeout seconds to reasonable step limit
                     }
                 )
 
@@ -934,11 +914,7 @@ class AgentBrowser:
             if agent_result:
                 if isinstance(agent_result, dict):
                     task_success = agent_result.get("success", False)
-                    final_message = (
-                        agent_result.get("message")
-                        or agent_result.get("result")
-                        or agent_result.get("text")
-                    )
+                    final_message = agent_result.get("message") or agent_result.get("result") or agent_result.get("text")
                 elif hasattr(agent_result, "success"):
                     task_success = agent_result.success
                     # Only extract message field, ignore actions, usage, etc.
