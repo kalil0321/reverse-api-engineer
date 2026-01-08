@@ -305,6 +305,28 @@ def parse_engineer_prompt(input_text: str, session_manager=None) -> dict:
     }
 
 
+def parse_record_only_tag(prompt: str) -> tuple[str, bool]:
+    """Parse @record-only tag from prompt.
+
+    When present, skips reverse engineering and only records HAR.
+
+    Args:
+        prompt: The user prompt that may contain @record-only tag
+
+    Returns:
+        tuple: (cleaned_prompt, is_record_only)
+    """
+    if not prompt:
+        return prompt, False
+
+    # Match @record-only anywhere in the prompt (case-insensitive)
+    pattern = r"@record-only\s*"
+    if re.search(pattern, prompt, re.IGNORECASE):
+        cleaned = re.sub(pattern, "", prompt, flags=re.IGNORECASE).strip()
+        return cleaned, True
+    return prompt, False
+
+
 def generate_run_id() -> str:
     """Generate a unique run ID using a short UUID format."""
     return uuid.uuid4().hex[:12]

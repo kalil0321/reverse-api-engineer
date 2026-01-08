@@ -37,6 +37,7 @@ from .utils import (
     get_history_path,
     get_timestamp,
     parse_engineer_prompt,
+    parse_record_only_tag,
 )
 
 console = Console()
@@ -99,11 +100,29 @@ def prompt_interactive_options(
                     for cmd in commands:
                         if cmd.startswith(text):
                             yield Completion(cmd, start_position=-len(text))
+            # Tag completion for manual/agent modes
+            elif mode_state["mode"] in ("manual", "agent") and text.startswith("@"):
+                # Tags for manual/agent modes with descriptions
+                tags = [
+                    ("@record-only", "record HAR only, skip reverse engineering"),
+                    ("@help", "show mode-specific help"),
+                ]
+                for tag, meta in tags:
+                    if tag.startswith(text):
+                        yield Completion(
+                            tag,
+                            start_position=-len(text),
+                            display_meta=meta,
+                        )
             # Tag completion in engineer mode
             elif mode_state["mode"] == "engineer" and text:
                 if text.startswith("@"):
-                    # Tag completion
-                    tags = ["@id", "@docs", "@help"]  # @build coming in next phases
+                    # Tag completion with descriptions
+                    tags = [
+                        ("@id", "switch context to run ID"),
+                        ("@docs", "generate API documentation"),
+                        ("@help", "show engineer mode help"),
+                    ]
 
                     # specific check for @id completion
                     id_match = re.match(r"@id\s+(.*)", text)
@@ -117,10 +136,14 @@ def prompt_interactive_options(
                                     display_meta=self._get_run_meta(run_id),
                                 )
                     else:
-                        # Suggest tags
-                        for tag in tags:
+                        # Suggest tags with descriptions
+                        for tag, meta in tags:
                             if tag.startswith(text):
-                                yield Completion(tag, start_position=-len(text))
+                                yield Completion(
+                                    tag,
+                                    start_position=-len(text),
+                                    display_meta=meta,
+                                )
 
                 else:
                     for run_id in self._get_run_ids():
@@ -859,6 +882,9 @@ def handle_manual_help(mode_color=THEME_PRIMARY):
     table.add_row("<prompt>", "Describe the task/goal for the session.\n[dim]Example: extract jobs from apple.com[/dim]")
     table.add_row("", "")
 
+    table.add_row("@record-only [prompt]", "Record HAR only, skip reverse engineering.\n[dim]Example: @record-only[/dim]")
+    table.add_row("", "")
+
     table.add_row("Shift+Tab", "Cycle to other modes (Engineer, Agent).")
 
     console.print(table)
@@ -879,6 +905,9 @@ def handle_agent_help(mode_color=THEME_PRIMARY):
     table.add_column(style="white", justify="left")
 
     table.add_row("<prompt>", "Instruction for the autonomous agent.\n[dim]Example: Go to google.com and search for 'OpenAI'[/dim]")
+    table.add_row("", "")
+
+    table.add_row("@record-only <prompt>", "Record HAR only, skip reverse engineering.\n[dim]Example: @record-only navigate checkout flow[/dim]")
     table.add_row("", "")
 
     table.add_row("Shift+Tab", "Cycle to other modes (Manual, Engineer).")
@@ -917,6 +946,12 @@ def handle_engineer_help(mode_color=THEME_PRIMARY):
     table.add_row("", "")
 
     table.add_row("<prompt>", "Run engineer on the *current* context/latest run.\n[dim]Example: improve error handling[/dim]")
+    table.add_row("", "")
+
+    table.add_row("@docs", "Generate API documentation (OpenAPI spec) for the latest run.\n[dim]Example: @docs[/dim]")
+    table.add_row("", "")
+
+    table.add_row("@id <run_id> @docs", "Generate API documentation for a specific run.\n[dim]Example: @id abc123 @docs[/dim]")
 
     console.print(table)
     console.print()
@@ -1072,6 +1107,11 @@ def run_manual_capture(prompt=None, url=None, reverse_engineer=True, model=None,
         reverse_engineer = options["reverse_engineer"]
         model = options["model"]
 
+    # Parse @record-only tag - if present, skip reverse engineering
+    prompt, is_record_only = parse_record_only_tag(prompt)
+    if is_record_only:
+        reverse_engineer = False
+
     run_id = generate_run_id()
     timestamp = get_timestamp()
     sdk = config_manager.get("sdk", "claude")
@@ -1107,6 +1147,11 @@ def run_manual_capture(prompt=None, url=None, reverse_engineer=True, model=None,
                 usage=result.get("usage", {}),
                 paths={"script_path": result.get("script_path")},
             )
+    elif is_record_only:
+        # Show helpful message for record-only mode
+        console.print(" [dim]>[/dim] [white]recording complete[/white]")
+        console.print(f" [dim]>[/dim] [white]run_id: {run_id}[/white]")
+        console.print(f" [dim]>[/dim] [dim]use @id {run_id} <prompt> to engineer later[/dim]\n")
 
 
 def run_agent_capture(prompt=None, url=None, reverse_engineer=False, model=None, output_dir=None):
@@ -1126,6 +1171,16 @@ def run_agent_capture(prompt=None, url=None, reverse_engineer=False, model=None,
         url = options["url"]
         reverse_engineer = options["reverse_engineer"]
         model = options["model"]
+
+    # Parse @record-only tag - if present, skip reverse engineering
+    prompt, is_record_only = parse_record_only_tag(prompt)
+    if is_record_only:
+        reverse_engineer = False
+        # Agent mode requires a prompt for @record-only
+        if not prompt or not prompt.strip():
+            console.print(" [red]error:[/red] @record-only requires a prompt in agent mode")
+            console.print(" [dim]tip:[/dim] @record-only <prompt> - e.g., @record-only navigate checkout flow")
+            return
 
     run_id = generate_run_id()
     timestamp = get_timestamp()
@@ -1225,6 +1280,11 @@ def run_agent_capture(prompt=None, url=None, reverse_engineer=False, model=None,
                     usage=result.get("usage", {}),
                     paths={"script_path": result.get("script_path")},
                 )
+        elif is_record_only:
+            # Show helpful message for record-only mode
+            console.print(" [dim]>[/dim] [white]recording complete[/white]")
+            console.print(f" [dim]>[/dim] [white]run_id: {run_id}[/white]")
+            console.print(f" [dim]>[/dim] [dim]use @id {run_id} <prompt> to engineer later[/dim]\n")
     except Exception as e:
         console.print(f" [red]agent mode error: {e}[/red]")
         console.print(f" [dim]{ERROR_CTA}[/dim]")
