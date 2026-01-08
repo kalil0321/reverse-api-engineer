@@ -27,6 +27,82 @@ This skill enables you to reverse engineer web APIs by:
 [User Task] -> [Browser Capture] -> [HAR Analysis] -> [API Client Generation] -> [Testing & Refinement]
 ```
 
+## Phase 0: Preparation (Using HAR Helper Scripts)
+
+### Available Helper Scripts
+
+This skill provides Python utilities for HAR analysis located at:
+
+**Script Directory:** `plugins/reverse-api-engineer/skills/reverse-engineering-api/scripts/`
+
+**Available Scripts:**
+- `har_filter.py` - Filter HAR files to API endpoints only
+- `har_analyze.py` - Extract structured endpoint information
+- `har_validate.py` - Validate generated code against HAR analysis
+- `har_utils.py` - Shared utility functions
+
+### Script Usage Pattern
+
+Use these scripts in sequence for optimal code generation:
+
+```bash
+# 1. Filter HAR to remove noise (static assets, analytics, CDN)
+python {SKILL_DIR}/scripts/har_filter.py {har_path} --output filtered.har --stats
+
+# 2. Analyze endpoints and extract patterns
+python {SKILL_DIR}/scripts/har_analyze.py filtered.har --output analysis.json
+
+# 3. Read analysis for code generation guidance
+cat analysis.json
+
+# 4. Generate API client code based on analysis
+
+# 5. Validate generated code
+python {SKILL_DIR}/scripts/har_validate.py api_client.py analysis.json
+```
+
+### Why Use These Scripts?
+
+**har_filter.py benefits:**
+- Reduces HAR file size by 80-90% (removes noise)
+- Focuses analysis on actual API calls
+- Significantly improves code generation quality
+- Outputs statistics showing what was filtered
+
+**har_analyze.py benefits:**
+- Provides structured endpoint information
+- Detects authentication patterns automatically
+- Identifies pagination mechanisms
+- Extracts request/response schemas
+- Groups endpoints by pattern
+
+**har_validate.py benefits:**
+- Ensures all endpoints are implemented
+- Validates authentication handling
+- Checks for proper error handling
+- Calculates coverage score (must be >= 90)
+- Identifies missing features
+
+### Task Tracking
+
+Use TodoWrite to track workflow progress:
+- Mark tasks as `pending`, `in_progress`, or `completed`
+- Only ONE task should be `in_progress` at a time
+- Complete ALL tasks - never stop early
+
+**Example TodoWrite usage:**
+```python
+TodoWrite([
+  {"content": "Filter HAR using har_filter.py", "status": "in_progress", "activeForm": "Filtering HAR"},
+  {"content": "Analyze HAR using har_analyze.py", "status": "pending", "activeForm": "Analyzing endpoints"},
+  {"content": "Generate API client", "status": "pending", "activeForm": "Generating code"},
+  {"content": "Validate using har_validate.py", "status": "pending", "activeForm": "Validating code"},
+  {"content": "Test implementation", "status": "pending", "activeForm": "Testing API client"}
+])
+```
+
+**CRITICAL:** Task tracking ensures complete workflow execution. Never skip tasks or stop early.
+
 ## Phase 1: Browser Capture with HAR Recording
 
 ### Starting the Browser

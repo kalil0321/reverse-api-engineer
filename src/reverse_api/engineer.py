@@ -15,7 +15,10 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
+import questionary
+
 from .base_engineer import BaseEngineer
+from .tui import THEME_PRIMARY, THEME_SECONDARY
 
 # Suppress claude_agent_sdk logs
 logging.getLogger("claude_agent_sdk").setLevel(logging.WARNING)
@@ -26,6 +29,131 @@ logging.getLogger("claude_agent_sdk._internal.transport.subprocess_cli").setLeve
 
 class ClaudeEngineer(BaseEngineer):
     """Uses Claude Agent SDK to analyze HAR files and generate Python API scripts."""
+
+    async def _handle_ask_user_question(
+        self, tool_name: str, input_params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Handle AskUserQuestion tool by prompting the user interactively."""
+        if tool_name != "AskUserQuestion":
+            # Default allow for other tools in acceptEdits mode
+            return {"behavior": "allow", "updatedInput": input_params}
+
+        questions = input_params.get("questions", [])
+        answers = {}
+
+        # Display header
+        self.ui.console.print()
+        self.ui.console.print(
+            f"  [{THEME_PRIMARY}]?[/{THEME_PRIMARY}] [bold white]Agent Question[/bold white]"
+        )
+        self.ui.console.print()
+
+        for q in questions:
+            question_text = q.get("question", "")
+            header = q.get("header", "")
+            options = q.get("options", [])
+            multi_select = q.get("multiSelect", False)
+
+            if not question_text:
+                continue
+
+            # Show context if header exists
+            if header:
+                self.ui.console.print(f"  [dim]{header}[/dim]")
+
+            try:
+                if multi_select:
+                    # Multi-select question
+                    choices = [
+                        f"{opt.get('label', '')} - {opt.get('description', '')}"
+                        if opt.get("description")
+                        else opt.get("label", "")
+                        for opt in options
+                    ]
+                    if choices:
+                        selected = await questionary.checkbox(
+                            f" > {question_text}",
+                            choices=choices,
+                            qmark="",
+                            style=questionary.Style(
+                                [
+                                    ("pointer", f"fg:{THEME_PRIMARY} bold"),
+                                    ("highlighted", f"fg:{THEME_PRIMARY} bold"),
+                                    ("selected", f"fg:{THEME_PRIMARY}"),
+                                ]
+                            ),
+                        ).ask_async()
+
+                        if selected is None:
+                            raise KeyboardInterrupt
+
+                        # Extract just the labels (before the " - " separator)
+                        labels = [
+                            s.split(" - ")[0] if " - " in s else s
+                            for s in selected
+                        ]
+                        answers[question_text] = ", ".join(labels)
+                    else:
+                        # Text input fallback
+                        answer = await questionary.text(
+                            f" > {question_text}",
+                            qmark="",
+                            style=questionary.Style([("question", f"fg:{THEME_SECONDARY}")]),
+                        ).ask_async()
+                        if answer is None:
+                            raise KeyboardInterrupt
+                        answers[question_text] = answer.strip()
+
+                else:
+                    # Single select question
+                    choices = [
+                        f"{opt.get('label', '')} - {opt.get('description', '')}"
+                        if opt.get("description")
+                        else opt.get("label", "")
+                        for opt in options
+                    ]
+                    if choices:
+                        answer = await questionary.select(
+                            f" > {question_text}",
+                            choices=choices,
+                            qmark="",
+                            style=questionary.Style(
+                                [
+                                    ("pointer", f"fg:{THEME_PRIMARY} bold"),
+                                    ("highlighted", f"fg:{THEME_PRIMARY} bold"),
+                                ]
+                            ),
+                        ).ask_async()
+
+                        if answer is None:
+                            raise KeyboardInterrupt
+
+                        # Extract just the label (before the " - " separator)
+                        label = answer.split(" - ")[0] if " - " in answer else answer
+                        answers[question_text] = label
+                    else:
+                        # Text input fallback
+                        answer = await questionary.text(
+                            f" > {question_text}",
+                            qmark="",
+                            style=questionary.Style([("question", f"fg:{THEME_SECONDARY}")]),
+                        ).ask_async()
+                        if answer is None:
+                            raise KeyboardInterrupt
+                        answers[question_text] = answer.strip()
+
+                self.ui.console.print(f"  [dim]→ {answers[question_text]}[/dim]")
+
+            except KeyboardInterrupt:
+                self.ui.console.print(f"  [dim]User cancelled question[/dim]")
+                answers[question_text] = ""
+
+        self.ui.console.print()
+
+        return {
+            "behavior": "allow",
+            "updatedInput": {"questions": questions, "answers": answers},
+        }
 
     async def analyze_and_generate(self) -> dict[str, Any] | None:
         """Run the reverse engineering analysis with Claude."""
@@ -42,8 +170,10 @@ class ClaudeEngineer(BaseEngineer):
                 "Grep",
                 "WebSearch",
                 "WebFetch",
+                "AskUserQuestion",
             ],
             permission_mode="acceptEdits",
+            can_use_tool=self._handle_ask_user_question,
             cwd=str(self.scripts_dir.parent.parent),  # Project root
             model=self.model,
         )

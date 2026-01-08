@@ -108,6 +108,9 @@ Here is the output directory where you should save your generated files:
 {self.scripts_dir}
 </output_dir>
 
+**IMPORTANT: You have access to the AskUserQuestion tool to ask clarifying questions during your analysis.**
+Use this tool when you need to clarify functional requirements, prioritize features, choose between implementation approaches, or gather any other information that would help you generate better code.
+
 Your task is to:
 
 1. **Read and analyze the HAR file** to understand all API calls that were captured. Look for:
@@ -130,7 +133,13 @@ Your task is to:
    - Query parameters vs body parameters
    - Response data structures
 
-4. **Generate a Python script** that replicates these API calls with the following requirements:
+4. **Ask clarifying questions using AskUserQuestion** if needed:
+   - When multiple authentication methods are found, ask which to prioritize
+   - If uncertain about feature priorities, ask the user
+   - When implementation approaches are ambiguous, ask for preferences
+   - Use the tool for any clarifications that would improve the final code
+
+5. **Generate a Python script** that replicates these API calls with the following requirements:
    - Use the `requests` library as the default choice
    - Include proper authentication handling (sessions, headers, tokens)
    - Create separate functions for each distinct API endpoint
@@ -141,7 +150,7 @@ Your task is to:
    - Make the code production-ready and maintainable
    - Include a main section with example usage
 
-5. **Create documentation**:
+6. **Create documentation**:
    - Generate a README.md file that explains:
      - What APIs were discovered
      - How authentication works
@@ -149,13 +158,13 @@ Your task is to:
      - Example usage
      - Any limitations or requirements
 
-6. **Test your implementation**:
+7. **Test your implementation**:
    - After generating the code, test it to ensure it works
    - You have up to 5 attempts to fix any issues
    - If the initial implementation fails, analyze the error and try again
    - Keep in mind that some websites have bot detection mechanisms
 
-7. **Handle bot detection**:
+8. **Handle bot detection**:
    - If you encounter bot detection, CAPTCHA, or anti-scraping measures with `requests`
    - Consider switching to Playwright with CDP (Chrome DevTools Protocol)
    - Use the real user browser context to bypass detection
@@ -171,6 +180,7 @@ In your scratchpad:
 - Plan the structure of your Python script
 - Consider potential issues (rate limiting, bot detection, etc.)
 - Decide whether `requests` will be sufficient or if Playwright is needed
+- Identify any ambiguities or questions you should ask the user using AskUserQuestion
 </scratchpad>
 
 After your analysis, generate the files:
@@ -200,6 +210,115 @@ Do not include the full code in your response - just confirm the files were save
 """
         if self.additional_instructions:
             base_prompt += f"\n\nAdditional instructions:\n{self.additional_instructions}"
+
+        # Add AskUserQuestion tool guidance
+        base_prompt += """
+
+## Interactive Clarification with AskUserQuestion
+
+You have access to the `AskUserQuestion` tool to ask clarifying questions during analysis:
+
+<ask_user_question_guidelines>
+Use AskUserQuestion when uncertain about:
+- Functional requirements or expected behavior
+- Which features to prioritize
+- Implementation approach choices
+- API authentication details the user might know
+- Specific use cases or workflows to support
+
+The tool accepts a list of questions with the following structure:
+
+```json
+{
+  "questions": [
+    {
+      "question": "Which authentication should I prioritize?",
+      "header": "Authentication",
+      "options": [
+        {"label": "Cookie-based session", "description": "Uses session cookies for auth"},
+        {"label": "Bearer token", "description": "Uses JWT or API tokens"},
+        {"label": "Both", "description": "Auto-detect and support both methods"}
+      ],
+      "multiSelect": false
+    }
+  ]
+}
+```
+
+Question Structure:
+- `question` (required): The question text
+- `header` (optional): Short category label for context
+- `options` (required): List of choices with labels and descriptions
+- `multiSelect` (optional): true for checkbox selection, false for single select (default: false)
+
+Examples:
+
+1. Single-select question (authentication method):
+```json
+{
+  "questions": [{
+    "question": "Which authentication method should I implement?",
+    "header": "Auth Method",
+    "options": [
+      {"label": "Cookie-based", "description": "Session cookies"},
+      {"label": "Bearer token", "description": "JWT tokens"},
+      {"label": "Both", "description": "Support both methods"}
+    ],
+    "multiSelect": false
+  }]
+}
+```
+
+2. Multi-select question (features):
+```json
+{
+  "questions": [{
+    "question": "Which features should I include?",
+    "header": "Features",
+    "options": [
+      {"label": "Retry logic", "description": "Auto-retry failed requests"},
+      {"label": "Rate limiting", "description": "Throttle requests"},
+      {"label": "Caching", "description": "Cache responses"}
+    ],
+    "multiSelect": true
+  }]
+}
+```
+
+3. Multiple questions in one call:
+```json
+{
+  "questions": [
+    {
+      "question": "Which authentication method?",
+      "header": "Auth",
+      "options": [
+        {"label": "Cookies", "description": "Session-based"},
+        {"label": "Tokens", "description": "Token-based"}
+      ],
+      "multiSelect": false
+    },
+    {
+      "question": "Which features to enable?",
+      "header": "Features",
+      "options": [
+        {"label": "Retry", "description": "Auto-retry"},
+        {"label": "Logging", "description": "Debug logs"}
+      ],
+      "multiSelect": true
+    }
+  ]
+}
+```
+
+Guidelines:
+- Ask 1-3 well-targeted questions that materially impact implementation
+- Always provide `options` with clear labels and descriptions
+- Use `multiSelect: true` when multiple options can be selected
+- Use meaningful `header` values to provide context
+- The user's answers will be returned in the tool result
+</ask_user_question_guidelines>
+"""
 
         tag_context = f"""
 ## Tag-Based Workflows

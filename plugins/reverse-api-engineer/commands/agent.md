@@ -19,6 +19,26 @@ Ensure the `reverse-engineering-api` skill is loaded for guidance on HAR analysi
 
 If arguments are not provided, prompt the user interactively.
 
+## Task Tracking
+
+Before starting the workflow, create a todo list to track progress:
+
+```python
+TodoWrite([
+  {"content": "Launch browser with HAR recording", "status": "pending", "activeForm": "Launching browser"},
+  {"content": "Navigate autonomously to complete task", "status": "pending", "activeForm": "Navigating autonomously"},
+  {"content": "Verify HAR capture", "status": "pending", "activeForm": "Verifying HAR file"},
+  {"content": "Filter HAR using har_filter.py", "status": "pending", "activeForm": "Filtering HAR"},
+  {"content": "Analyze HAR using har_analyze.py", "status": "pending", "activeForm": "Analyzing endpoints"},
+  {"content": "Generate API client code", "status": "pending", "activeForm": "Generating code"},
+  {"content": "Validate code using har_validate.py", "status": "pending", "activeForm": "Validating code"},
+  {"content": "Test API client implementation", "status": "pending", "activeForm": "Testing implementation"},
+  {"content": "Generate documentation", "status": "pending", "activeForm": "Writing README"}
+])
+```
+
+**CRITICAL:** Mark each task as `in_progress` when starting, `completed` when done. NEVER skip tasks - complete all 9 steps.
+
 ## Workflow
 
 ### Step 1: Gather Task Information
@@ -148,30 +168,61 @@ Analyzing for API endpoints...
 
 ### Step 6: Analyze HAR File
 
-Use the `reverse-engineering-api` skill guidance to:
+**Mark todo in_progress: "Filter HAR using har_filter.py"**
 
-1. **Filter relevant entries**: Exclude static assets, analytics, ads, CDN resources
-2. **Identify API endpoints**: Look for `/api/`, `/v1/`, `/graphql`, XHR/Fetch requests
-3. **Extract patterns**:
-   - URL patterns and query parameters
-   - HTTP methods (GET, POST, PUT, DELETE)
-   - Request/response headers
-   - Authentication mechanisms
-   - Request body schemas
-   - Response structures
+Filter the HAR file to remove static assets, analytics, and CDN resources:
 
-Summarize findings:
+```bash
+python plugins/reverse-api-engineer/skills/reverse-engineering-api/scripts/har_filter.py ~/.reverse-api/runs/har/{run_id}/recording.har --output {output_dir}/filtered.har --stats
+```
+
+Read and display the filtering statistics:
+```
+Filtering complete!
+Total entries: {total}
+API endpoints found: {filtered_entries}
+Removed:
+- Static assets: {removed_static}
+- Analytics/tracking: {removed_analytics}
+- CDN resources: {removed_cdn}
+
+API patterns detected: {api_patterns_found}
+```
+
+**Mark todo completed**
+
+**Mark todo in_progress: "Analyze HAR using har_analyze.py"**
+
+Extract structured endpoint information from filtered HAR:
+
+```bash
+python plugins/reverse-api-engineer/skills/reverse-engineering-api/scripts/har_analyze.py {output_dir}/filtered.har --output {output_dir}/analysis.json
+```
+
+Read analysis.json and summarize for the user:
+
+```bash
+cat {output_dir}/analysis.json
+```
+
+Display summary:
 ```
 Analysis complete!
 
-Found {count} relevant API endpoints:
-- {method} {endpoint} ({description})
-- {method} {endpoint} ({description})
-...
-
-Authentication detected: {auth_type} (Bearer token / API key / None)
 Base URL: {base_url}
+Authentication: {authentication.type} ({authentication.description})
+Unique endpoints: {unique_endpoints}
+Pagination: {pagination.type if pagination.detected else "Not detected"}
+
+Endpoints found:
+{for each endpoint in endpoints:}
+- {endpoint.methods} {endpoint.pattern}
+  Calls observed: {endpoint.calls_observed}
+  Auth required: {endpoint.requires_auth}
+  Query params: {endpoint.query_params.required + endpoint.query_params.optional}
 ```
+
+**Mark todo completed**
 
 ### Step 7: Generate API Client
 
@@ -322,6 +373,58 @@ The agent autonomously performed these actions:
 - May require authentication tokens/API keys
 - Test thoroughly before production use
 ```
+
+### Step 7.5: Validate Generated Code
+
+**Mark todo in_progress: "Validate code using har_validate.py"**
+
+Validate the generated API client against the HAR analysis:
+
+```bash
+python plugins/reverse-api-engineer/skills/reverse-engineering-api/scripts/har_validate.py {output_dir}/api_client.py {output_dir}/analysis.json
+```
+
+Check the validation score and issues:
+
+**If validation score < 90:**
+1. Read the validation issues carefully
+2. Fix each issue in api_client.py:
+   - Missing endpoints: Add methods for each missing endpoint
+   - Missing auth: Implement authentication from analysis.json
+   - Missing error handling: Add try-except blocks and custom exceptions
+   - Missing type hints: Add type hints to all methods
+3. Save the updated api_client.py
+4. Run validation again
+5. Repeat until score >= 90
+
+**Example validation loop:**
+```
+Attempt 1:
+- Score: 75
+- Issues: 2 missing endpoints, no auth implementation
+- Fix: Add missing endpoints, implement bearer token auth
+- Regenerate api_client.py
+
+Attempt 2:
+- Score: 92
+- Issues: 1 info (minor type hint improvement)
+- Result: PASS (score >= 90)
+```
+
+Display validation result:
+```
+Validation complete!
+Score: {score}/100
+Coverage: {coverage.percentage}% ({coverage.endpoints_covered}/{coverage.endpoints_total} endpoints)
+Issues: {summary.errors} errors, {summary.warnings} warnings, {summary.info} info
+
+{if score >= 90:}
+✓ Code validation passed!
+{else:}
+✗ Code validation failed - fixing issues and regenerating...
+```
+
+**Mark todo completed** (only when score >= 90)
 
 ### Step 8: Save Run History
 
