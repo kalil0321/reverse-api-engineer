@@ -170,6 +170,7 @@ class ClaudeEngineer(BaseEngineer):
                 "Grep",
                 "WebSearch",
                 "WebFetch",
+                "AskUserQuestion",
             ],
             permission_mode="acceptEdits",
             can_use_tool=self._handle_ask_user_question,
