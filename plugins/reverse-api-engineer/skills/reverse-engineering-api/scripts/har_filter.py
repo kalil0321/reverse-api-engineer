@@ -44,7 +44,6 @@ SKIP_DOMAIN_PATTERNS = [
     'analytics.google.com',
     'googletagmanager.com',
     'doubleclick.net',
-    'facebook.com/tr',
     'facebook.net',
     'connect.facebook.net',
     'mixpanel.com',
@@ -67,14 +66,19 @@ SKIP_DOMAIN_PATTERNS = [
     'cdn.jsdelivr.net',
     'unpkg.com',
     'cdnjs.cloudflare.com',
-    # Social media tracking
-    'twitter.com/i/',
-    'linkedin.com/px/',
-    'snapchat.com/tr',
     # Other tracking
     'bugsnag.com',
     'sentry.io',
     'newrelic.com',
+]
+
+# URL patterns to skip (includes path components for tracking endpoints)
+SKIP_URL_PATTERNS = [
+    # Social media tracking pixels
+    'facebook.com/tr',
+    'twitter.com/i/',
+    'linkedin.com/px/',
+    'snapchat.com/tr',
 ]
 
 # URL path patterns that indicate API endpoints
@@ -125,6 +129,28 @@ def should_skip_domain(hostname: str) -> bool:
     # Skip common CDN patterns like cdn.*, static.*, assets.*
     if hostname_lower.startswith(('cdn.', 'static.', 'assets.', 'media.')):
         return True
+
+    return False
+
+
+def should_skip_url(url: str) -> bool:
+    """
+    Check if a full URL should be skipped based on URL patterns.
+
+    Args:
+        url: Full URL string
+
+    Returns:
+        True if URL should be skipped
+    """
+    if not url:
+        return False
+
+    url_lower = url.lower()
+
+    for pattern in SKIP_URL_PATTERNS:
+        if pattern in url_lower:
+            return True
 
     return False
 
@@ -232,11 +258,15 @@ def categorize_entry(entry: Dict[str, Any]) -> str:
     hostname = parts.get('hostname', '')
     path = parts.get('path', '')
 
-    # Check domain-based skips first
+    # Check URL patterns first (includes path components)
+    if should_skip_url(url):
+        return 'analytics'
+
+    # Check domain-based skips
     if should_skip_domain(hostname):
         # Categorize analytics vs CDN
         hostname_lower = hostname.lower()
-        if any(term in hostname_lower for term in ['analytics', 'tracking', 'ads', 'doubleclick', 'facebook.com/tr']):
+        if any(term in hostname_lower for term in ['analytics', 'tracking', 'ads', 'doubleclick']):
             return 'analytics'
         return 'cdn'
 
