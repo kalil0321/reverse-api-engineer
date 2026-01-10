@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-01-10
+
+### Added
+- **Collector Mode**: New AI-powered web data collection mode using Claude Agent SDK
+  - Natural language prompts to collect structured data from any website
+  - Automatic export to JSON and CSV formats
+  - Generates README with collection metadata and schema
+  - Uses WebFetch, WebSearch, and file tools for autonomous collection
+- **Playwright Codegen**: Generate automation scripts from recorded browser actions
+  - Captures clicks, fills, key presses, and navigations
+  - Produces stealth-enabled Playwright scripts with proper escaping
+  - Deduplicates redundant fill actions and navigations
+- **@docs Tag**: Generate OpenAPI specifications from HAR files
+  - Standalone usage: `@docs` to generate from latest run
+  - With run ID: `@docs run_id` to generate from specific run
+- **@record-only Tag**: Record HAR files without reverse engineering step
+- **AskUserQuestion Tool**: Interactive prompts during engineering sessions
+- **JS/TS Client Generation**: Support for generating JavaScript/TypeScript API clients
+
+### Changed
+- **Improved HAR Filtering**: Better path-based filtering for skip patterns
+- **Enhanced Price Computation**: Fixed pricing for OpenCode provider
+- **Centralized Run Resolution**: Refactored latest run parsing logic
+
+### Fixed
+- **Selector Escaping**: Fixed attribute selector escaping for special characters in `name`, `data-testid`, `aria-label`, and `placeholder` values
+- **Null Checks in Codegen**: Added validation for `action.selector` and `action.value` to prevent crashes
+- **CSV Export**: Fixed DictWriter error when items have inconsistent keys
+- **HAR Validation**: Validate HAR file exists when using @docs tag
+- **Path Normalization**: Fixed path handling in various utilities
+
 ## [0.2.10] - 2026-01-03
 
 ### Added
