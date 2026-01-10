@@ -17,6 +17,7 @@ from rich.console import Console
 from rich.status import Status
 
 from . import __version__
+from .action_recorder import ActionRecorder, RecordedAction
 from .tui import ERROR_CTA
 from .utils import get_har_dir, get_timestamp
 
@@ -202,20 +203,210 @@ class ManualBrowser:
         prompt: str,
         output_dir: str | None = None,
         use_real_chrome: bool = True,  # New option to use real Chrome
+        enable_action_recording: bool = False,
     ):
         self.run_id = run_id
         self.prompt = prompt
         self.output_dir = output_dir
         self.use_real_chrome = use_real_chrome
+        self.enable_action_recording = enable_action_recording
+        
         self.har_dir = get_har_dir(run_id, output_dir)
         self.har_path = self.har_dir / "recording.har"
         self.metadata_path = self.har_dir / "metadata.json"
+        
         self._playwright = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
         self._start_time: str | None = None
         self._user_agent = random.choice(USER_AGENTS)
         self._using_persistent = False  # Track if using persistent context
+
+        self.action_recorder = ActionRecorder() if enable_action_recording else None
+
+    def _inject_action_recorder(self, page: Page) -> None:
+        """Inject action recording script into page.
+        
+        Uses console.log + page.on('console') for reliable capture.
+        Works best with stealth Chromium mode (not real Chrome).
+        """
+        if not self.enable_action_recording:
+            return
+        
+        # Simple JS that logs actions to console with a special prefix
+        recorder_js = '''
+        window.__recordedActions = [];
+        window.__lastUrl = null;
+        
+        document.addEventListener('click', (e) => {
+            const el = e.target;
+            
+            // Build a robust selector by traversing up to find parent with ID
+            function buildSelector(element) {
+                // Priority 1: data-testid on element or close parent
+                let current = element;
+                for (let i = 0; i < 3 && current; i++) {
+                    if (current.dataset && current.dataset.testid) {
+                        const path = i === 0 ? '' : ' ' + getPathFromAncestor(current, element);
+                        return '[data-testid="' + current.dataset.testid.replace(/"/g, '\\"') + '"]' + path;
+                    }
+                    current = current.parentElement;
+                }
+                
+                // Priority 2: element has short ID
+                if (element.id && element.id.length < 20) {
+                    return '#' + element.id;
+                }
+                
+                // Priority 3: find parent with ID and build path
+                current = element.parentElement;
+                let depth = 1;
+                while (current && depth < 5) {
+                    if (current.id && current.id.length < 20) {
+                        const path = getPathFromAncestor(current, element);
+                        const selector = '#' + current.id + ' > ' + path;
+                        // Verify it's unique
+                        if (document.querySelectorAll(selector).length === 1) {
+                            return selector;
+                        }
+                    }
+                    current = current.parentElement;
+                    depth++;
+                }
+                
+                // Priority 4: name attribute
+                if (element.name) {
+                    return '[name="' + element.name.replace(/"/g, '\\"') + '"]';
+                }
+                
+                // Priority 5: aria-label
+                if (element.getAttribute && element.getAttribute('aria-label')) {
+                    return '[aria-label="' + element.getAttribute('aria-label').replace(/"/g, '\\"') + '"]';
+                }
+                
+                // Priority 6: role + text for buttons
+                if ((element.tagName === 'BUTTON' || element.role === 'button') && element.innerText) {
+                    const text = element.innerText.trim().substring(0, 30);
+                    if (text && !text.includes('\\n')) {
+                        return 'button:has-text(' + JSON.stringify(text) + ')';
+                    }
+                }
+                
+                // Priority 7: link text
+                if (element.tagName === 'A' && element.innerText) {
+                    const text = element.innerText.trim().substring(0, 30);
+                    if (text && !text.includes('\\n')) {
+                        return 'a:has-text(' + JSON.stringify(text) + ')';
+                    }
+                }
+                
+                // Priority 8: tag + class
+                if (element.className && typeof element.className === 'string') {
+                    const cls = element.className.split(' ').filter(c => c && c.length < 30 && !c.includes('hover') && !c.includes('active'))[0];
+                    if (cls) {
+                        const baseSelector = element.tagName.toLowerCase() + '.' + cls;
+                        const matches = document.querySelectorAll(baseSelector);
+                        if (matches.length === 1) return baseSelector;
+                        const idx = Array.from(matches).indexOf(element);
+                        if (idx >= 0) return baseSelector + ' >> nth=' + idx;
+                    }
+                }
+                
+                // Fallback: tag name
+                return element.tagName.toLowerCase();
+            }
+            
+            // Get path from ancestor to descendant
+            function getPathFromAncestor(ancestor, descendant) {
+                if (ancestor === descendant) return descendant.tagName.toLowerCase();
+                
+                let path = [];
+                let current = descendant;
+                while (current && current !== ancestor) {
+                    path.unshift(current.tagName.toLowerCase());
+                    current = current.parentElement;
+                }
+                return path.join(' > ');
+            }
+            
+            const selector = buildSelector(el);
+            const action = {type: 'click', selector: selector, timestamp: Date.now()};
+            window.__recordedActions.push(action);
+            console.log('__ACTION__' + JSON.stringify(action));
+        }, true);
+        
+        document.addEventListener('input', (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                const el = e.target;
+                let selector = '';
+                if (el.id && el.id.length < 20) selector = '#' + el.id;
+                else if (el.name) selector = '[name="' + el.name.replace(/"/g, '\\"') + '"]';
+                else if (el.placeholder) selector = '[placeholder="' + el.placeholder.replace(/"/g, '\\"') + '"]';
+                else selector = el.tagName.toLowerCase();
+                
+                const action = {type: 'fill', selector: selector, value: el.value, timestamp: Date.now()};
+                window.__recordedActions.push(action);
+                console.log('__ACTION__' + JSON.stringify(action));
+            }
+        }, true);
+        
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const el = e.target;
+                let selector = '';
+                if (el.id && el.id.length < 20) selector = '#' + el.id;
+                else if (el.name) selector = '[name="' + el.name.replace(/"/g, '\\"') + '"]';
+                else selector = el.tagName.toLowerCase();
+                
+                const action = {type: 'press', selector: selector, value: 'Enter', timestamp: Date.now()};
+                window.__recordedActions.push(action);
+                console.log('__ACTION__' + JSON.stringify(action));
+            }
+        }, true);
+        
+        // Only log navigation for top-level main frame, not iframes
+        if (window === window.top) {
+            const url = window.location.href;
+            // Skip about:blank, blob:, data:, service workers, embeds
+            if (url && !url.startsWith('about:') && !url.startsWith('blob:') && 
+                !url.startsWith('data:') && !url.includes('/embed') && 
+                !url.includes('service_worker') && !url.includes('googletagmanager')) {
+                // Only log if URL changed
+                if (url !== window.__lastUrl) {
+                    window.__lastUrl = url;
+                    console.log('__ACTION__' + JSON.stringify({type: 'navigate', url: url, timestamp: Date.now()}));
+                }
+            }
+        }
+        '''
+        
+        # Listen to console for actions
+        import json
+        last_url = [None]  # Mutable to track last URL
+        
+        def on_console(msg):
+            text = msg.text
+            if text.startswith('__ACTION__'):
+                try:
+                    action_json = text[10:]  # Remove '__ACTION__' prefix
+                    action_data = json.loads(action_json)
+                    
+                    # Filter duplicate navigations
+                    if action_data.get('type') == 'navigate':
+                        url = action_data.get('url', '')
+                        if url == last_url[0]:
+                            return  # Skip duplicate
+                        last_url[0] = url
+                    
+                    if self.action_recorder:
+                        self.action_recorder.add_action(RecordedAction(**action_data))
+                except Exception as e:
+                    console.print(f" [dim]action parse error: {e}[/dim]")
+        
+        page.on("console", on_console)
+        page.add_init_script(recorder_js)
+        
+        console.print(" [dim]action recording enabled[/dim]")
 
     def _save_metadata(self, end_time: str) -> None:
         """Save run metadata to JSON file."""
@@ -282,6 +473,9 @@ class ManualBrowser:
 
             # For HAR recording & context
             page = self._context.new_page()
+
+            if self.enable_action_recording:
+                self._inject_action_recorder(page)
 
             if start_url:
                 page.goto(start_url, wait_until="domcontentloaded")
@@ -375,6 +569,9 @@ class ManualBrowser:
         # Open initial page
         page = self._context.new_page()
 
+        if self.enable_action_recording:
+            self._inject_action_recorder(page)
+
         if start_url:
             page.goto(start_url, wait_until="domcontentloaded")
         else:
@@ -408,7 +605,8 @@ class ManualBrowser:
 
         self._playwright = sync_playwright().start()
 
-        # Try real Chrome first, fall back to stealth Chromium
+        # Try real Chrome first (better for avoiding detection)
+        # Fall back to stealth Chromium if Chrome not available
         if self.use_real_chrome:
             return self._start_with_real_chrome(start_url)
         else:
@@ -467,6 +665,14 @@ class ManualBrowser:
 
         console.print(" [dim]capture saved[/dim]")
         console.print(" [dim]metadata synced[/dim]")
+
+        if self.action_recorder:
+            try:
+                actions_path = self.har_dir / "actions.json"
+                self.action_recorder.save(actions_path)
+                console.print(" [dim]actions saved[/dim]")
+            except Exception as e:
+                console.print(f" [yellow]warning: error saving actions: {e}[/yellow]")
 
         return self.har_path
 

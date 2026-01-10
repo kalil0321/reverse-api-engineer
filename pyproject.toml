@@ -43,6 +43,10 @@ agent = [
 pricing = [
     "litellm>=1.0.0",
 ]
+collector = [
+    "markdownify>=0.12.0",
+    "beautifulsoup4>=4.12.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/kalil0321/reverse-api-engineer"

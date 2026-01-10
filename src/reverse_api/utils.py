@@ -29,6 +29,16 @@ def generate_folder_name(prompt: str, sdk: str = None, session_id: str = None) -
             sdk = "claude"
 
     try:
+        # Check if event loop is already running (e.g., called from async context)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None:
+            # Already in async context, use fallback to avoid nested asyncio.run
+            return _slugify(prompt)
+
         if sdk == "opencode":
             return asyncio.run(_generate_folder_name_opencode_async(prompt, session_id))
         else:
@@ -327,6 +337,24 @@ def parse_record_only_tag(prompt: str) -> tuple[str, bool]:
     return prompt, False
 
 
+def parse_codegen_tag(prompt: str) -> tuple[str, bool]:
+    """Parse @codegen tag from prompt.
+
+    When present, records actions and generates Playwright script instead of API client.
+
+    Returns:
+        tuple: (cleaned_prompt, is_codegen)
+    """
+    if not prompt:
+        return "", False
+
+    pattern = r"@codegen\s*"
+    if re.search(pattern, prompt, re.IGNORECASE):
+        cleaned = re.sub(pattern, "", prompt, flags=re.IGNORECASE).strip()
+        return cleaned, True
+    return prompt, False
+
+
 def generate_run_id() -> str:
     """Generate a unique run ID using a short UUID format."""
     return uuid.uuid4().hex[:12]
@@ -369,6 +397,12 @@ def get_har_dir(run_id: str, output_dir: str | None = None) -> Path:
     return har_dir
 
 
+def get_actions_path(run_id: str, output_dir: str | None = None) -> Path:
+    """Get the actions JSON file path for a specific run."""
+    har_dir = get_har_dir(run_id, output_dir)
+    return har_dir / "actions.json"
+
+
 def get_scripts_dir(run_id: str, output_dir: str | None = None) -> Path:
     """Get the scripts directory for a specific run."""
     base_dir = get_base_output_dir(output_dir)
@@ -396,3 +430,17 @@ def get_messages_path(run_id: str, output_dir: str | None = None) -> Path:
 def get_timestamp() -> str:
     """Get current timestamp in ISO format."""
     return datetime.now().isoformat()
+
+
+def get_collected_dir(folder_name: str) -> Path:
+    """Get ./collected/{folder_name}/ directory for collector mode output.
+
+    Args:
+        folder_name: Name of the collection folder
+
+    Returns:
+        Path to the collection output directory
+    """
+    path = Path.cwd() / "collected" / folder_name
+    path.mkdir(parents=True, exist_ok=True)
+    return path
