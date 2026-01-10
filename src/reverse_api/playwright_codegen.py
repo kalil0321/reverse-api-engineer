@@ -91,14 +91,14 @@ class PlaywrightCodeGenerator:
         last_nav_base = self._get_base_url(self.start_url) if self.start_url else None
 
         for action in self.actions:
-            if action.type == "click":
+            if action.type == "click" and action.selector:
                 lines.append(f"        page.click({json.dumps(action.selector)})")
             
-            elif action.type == "fill" and action.value is not None:
+            elif action.type == "fill" and action.selector and action.value is not None:
                 # Use json.dumps to safely escape newlines, quotes, and backslashes
                 lines.append(f"        page.fill({json.dumps(action.selector)}, {json.dumps(action.value)})")
             
-            elif action.type == "press":
+            elif action.type == "press" and action.selector:
                 lines.append(f"        page.press({json.dumps(action.selector)}, {json.dumps(action.value)})")
             
             elif action.type == "navigate":

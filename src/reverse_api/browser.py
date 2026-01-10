@@ -248,7 +248,7 @@ class ManualBrowser:
                 for (let i = 0; i < 3 && current; i++) {
                     if (current.dataset && current.dataset.testid) {
                         const path = i === 0 ? '' : ' ' + getPathFromAncestor(current, element);
-                        return '[data-testid="' + current.dataset.testid + '"]' + path;
+                        return '[data-testid="' + current.dataset.testid.replace(/"/g, '\\"') + '"]' + path;
                     }
                     current = current.parentElement;
                 }
@@ -276,12 +276,12 @@ class ManualBrowser:
                 
                 // Priority 4: name attribute
                 if (element.name) {
-                    return '[name="' + element.name + '"]';
+                    return '[name="' + element.name.replace(/"/g, '\\"') + '"]';
                 }
                 
                 // Priority 5: aria-label
                 if (element.getAttribute && element.getAttribute('aria-label')) {
-                    return '[aria-label="' + element.getAttribute('aria-label') + '"]';
+                    return '[aria-label="' + element.getAttribute('aria-label').replace(/"/g, '\\"') + '"]';
                 }
                 
                 // Priority 6: role + text for buttons
@@ -340,8 +340,8 @@ class ManualBrowser:
                 const el = e.target;
                 let selector = '';
                 if (el.id && el.id.length < 20) selector = '#' + el.id;
-                else if (el.name) selector = '[name="' + el.name + '"]';
-                else if (el.placeholder) selector = '[placeholder="' + el.placeholder + '"]';
+                else if (el.name) selector = '[name="' + el.name.replace(/"/g, '\\"') + '"]';
+                else if (el.placeholder) selector = '[placeholder="' + el.placeholder.replace(/"/g, '\\"') + '"]';
                 else selector = el.tagName.toLowerCase();
                 
                 const action = {type: 'fill', selector: selector, value: el.value, timestamp: Date.now()};
@@ -355,7 +355,7 @@ class ManualBrowser:
                 const el = e.target;
                 let selector = '';
                 if (el.id && el.id.length < 20) selector = '#' + el.id;
-                else if (el.name) selector = '[name="' + el.name + '"]';
+                else if (el.name) selector = '[name="' + el.name.replace(/"/g, '\\"') + '"]';
                 else selector = el.tagName.toLowerCase();
                 
                 const action = {type: 'press', selector: selector, value: 'Enter', timestamp: Date.now()};

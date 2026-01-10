@@ -281,8 +281,8 @@ When complete, briefly summarize what was collected.
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             for item in items:
-                # Convert non-string values to strings
-                row = {k: str(v) if v is not None else "" for k, v in item.items()}
+                # Convert non-string values to strings, filter out keys not in fieldnames
+                row = {k: str(v) if v is not None else "" for k, v in item.items() if k in fieldnames}
                 writer.writerow(row)
 
     def _export_readme(self, readme_path: Path, items: list[dict[str, Any]], sources: set[str]) -> None:
