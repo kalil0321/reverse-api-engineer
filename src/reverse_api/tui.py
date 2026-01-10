@@ -17,6 +17,7 @@ MODE_COLORS = {
     "manual": "#ff5f50",  # Coral Red
     "engineer": "#5f9fff",  # Blue
     "agent": "#50ff9f",  # Green/Cyan
+    "collector": "#ffd700",  # Gold
 }
 
 

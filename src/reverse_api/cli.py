@@ -49,11 +49,12 @@ config_manager = ConfigManager(get_config_path())
 session_manager = SessionManager(get_history_path())
 
 # Mode definitions
-MODES = ["manual", "engineer", "agent"]
+MODES = ["manual", "engineer", "agent", "collector"]
 MODE_DESCRIPTIONS = {
     "manual": "full pipeline",
     "engineer": "reverse engineer only",
     "agent": "autonomous agent + capture",
+    "collector": "ai-powered data collection",
 }
 
 
@@ -292,6 +293,17 @@ def prompt_interactive_options(
             "model": model,
         }
 
+    # Collector mode: just needs prompt
+    if result_mode == "collector":
+        if model is None:
+            model = config_manager.get("collector_model", "claude-sonnet-4-5")
+
+        return {
+            "mode": result_mode,
+            "prompt": prompt,
+            "model": model,
+        }
+
     # Manual mode: need URL
     if url is None:
         try:
@@ -346,7 +358,7 @@ def repl_loop():
         model = config_manager.get("claude_code_model", "claude-sonnet-4-5")
 
     display_banner(console, sdk=sdk, model=model)
-    console.print("  [dim]shift+tab to cycle modes: manual | engineer | agent[/dim]")
+    console.print("  [dim]shift+tab to cycle modes: manual | engineer | agent | collector[/dim]")
     display_footer(console)
 
     current_mode = "manual"
@@ -377,6 +389,8 @@ def repl_loop():
                         handle_engineer_help(mode_color)
                     elif current_mode == "agent":
                         handle_agent_help(mode_color)
+                    elif current_mode == "collector":
+                        handle_collector_help(mode_color)
                     elif current_mode == "manual":
                         handle_manual_help(mode_color)
                 elif cmd.startswith("/messages"):
@@ -475,6 +489,14 @@ def repl_loop():
                     prompt=options["prompt"],
                     url=options.get("url"),
                     reverse_engineer=True,  # Enable reverse engineering
+                    model=options.get("model"),
+                )
+                continue
+
+            if mode == "collector":
+                # Collector mode: AI-powered data collection
+                run_collector(
+                    prompt=options["prompt"],
                     model=options.get("model"),
                 )
                 continue
@@ -924,6 +946,31 @@ def handle_agent_help(mode_color=THEME_PRIMARY):
     console.print()
 
 
+def handle_collector_help(mode_color=THEME_PRIMARY):
+    """Show help specific to collector mode."""
+    from rich.table import Table
+
+    console.print()
+    console.print(" [bold white]Collector Mode Help[/bold white]")
+    console.print(" [dim]AI-powered web data collection. Describe what data you want, get JSON/CSV output.[/dim]")
+    console.print()
+
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_column(style=f"{mode_color} bold", justify="left", width=30)
+    table.add_column(style="white", justify="left")
+
+    table.add_row("<prompt>", "Describe data to collect in natural language.\n[dim]Example: Find 10 YC W24 AI startups with name, website, funding[/dim]")
+    table.add_row("", "")
+
+    table.add_row("Output", "JSON + CSV saved to ./collected/<folder>/")
+    table.add_row("", "")
+
+    table.add_row("Shift+Tab", "Cycle to other modes.")
+
+    console.print(table)
+    console.print()
+
+
 def handle_engineer_help(mode_color=THEME_PRIMARY):
     """Show help specific to engineer mode."""
     from rich.table import Table
@@ -1307,6 +1354,55 @@ def run_agent_capture(prompt=None, url=None, reverse_engineer=False, model=None,
             console.print(f" [dim]>[/dim] [dim]use @id {run_id} <prompt> to engineer later[/dim]\n")
     except Exception as e:
         console.print(f" [red]agent mode error: {e}[/red]")
+        console.print(f" [dim]{ERROR_CTA}[/dim]")
+        import traceback
+
+        traceback.print_exc()
+
+
+def run_collector(prompt=None, model=None, output_dir=None):
+    """Run AI-powered data collection with Collector class."""
+    import asyncio
+
+    from .collector import Collector
+
+    # Generate run ID
+    run_id = generate_run_id()
+    output_dir = output_dir or config_manager.get("output_dir")
+
+    # Use collector model from config if not specified
+    if model is None:
+        model = config_manager.get("collector_model", "claude-sonnet-4-5")
+
+    # Initialize session
+    session_manager.add_run(
+        run_id=run_id,
+        prompt=prompt or "",
+        mode="collector",
+        timestamp=get_timestamp(),
+    )
+
+    try:
+        # Run collector
+        collector = Collector(
+            run_id=run_id,
+            prompt=prompt or "",
+            model=model,
+            output_dir=output_dir,
+        )
+
+        result = asyncio.run(collector.run())
+
+        if result and not result.get("error"):
+            # Update session with results
+            session_manager.update_run(
+                run_id=run_id,
+                sdk="claude",
+                usage=result.get("usage", {}),
+                paths={"output_path": result.get("output_path")},
+            )
+    except Exception as e:
+        console.print(f" [red]collector error: {e}[/red]")
         console.print(f" [dim]{ERROR_CTA}[/dim]")
         import traceback
 

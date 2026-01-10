@@ -29,6 +29,16 @@ def generate_folder_name(prompt: str, sdk: str = None, session_id: str = None) -
             sdk = "claude"
 
     try:
+        # Check if event loop is already running (e.g., called from async context)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None:
+            # Already in async context, use fallback to avoid nested asyncio.run
+            return _slugify(prompt)
+
         if sdk == "opencode":
             return asyncio.run(_generate_folder_name_opencode_async(prompt, session_id))
         else:
@@ -420,3 +430,17 @@ def get_messages_path(run_id: str, output_dir: str | None = None) -> Path:
 def get_timestamp() -> str:
     """Get current timestamp in ISO format."""
     return datetime.now().isoformat()
+
+
+def get_collected_dir(folder_name: str) -> Path:
+    """Get ./collected/{folder_name}/ directory for collector mode output.
+
+    Args:
+        folder_name: Name of the collection folder
+
+    Returns:
+        Path to the collection output directory
+    """
+    path = Path.cwd() / "collected" / folder_name
+    path.mkdir(parents=True, exist_ok=True)
+    return path

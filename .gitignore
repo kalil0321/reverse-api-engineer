@@ -92,3 +92,5 @@ test*
 
 FEATURES.md
 docs/
+collected/
+collector_mode_plan.md
