@@ -407,7 +407,7 @@ def get_har_dir(run_id: str, output_dir: str | None = None) -> Path:
         raise ValueError("run_id cannot be empty")
 
     # Only allow alphanumeric characters, hyphens, and underscores
-    if not re.match(r'^[a-zA-Z0-9_-]+$', run_id):
+    if not re.match(r"^[a-zA-Z0-9_-]+$", run_id):
         raise ValueError(f"Invalid run_id: {run_id}. Only alphanumeric characters, hyphens, and underscores are allowed")
 
     # Limit length to prevent extremely long paths
@@ -421,7 +421,7 @@ def get_har_dir(run_id: str, output_dir: str | None = None) -> Path:
     try:
         har_dir_resolved = har_dir.resolve()
         base_dir_resolved = base_dir.resolve()
-        if not str(har_dir_resolved).startswith(str(base_dir_resolved)):
+        if not har_dir_resolved.is_relative_to(base_dir_resolved):
             raise ValueError(f"Path traversal detected: {run_id}")
     except (OSError, RuntimeError) as e:
         raise ValueError(f"Invalid path for run_id {run_id}: {e}") from e
@@ -454,7 +454,7 @@ def get_scripts_dir(run_id: str, output_dir: str | None = None) -> Path:
         raise ValueError("run_id cannot be empty")
 
     # Only allow alphanumeric characters, hyphens, and underscores
-    if not re.match(r'^[a-zA-Z0-9_-]+$', run_id):
+    if not re.match(r"^[a-zA-Z0-9_-]+$", run_id):
         raise ValueError(f"Invalid run_id: {run_id}. Only alphanumeric characters, hyphens, and underscores are allowed")
 
     # Limit length to prevent extremely long paths
@@ -468,7 +468,7 @@ def get_scripts_dir(run_id: str, output_dir: str | None = None) -> Path:
     try:
         scripts_dir_resolved = scripts_dir.resolve()
         base_dir_resolved = base_dir.resolve()
-        if not str(scripts_dir_resolved).startswith(str(base_dir_resolved)):
+        if not scripts_dir_resolved.is_relative_to(base_dir_resolved):
             raise ValueError(f"Path traversal detected: {run_id}")
     except (OSError, RuntimeError) as e:
         raise ValueError(f"Invalid path for run_id {run_id}: {e}") from e
@@ -495,7 +495,7 @@ def get_docs_dir(run_id: str, output_dir: str | None = None) -> Path:
         raise ValueError("run_id cannot be empty")
 
     # Only allow alphanumeric characters, hyphens, and underscores
-    if not re.match(r'^[a-zA-Z0-9_-]+$', run_id):
+    if not re.match(r"^[a-zA-Z0-9_-]+$", run_id):
         raise ValueError(f"Invalid run_id: {run_id}. Only alphanumeric characters, hyphens, and underscores are allowed")
 
     # Limit length to prevent extremely long paths
@@ -509,7 +509,7 @@ def get_docs_dir(run_id: str, output_dir: str | None = None) -> Path:
     try:
         docs_dir_resolved = docs_dir.resolve()
         base_dir_resolved = base_dir.resolve()
-        if not str(docs_dir_resolved).startswith(str(base_dir_resolved)):
+        if not docs_dir_resolved.is_relative_to(base_dir_resolved):
             raise ValueError(f"Path traversal detected: {run_id}")
     except (OSError, RuntimeError) as e:
         raise ValueError(f"Invalid path for run_id {run_id}: {e}") from e

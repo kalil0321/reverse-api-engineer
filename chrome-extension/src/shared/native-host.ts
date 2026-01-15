@@ -40,6 +40,12 @@ class NativeHostClient {
           const error = chrome.runtime.lastError
           console.log('Native host disconnected:', error?.message || 'unknown reason')
 
+          // Flush all pending callbacks with error to prevent hanging promises
+          this.pendingCallbacks.forEach((callback) => {
+            callback({ type: 'error', message: error?.message || 'Native host disconnected' })
+          })
+          this.pendingCallbacks.clear()
+
           const handlers = this.messageHandlers.get('disconnect') || []
           handlers.forEach((handler) => handler({ error: error?.message }))
           
@@ -134,8 +140,11 @@ class NativeHostClient {
 
   async getStatus(): Promise<Record<string, unknown>> {
     return new Promise((resolve) => {
-      this.sendMessage({ type: 'status' }, resolve)
-      setTimeout(() => resolve({ connected: false, error: 'Timeout' }), 5000)
+      const timeoutId = setTimeout(() => resolve({ connected: false, error: 'Timeout' }), 5000)
+      this.sendMessage({ type: 'status' }, (response) => {
+        clearTimeout(timeoutId)
+        resolve(response)
+      })
     })
   }
 

@@ -171,19 +171,20 @@ def install_native_host(extension_id: str | None = None) -> tuple[bool, str]:
         # Write the host script with absolute path to Python interpreter
         # This is critical because Chrome launches the script with a minimal
         # environment where /usr/bin/env python3 may resolve to an older Python
-        host_script_content = '''#!{python_path}
-"""Native messaging host entry point."""
-import sys
-sys.path.insert(0, "{site_packages}")
-from reverse_api.native_host import run_host
-run_host()
-'''
         # Find site-packages path
         import reverse_api
 
         site_packages = str(Path(reverse_api.__file__).parent.parent)
 
-        host_script.write_text(host_script_content.format(python_path=python_path, site_packages=site_packages))
+        # Use repr() to properly escape Windows backslashes in paths
+        host_script_content = f'''#!{python_path}
+"""Native messaging host entry point."""
+import sys
+sys.path.insert(0, {repr(site_packages)})
+from reverse_api.native_host import run_host
+run_host()
+'''
+        host_script.write_text(host_script_content)
         host_script.chmod(0o755)
 
         # Build manifest
@@ -284,18 +285,18 @@ def read_message() -> dict[str, Any] | None:
     Read a message from stdin using native messaging protocol.
 
     Returns:
-        Parsed JSON message or None if stdin is closed
+        Parsed JSON message or None if stdin is closed or incomplete read
     """
     # Read message length (4 bytes, little-endian)
     raw_length = sys.stdin.buffer.read(4)
-    if not raw_length:
+    if len(raw_length) < 4:
         return None
 
     message_length = struct.unpack("<I", raw_length)[0]
 
     # Read message content
     message_bytes = sys.stdin.buffer.read(message_length)
-    if not message_bytes:
+    if len(message_bytes) < message_length:
         return None
 
     return json.loads(message_bytes.decode("utf-8"))

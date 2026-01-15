@@ -20,13 +20,15 @@ CLI tool that captures browser traffic and automatically generates production-re
   - [Manual Mode](#manual-mode)
   - [Engineer Mode](#engineer-mode)
   - [Agent Mode](#agent-mode)
+  - [Collector Mode](#collector-mode)
+- [Tags](#tags)
 - [Configuration](#-configuration)
   - [Model Selection](#model-selection)
-  - [💸 Free Models with Antigravity](#free-model-options-with-antigravity)
   - [Agent Configuration](#agent-configuration)
   - [SDK Selection](#sdk-selection)
 - [CLI Commands](#-cli-commands)
 - [Claude Code Plugin](#-claude-code-plugin)
+- [Chrome Extension](#-chrome-extension)
 - [Examples](#-examples)
 - [Development](#-development)
 - [Contributing](#-contributing)
@@ -37,11 +39,13 @@ CLI tool that captures browser traffic and automatically generates production-re
 - 🤖 **Autonomous Agent Mode**: Fully automated browser interaction using AI agents (auto mode with MCP, browser-use, stagehand)
 - 📊 **HAR Recording**: Captures all network traffic in HTTP Archive format
 - 🧠 **AI-Powered Generation**: Uses Claude 4.5 to analyze traffic and generate clean Python code
+- 🔍 **Collector Mode**: Data collection with automatic JSON/CSV export
 - 🔌 **Multi-SDK Support**: Native integration with Claude and OpenCode SDKs
 - 💻 **Interactive CLI**: Minimalist terminal interface with mode cycling (Shift+Tab)
 - 📦 **Production Ready**: Generated scripts include error handling, type hints, and documentation
 - 💾 **Session History**: All runs saved locally with full message logs
 - 💰 **Cost Tracking**: Detailed token usage and cost estimation with cache support
+- 🏷️ **Tag System**: Powerful tags for fine-grained control (@record-only, @codegen, @docs, @id)
 
 ### Limitations
 
@@ -101,10 +105,11 @@ Launch the interactive CLI:
 reverse-api-engineer
 ```
 
-The CLI has three modes (cycle with **Shift+Tab**):
+The CLI has four modes (cycle with **Shift+Tab**):
 - **manual**: Browser capture + AI generation
 - **engineer**: Re-process existing captures
 - **agent**: Autonomous AI browser agent (default: auto mode with MCP-based browser + real-time reverse engineering)
+- **collector**: AI-powered web data collection (very minimalist version for now)
 
 Example workflow:
 ```bash
@@ -163,19 +168,88 @@ Fully automated browser interaction using AI agents:
 
 Change agent provider in `/settings` → "agent provider".
 
+### Collector Mode
+
+Web data collection using Claude Agent SDK:
+
+1. Start CLI and switch to collector mode (Shift+Tab)
+2. Enter a natural language prompt describing the data to collect (e.g., "Find 3 JS frameworks")
+3. The agent uses WebFetch, WebSearch, and file tools to autonomously collect structured data
+4. Data is automatically exported to JSON and CSV formats
+
+**Output locations:**
+- `~/.reverse-api/runs/collected/{folder_name}/` (permanent storage)
+- `./collected/{folder_name}/` (local copy with readable name)
+
+**Output files:**
+- `items.json` - Collected data in JSON format
+- `items.csv` - Collected data in CSV format
+- `README.md` - Collection metadata and schema documentation
+
+**Model Configuration:**
+Collector mode uses the `collector_model` setting (default: `claude-sonnet-4-5`). This can be configured in `~/.reverse-api/config.json`.
+
+Example workflow:
+```bash
+$ reverse-api-engineer
+> Find 3 JS frameworks
+
+# Agent autonomously searches and collects data
+# Data saved to: ./collected/js_frameworks/
+```
+
+## 🏷️ Tags
+
+Tags provide additional control and functionality within each mode:
+
+### Manual/Agent Mode Tags
+
+- **`@record-only`** - Record HAR file only, skip reverse engineering step
+  - Example: `@record-only navigate checkout flow`
+  - Useful when you want to capture traffic for later analysis
+
+- **`@codegen`** - Record browser actions and generate Playwright automation script
+  - Example: `@codegen navigate to google`
+  - Captures clicks, fills, and navigations to create a reusable Playwright script
+
+### Engineer Mode Tags
+
+- **`@id <run_id>`** - Switch context to a specific run ID
+  - Example: `@id abc123`
+  - Loads a previous capture session for re-engineering
+
+- **`@id <run_id> <prompt>`** - Run engineer on a specific run with instructions
+  - Example: `@id abc123 extract user profile`
+  - Re-processes a capture with new instructions
+
+- **`@id <run_id> --fresh <prompt>`** - Start fresh (ignore previous scripts)
+  - Example: `@id abc123 --fresh restart analysis`
+  - Generates new code from scratch, ignoring previous implementations
+
+- **`@docs`** - Generate API documentation (OpenAPI spec) for the latest run
+  - Example: `@docs`
+  - Creates OpenAPI specification from captured traffic
+
+- **`@id <run_id> @docs`** - Generate API documentation for a specific run
+  - Example: `@id abc123 @docs`
+  - Creates OpenAPI specification for a specific capture session
+
 ## 🔧 Configuration
 
 Settings stored in `~/.reverse-api/config.json`:
 ```json
 {
-  "claude_code_model": "claude-sonnet-4-5",
-  "opencode_provider": "anthropic",
-  "opencode_model": "claude-sonnet-4-5",
-  "sdk": "claude",
   "agent_provider": "auto",
   "browser_use_model": "bu-llm",
-  "stagehand_model": "openai/computer-use-preview-2025-03-11",
-  "output_dir": null
+  "claude_code_model": "claude-sonnet-4-5",
+  "collector_model": "claude-sonnet-4-5",
+  "opencode_model": "claude-sonnet-4-5",
+  "opencode_provider": "anthropic",
+  "output_dir": null,
+  "output_language": "python",
+  "real_time_sync": true,
+  "sdk": "claude",
+  "stagehand_model": "openai/computer-use-preview-2025-03-11"
 }
 ```
 
@@ -191,31 +265,7 @@ Change in `/settings` or via CLI:
 reverse-api-engineer manual --model claude-sonnet-4-5
 ```
 
-If you use Opencode, look at the [models](https://models.dev). Some are free like `opencode/grok-code`).
-
-### Free Model Options with Antigravity
-
-You can use free models via [Antigravity](https://github.com/NoeFabris/opencode-antigravity-auth) for API generation. See [available models](https://github.com/NoeFabris/opencode-antigravity-auth#available-models) for the full list.
-
-**Setup:**
-1. Follow the [Antigravity setup instructions](https://github.com/NoeFabris/opencode-antigravity-auth)
-2. In `/settings`, configure:
-   - **SDK**: Set to `opencode` (required for Antigravity)
-   - **opencode provider**: Set to `google`
-   - **opencode model**: Set to `gemini-3-flash` (or any available Antigravity model)
-
-**Available Antigravity Models:**
-- `gemini-3-pro-low` - Gemini 3 Pro Low (Antigravity)
-- `gemini-3-pro-high` - Gemini 3 Pro High (Antigravity)
-- `gemini-3-flash` - Gemini 3 Flash (Antigravity) (recommended)
-- `claude-sonnet-4-5` - Claude Sonnet 4.5 (Antigravity)
-- `claude-sonnet-4-5-thinking-low` - Claude Sonnet 4.5 Thinking Low (Antigravity)
-- `claude-sonnet-4-5-thinking-medium` - Claude Sonnet 4.5 Thinking Medium (Antigravity)
-- `claude-sonnet-4-5-thinking-high` - Claude Sonnet 4.5 Thinking High (Antigravity)
-- `claude-opus-4-5-thinking-low` - Claude Opus 4.5 Thinking Low (Antigravity)
-- `claude-opus-4-5-thinking-medium` - Claude Opus 4.5 Thinking Medium (Antigravity)
-- `claude-opus-4-5-thinking-high` - Claude Opus 4.5 Thinking High (Antigravity)
-- `gpt-oss-120b-medium` - GPT-OSS 120B Medium (Antigravity)
+If you use Opencode, look at the [models](https://models.dev).
 
 ### Agent Configuration
 
@@ -256,6 +306,35 @@ Change in `/settings` → "agent provider" and "agent model"
 
 Change in `/settings` or edit `config.json` directly.
 
+### Output Language
+
+Control the programming language of generated API clients:
+- **python** (default): Generate Python API clients
+- **javascript**: Generate JavaScript API clients
+- **typescript**: Generate TypeScript API clients
+
+Change in `/settings` → "Output Language" or edit `config.json`:
+```json
+{
+  "output_language": "typescript"
+}
+```
+
+### Real-time Sync
+
+Enable or disable real-time file synchronization during engineering sessions:
+- **Enabled** (default): Files are synced to disk as they're generated
+- **Disabled**: Files are written only at the end of the session
+
+When enabled, you can see files appear in real-time as the AI generates them. This is useful for monitoring progress and debugging.
+
+Change in `/settings` → "Real-time Sync" or edit `config.json`:
+```json
+{
+  "real_time_sync": false
+}
+```
+
 ## 💻 CLI Commands
 
 Use these slash commands while in the CLI:
@@ -276,6 +355,84 @@ claude # Open REPL
 ```
 
 See [plugin documentation](plugins/reverse-api-engineer/README.md) for commands, agents, skills, and usage examples.
+
+## 🌐 Chrome Extension
+
+**⚠️ Work in Progress**
+
+A Chrome extension that provides browser-native integration with reverse-api-engineer. The extension allows you to capture browser traffic directly from Chrome and interact with the reverse engineering process through a side panel interface.
+
+**Features:**
+- **HAR Capture**: Record network traffic using Chrome's Debugger API
+- **Side Panel UI**: Interactive interface for managing captures and chatting with the AI agent
+- **Native Host Integration**: Communicates with the reverse-api-engineer CLI tool
+
+### Local Development Setup
+
+To run the Chrome extension locally for development:
+
+**Prerequisites:**
+- Node.js and npm installed
+- Chrome browser
+- reverse-api-engineer CLI installed and native host configured
+
+**Setup Steps:**
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/kalil0321/reverse-api-engineer.git
+   cd reverse-api-engineer
+   ```
+
+2. **Navigate to the extension directory:**
+   ```bash
+   cd chrome-extension
+   ```
+
+3. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+
+4. **Build the extension:**
+   ```bash
+   npm run build
+   ```
+   This creates a `dist` directory with the compiled extension.
+
+5. **Load the extension in Chrome:**
+   - Open Chrome and navigate to `chrome://extensions/`
+   - Enable "Developer mode" (toggle in the top-right corner)
+   - Click "Load unpacked"
+   - Select the `chrome-extension/dist` directory
+   - The extension should now appear in your extensions list
+
+6. **Configure Native Host:**
+   - Ensure the native host is installed:
+     ```bash
+     reverse-api-engineer install-host
+     ```
+   - The extension communicates with the CLI via native messaging
+
+**Development Workflow:**
+
+- **Watch mode** (auto-rebuild on changes):
+  ```bash
+  npm run dev
+  ```
+  After rebuilding, reload the extension in Chrome (`chrome://extensions/` → click the reload icon).
+
+- **Production build:**
+  ```bash
+  npm run build
+  ```
+
+- **Type checking:**
+  ```bash
+  npm run typecheck
+  ```
+
+**Status:** The extension is currently under active development. Some features may be incomplete or subject to change.
 
 ## 💡 Examples
 
@@ -312,7 +469,7 @@ cd reverse-api-engineer
 uv sync
 ```
 
-### Run locally
+### Run
 ```bash
 uv run reverse-api-engineer
 ```
@@ -321,12 +478,6 @@ uv run reverse-api-engineer
 ```bash
 ./scripts/clean_build.sh
 ```
-
-## 🗺️ Roadmap
-
-- ✅ **Claude SDK** - Integration with Claude Code
-- ✅ **OpenCode SDK** - Integration with OpenCode
-- 🔄 **Codex SDK** - Codex SDK support
 
 ## 🔐 Requirements
 

@@ -58,6 +58,13 @@ export function SidePanel() {
     init()
   }, [])
 
+  // Cleanup warning timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (warningTimeoutRef.current) clearTimeout(warningTimeoutRef.current)
+    }
+  }, [])
+
   // Listen for messages from background
   useEffect(() => {
     const handleMessage = (message: { type: string; event?: AgentEvent | { type: string } }) => {
