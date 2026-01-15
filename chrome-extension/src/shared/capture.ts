@@ -3,11 +3,10 @@
  */
 
 export function generateRunId(): string {
-  const now = new Date()
-  const date = now.toISOString().slice(0, 10).replace(/-/g, '')
-  const time = now.toTimeString().slice(0, 8).replace(/:/g, '')
-  const random = Math.random().toString(36).substring(2, 6)
-  return `${date}_${time}_${random}`
+  // Generate short UUID with crx prefix
+  // Format: crx-xxxxxxxx (8 hex characters)
+  const shortUuid = Math.random().toString(16).substring(2, 10)
+  return `crx-${shortUuid}`
 }
 
 interface CaptureSettings {

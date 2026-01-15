@@ -353,7 +353,7 @@ def repl_loop():
     # Get current SDK and model from config
     sdk = config_manager.get("sdk", "claude")
     if sdk == "opencode":
-        model = config_manager.get("opencode_model", "claude-sonnet-4-5")
+        model = config_manager.get("opencode_model", "claude-opus-4-5")
     else:
         model = config_manager.get("claude_code_model", "claude-sonnet-4-5")
 
@@ -683,10 +683,10 @@ def handle_settings(mode_color=THEME_PRIMARY):
                 console.print(f" [dim]updated[/dim] opencode provider: {new_provider}\n")
 
     elif action == "opencode_model":
-        current = config_manager.get("opencode_model", "claude-sonnet-4-5")
+        current = config_manager.get("opencode_model", "claude-opus-4-5")
         new_model = questionary.text(
             " > opencode model",
-            default=current or "claude-sonnet-4-5",
+            default=current or "claude-opus-4-5",
             instruction="(e.g., 'claude-sonnet-4-5', 'claude-opus-4-5')",
             qmark="",
             style=questionary.Style(
@@ -1451,7 +1451,7 @@ def run_auto_capture(prompt=None, url=None, model=None, output_dir=None):
                 prompt=prompt,
                 output_dir=output_dir,
                 opencode_provider=config_manager.get("opencode_provider", "anthropic"),
-                opencode_model=config_manager.get("opencode_model", "claude-sonnet-4-5"),
+                opencode_model=config_manager.get("opencode_model", "claude-opus-4-5"),
                 enable_sync=config_manager.get("real_time_sync", False),
                 sdk=sdk,
                 output_language=output_language,
@@ -1595,7 +1595,7 @@ def run_engineer(
             output_dir=output_dir,
             sdk=sdk,
             opencode_provider=config_manager.get("opencode_provider", "anthropic"),
-            opencode_model=config_manager.get("opencode_model", "claude-sonnet-4-5"),
+            opencode_model=config_manager.get("opencode_model", "claude-opus-4-5"),
             enable_sync=enable_sync,
             additional_instructions=additional_instructions,
             is_fresh=is_fresh,
