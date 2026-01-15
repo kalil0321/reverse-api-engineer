@@ -6,9 +6,14 @@
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-red?style=flat-square" alt="License"></a>
 </div>
 
-CLI tool that captures browser traffic and automatically generates production-ready Python API clients. No more manual reverse engineering—just browse, capture, and get clean API code.
+<p align="center">
+CLI tool that captures browser traffic and automatically generates production-ready Python API clients.<br>
+No more manual reverse engineering—just browse, capture, and get clean API code.
+</p>
 
-![Reverse API Engineer Demo](https://raw.githubusercontent.com/kalil0321/reverse-api-engineer/main/assets/reverse-api-engineer.gif)
+<p align="center">
+  <img src="https://raw.githubusercontent.com/kalil0321/reverse-api-engineer/main/assets/reverse-api-engineer.gif" alt="Reverse API Engineer Demo">
+</p>
 
 ## Table of Contents
 
