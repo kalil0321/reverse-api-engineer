@@ -32,6 +32,7 @@ from .tui import (
     get_model_choices,
 )
 from .utils import (
+    check_for_updates,
     generate_folder_name,
     generate_run_id,
     get_actions_path,
@@ -362,6 +363,11 @@ def repl_loop():
     display_banner(console, sdk=sdk, model=model)
     console.print("  [dim]shift+tab to cycle modes: manual | engineer | agent | collector[/dim]")
     display_footer(console)
+
+    # Check for updates
+    if update_msg := check_for_updates():
+        console.print(f"  [yellow]{update_msg}[/yellow]")
+        console.print()
 
     current_mode = "manual"
 

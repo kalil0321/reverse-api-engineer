@@ -6,6 +6,30 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+import httpx
+
+from . import __version__
+
+
+def check_for_updates() -> str | None:
+    """Check PyPI for newer version.
+
+    Returns:
+        Update message if newer version available, None otherwise.
+    """
+    try:
+        response = httpx.get(
+            "https://pypi.org/pypi/reverse-api-engineer/json",
+            timeout=2.0,
+        )
+        if response.status_code == 200:
+            latest = response.json()["info"]["version"]
+            if latest != __version__:
+                return f"update available: {__version__} → {latest}  (pip install -U reverse-api-engineer)"
+    except Exception:
+        pass
+    return None
+
 
 def generate_folder_name(prompt: str, sdk: str = None, session_id: str = None) -> str:
     """Generate a clean folder name from a prompt.
