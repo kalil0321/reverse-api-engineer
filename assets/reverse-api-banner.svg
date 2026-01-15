@@ -69,8 +69,8 @@
     </g>
 
     <!-- Title text -->
-    <text x="30" y="-10" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="56" font-weight="700" fill="#ffffff" text-anchor="middle" letter-spacing="-1">
-      Reverse API Engineer
+    <text x="30" y="-10" font-family="'SF Mono', 'Monaco', 'Consolas', monospace" font-size="52" font-weight="600" fill="#ffffff" text-anchor="middle" letter-spacing="-1">
+      reverse-api-engineer
     </text>
 
     <!-- Tagline -->
