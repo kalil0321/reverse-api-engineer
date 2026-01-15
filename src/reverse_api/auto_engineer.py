@@ -396,15 +396,26 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
         self.message_store.save_prompt(self._build_auto_prompt())
 
         try:
-            async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=600.0) as client:
+            auth = self._get_auth()
+            async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=600.0, auth=auth) as client:
                 try:
                     health_r = await client.get("/global/health")
                     health_r.raise_for_status()
                     health = health_r.json()
                     self.opencode_ui.health_check(health)
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code == 401:
+                        debug_log(f"Health check failed: Authentication required")
+                        self.opencode_ui.error("Authentication failed. OpenCode server requires a password.")
+                        self.opencode_ui.console.print("\n[dim]Please set OPENCODE_SERVER_PASSWORD environment variable[/dim]")
+                        if self.opencode_username != "opencode":
+                            self.opencode_ui.console.print(f"[dim]Username: {self.opencode_username}[/dim]")
+                        return None
+                    raise
                 except Exception as e:
                     debug_log(f"Health check failed: {e}")
                     self.opencode_ui.error(f"OpenCode server not responding. Is it running on {self.BASE_URL}?")
+                    self.opencode_ui.console.print("\n[dim]Please run: opencode serve[/dim]")
                     return None
 
                 # Create session first
@@ -492,7 +503,8 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
 
             # Fetch actual provider and model used
             try:
-                async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=10.0) as client:
+                auth = self._get_auth()
+                async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=10.0, auth=auth) as client:
                     messages_r = await client.get(f"/session/{self._session_id}/message")
                     if messages_r.status_code == 200:
                         messages = messages_r.json()
@@ -520,6 +532,19 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
             self.message_store.save_result(result_data)
             return result_data
 
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                self.opencode_ui.error("Authentication failed. OpenCode server requires a password.")
+                self.opencode_ui.console.print("\n[dim]Please set OPENCODE_SERVER_PASSWORD environment variable[/dim]")
+                if self.opencode_username != "opencode":
+                    self.opencode_ui.console.print(f"[dim]Username: {self.opencode_username}[/dim]")
+                self.message_store.save_error("Authentication failed")
+                return None
+            error_msg = f"HTTP {e.response.status_code}: {str(e)}"
+            self.opencode_ui.error(error_msg)
+            self.message_store.save_error(error_msg)
+            return None
+
         except httpx.ConnectError:
             self.opencode_ui.error("Connection error")
             self.opencode_ui.console.print("\n[dim]Make sure OpenCode is running: opencode[/dim]")
@@ -545,7 +570,8 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
             # Best effort cleanup - deregister MCP server
             if self.mcp_name:
                 try:
-                    async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=5.0) as client:
+                    auth = self._get_auth()
+                    async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=5.0, auth=auth) as client:
                         await client.delete(f"/mcp/{self.mcp_name}")
                         debug_log(f"Cleaned up MCP server: {self.mcp_name}")
                 except Exception:

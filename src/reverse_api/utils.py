@@ -112,7 +112,7 @@ async def _generate_folder_name_opencode_async(prompt: str, session_id: str = No
     # Get config for provider and model
     config_manager = ConfigManager(get_config_path())
     opencode_provider = config_manager.get("opencode_provider", "anthropic")
-    opencode_model = config_manager.get("opencode_model", "claude-sonnet-4-5")
+    opencode_model = config_manager.get("opencode_model", "claude-opus-4-5")
 
     folder_prompt = (
         f"Generate a short folder name (1-3 words, lowercase, underscores) for this task: {prompt}\n\n"
@@ -406,9 +406,12 @@ def get_har_dir(run_id: str, output_dir: str | None = None) -> Path:
     if not run_id:
         raise ValueError("run_id cannot be empty")
 
-    # Only allow alphanumeric characters, hyphens, and underscores
+    # Allow alphanumeric characters, hyphens, and underscores
+    # Chrome extension IDs start with crx- followed by UUID-style format
     if not re.match(r"^[a-zA-Z0-9_-]+$", run_id):
-        raise ValueError(f"Invalid run_id: {run_id}. Only alphanumeric characters, hyphens, and underscores are allowed")
+        raise ValueError(
+            f"Invalid run_id: {run_id}. Only alphanumeric characters, hyphens, and underscores are allowed"
+        )
 
     # Limit length to prevent extremely long paths
     if len(run_id) > 64:
@@ -453,9 +456,12 @@ def get_scripts_dir(run_id: str, output_dir: str | None = None) -> Path:
     if not run_id:
         raise ValueError("run_id cannot be empty")
 
-    # Only allow alphanumeric characters, hyphens, and underscores
+    # Allow alphanumeric characters, hyphens, and underscores
+    # Chrome extension IDs start with crx- followed by UUID-style format
     if not re.match(r"^[a-zA-Z0-9_-]+$", run_id):
-        raise ValueError(f"Invalid run_id: {run_id}. Only alphanumeric characters, hyphens, and underscores are allowed")
+        raise ValueError(
+            f"Invalid run_id: {run_id}. Only alphanumeric characters, hyphens, and underscores are allowed"
+        )
 
     # Limit length to prevent extremely long paths
     if len(run_id) > 64:
@@ -494,9 +500,12 @@ def get_docs_dir(run_id: str, output_dir: str | None = None) -> Path:
     if not run_id:
         raise ValueError("run_id cannot be empty")
 
-    # Only allow alphanumeric characters, hyphens, and underscores
+    # Allow alphanumeric characters, hyphens, and underscores
+    # Chrome extension IDs start with crx- followed by UUID-style format
     if not re.match(r"^[a-zA-Z0-9_-]+$", run_id):
-        raise ValueError(f"Invalid run_id: {run_id}. Only alphanumeric characters, hyphens, and underscores are allowed")
+        raise ValueError(
+            f"Invalid run_id: {run_id}. Only alphanumeric characters, hyphens, and underscores are allowed"
+        )
 
     # Limit length to prevent extremely long paths
     if len(run_id) > 64:

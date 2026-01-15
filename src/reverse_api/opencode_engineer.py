@@ -42,7 +42,7 @@ class OpenCodeEngineer(BaseEngineer):
     def __init__(self, *args, **kwargs):
         # Pop OpenCode-specific kwargs before passing to parent class
         self.opencode_provider = kwargs.pop("opencode_provider", "anthropic")
-        self.opencode_model = kwargs.pop("opencode_model", "claude-sonnet-4-5")
+        self.opencode_model = kwargs.pop("opencode_model", "claude-opus-4-5")
 
         super().__init__(*args, **kwargs)
 
@@ -53,6 +53,17 @@ class OpenCodeEngineer(BaseEngineer):
         self._session_id: str | None = None
         self._last_event_time = 0.0
 
+        # Read OpenCode server authentication from environment variables
+        self.opencode_password = os.environ.get("OPENCODE_SERVER_PASSWORD")
+        self.opencode_username = os.environ.get("OPENCODE_SERVER_USERNAME", "opencode")
+
+    def _get_auth(self) -> httpx.BasicAuth | None:
+        """Get HTTP Basic Auth object if password is configured."""
+        if self.opencode_password:
+            return httpx.BasicAuth(self.opencode_username, self.opencode_password)
+                        self.message_store.save_error("Authentication failed")
+                        return None
+
     async def analyze_and_generate(self) -> dict[str, Any] | None:
         """Run the reverse engineering analysis with OpenCode."""
         self.opencode_ui.header(self.run_id, self.prompt, self.opencode_model, self.sdk)
@@ -62,16 +73,27 @@ class OpenCodeEngineer(BaseEngineer):
         self.message_store.save_prompt(self._build_analysis_prompt())
 
         try:
-            async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=600.0) as client:
+            auth = self._get_auth()
+            async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=600.0, auth=auth) as client:
                 # Health check
                 try:
                     health_r = await client.get("/global/health")
                     health_r.raise_for_status()
                     health = health_r.json()
                     self.opencode_ui.health_check(health)
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code == 401:
+                        debug_log(f"Health check failed: Authentication required")
+                        self.opencode_ui.error("Authentication failed. OpenCode server requires a password.")
+                        self.opencode_ui.console.print("\n[dim]Please set OPENCODE_SERVER_PASSWORD environment variable[/dim]")
+                        if self.opencode_username != "opencode":
+                            self.opencode_ui.console.print(f"[dim]Username: {self.opencode_username}[/dim]")
+                        return None
+                    raise
                 except Exception as e:
                     debug_log(f"Health check failed: {e}")
                     self.opencode_ui.error(f"OpenCode server not responding. Is it running on {self.BASE_URL}?")
+                    self.opencode_ui.console.print("\n[dim]Please run: opencode serve[/dim]")
                     return None
 
                 # Create a new session
@@ -125,7 +147,8 @@ class OpenCodeEngineer(BaseEngineer):
 
             # Fetch actual provider and model used from session messages
             try:
-                async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=10.0) as client:
+                auth = self._get_auth()
+                async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=10.0, auth=auth) as client:
                     messages_r = await client.get(f"/session/{self._session_id}/message")
                     if messages_r.status_code == 200:
                         messages = messages_r.json()
@@ -154,9 +177,22 @@ class OpenCodeEngineer(BaseEngineer):
             self.message_store.save_result(result_data)
             return result_data
 
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                self.opencode_ui.error("Authentication failed. OpenCode server requires a password.")
+                self.opencode_ui.console.print("\n[dim]Please set OPENCODE_SERVER_PASSWORD environment variable[/dim]")
+                if self.opencode_username != "opencode":
+                    self.opencode_ui.console.print(f"[dim]Username: {self.opencode_username}[/dim]")
+                self.message_store.save_error("Authentication failed")
+                return None
+            error_msg = f"HTTP {e.response.status_code}: {str(e)}"
+            self.opencode_ui.error(error_msg)
+            self.message_store.save_error(error_msg)
+            return None
+
         except httpx.ConnectError:
             self.opencode_ui.error("Connection error")
-            self.opencode_ui.console.print("\n[dim]Make sure OpenCode is running: opencode[/dim]")
+            self.opencode_ui.console.print("\n[dim]Please run: opencode serve[/dim]")
             self.message_store.save_error("Connection error")
             return None
 
