@@ -959,7 +959,9 @@ def handle_collector_help(mode_color=THEME_PRIMARY):
     table.add_column(style=f"{mode_color} bold", justify="left", width=30)
     table.add_column(style="white", justify="left")
 
-    table.add_row("<prompt>", "Describe data to collect in natural language.\n[dim]Example: Find 10 YC W24 AI startups with name, website, funding[/dim]")
+    table.add_row(
+        "<prompt>", "Describe data to collect in natural language.\n[dim]Example: Find 10 YC W24 AI startups with name, website, funding[/dim]"
+    )
     table.add_row("", "")
 
     table.add_row("Output", "JSON + CSV saved to ./collected/<folder>/")
@@ -1165,7 +1167,7 @@ def run_manual_capture(prompt=None, url=None, reverse_engineer=True, model=None,
     # Parse @record-only tag - if present, skip reverse engineering
     prompt, is_record_only = parse_record_only_tag(prompt)
     prompt, is_codegen = parse_codegen_tag(prompt)
-    
+
     if is_record_only:
         reverse_engineer = False
     if is_codegen:
@@ -1187,12 +1189,7 @@ def run_manual_capture(prompt=None, url=None, reverse_engineer=True, model=None,
         paths={"har_dir": str(get_har_dir(run_id, output_dir))},
     )
 
-    browser = ManualBrowser(
-        run_id=run_id, 
-        prompt=prompt, 
-        output_dir=output_dir,
-        enable_action_recording=is_codegen
-    )
+    browser = ManualBrowser(run_id=run_id, prompt=prompt, output_dir=output_dir, enable_action_recording=is_codegen)
     har_path = browser.start(start_url=url)
 
     if reverse_engineer:
@@ -1500,33 +1497,28 @@ def run_auto_capture(prompt=None, url=None, model=None, output_dir=None):
         return None
 
 
-def run_playwright_codegen(
-    run_id: str, 
-    prompt: str, 
-    output_dir: str | None = None,
-    start_url: str | None = None
-):
+def run_playwright_codegen(run_id: str, prompt: str, output_dir: str | None = None, start_url: str | None = None):
     """Generate Playwright script from recorded actions."""
     actions_path = get_actions_path(run_id, output_dir)
     if not actions_path.exists():
         console.print(" [red]error:[/red] no actions recorded")
         return
-    
+
     from .action_recorder import ActionRecorder
-    
+
     actions = ActionRecorder.load(actions_path)
     action_list = actions.get_actions()
-    
+
     # If no explicit start_url, extract from first navigate action
     if not start_url and action_list:
         if action_list[0].type == "navigate" and action_list[0].url:
             start_url = action_list[0].url
-    
+
     generator = PlaywrightCodeGenerator(action_list, start_url=start_url)
     script = generator.generate()
-    
+
     scripts_dir = get_scripts_dir(run_id, output_dir)
-    
+
     # Handle duplicate file paths
     script_path = scripts_dir / "automation.py"
     if script_path.exists():
@@ -1534,12 +1526,12 @@ def run_playwright_codegen(
         while (scripts_dir / f"automation_{i}.py").exists():
             i += 1
         script_path = scripts_dir / f"automation_{i}.py"
-    
+
     script_path.write_text(script)
-    
+
     # Also write requirements.txt
     (scripts_dir / "requirements.txt").write_text("playwright\n")
-    
+
     console.print(" [dim]>[/dim] [white]codegen complete[/white]")
     console.print(f" [dim]>[/dim] [white]{script_path}[/white]")
     console.print(f" [dim]>[/dim] [dim]run with: uv run python {script_path}[/dim]\n")
@@ -1675,6 +1667,45 @@ def run_engineer(
             paths={"script_path": result.get("script_path")},
         )
     return result
+
+
+@main.command("install-host")
+@click.option(
+    "--extension-id",
+    default=None,
+    help="Chrome extension ID (required - get from chrome://extensions/)",
+)
+def install_host(extension_id: str | None):
+    """Install the native messaging host for Chrome extension integration."""
+    from .native_host import install_native_host
+
+    success, message = install_native_host(extension_id)
+    if success:
+        console.print(f"[green]{message}[/green]")
+    else:
+        console.print(f"[red]{message}[/red]")
+        raise SystemExit(1)
+
+
+@main.command("uninstall-host")
+def uninstall_host():
+    """Uninstall the native messaging host."""
+    from .native_host import uninstall_native_host
+
+    success, message = uninstall_native_host()
+    if success:
+        console.print(f"[green]{message}[/green]")
+    else:
+        console.print(f"[red]{message}[/red]")
+        raise SystemExit(1)
+
+
+@main.command("run-host")
+def run_host_cmd():
+    """Run the native messaging host (used by Chrome extension)."""
+    from .native_host import run_host
+
+    run_host()
 
 
 if __name__ == "__main__":
