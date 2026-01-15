@@ -61,7 +61,8 @@ class OpenCodeEngineer(BaseEngineer):
         """Get HTTP Basic Auth object if password is configured."""
         if self.opencode_password:
             return httpx.BasicAuth(self.opencode_username, self.opencode_password)
-        return None
+                        self.message_store.save_error("Authentication failed")
+                        return None
 
     async def analyze_and_generate(self) -> dict[str, Any] | None:
         """Run the reverse engineering analysis with OpenCode."""
