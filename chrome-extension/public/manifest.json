@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "reverse-api-engineer",
+  "version": "0.1.0",
+  "description": "Capture browser traffic and generate API clients using reverse-api-engineer",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "debugger",
+    "storage",
+    "sidePanel",
+    "nativeMessaging",
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/index.html"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
+    },
+    "default_title": "reverse-api-engineer"
+  },
+  "default_locale": "en"
+}

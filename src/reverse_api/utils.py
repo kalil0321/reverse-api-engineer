@@ -390,9 +390,42 @@ def get_base_output_dir(output_dir: str | None = None) -> Path:
 
 
 def get_har_dir(run_id: str, output_dir: str | None = None) -> Path:
-    """Get the HAR directory for a specific run."""
+    """Get the HAR directory for a specific run.
+
+    Args:
+        run_id: Run identifier (must be alphanumeric with hyphens/underscores only)
+        output_dir: Optional custom output directory
+
+    Returns:
+        Path to the HAR directory
+
+    Raises:
+        ValueError: If run_id contains invalid characters or attempts path traversal
+    """
+    # Validate run_id to prevent path traversal attacks
+    if not run_id:
+        raise ValueError("run_id cannot be empty")
+
+    # Only allow alphanumeric characters, hyphens, and underscores
+    if not re.match(r"^[a-zA-Z0-9_-]+$", run_id):
+        raise ValueError(f"Invalid run_id: {run_id}. Only alphanumeric characters, hyphens, and underscores are allowed")
+
+    # Limit length to prevent extremely long paths
+    if len(run_id) > 64:
+        raise ValueError(f"run_id too long: {len(run_id)} characters (max 64)")
+
     base_dir = get_base_output_dir(output_dir)
     har_dir = base_dir / "har" / run_id
+
+    # Verify the resolved path is within the base directory (defense in depth)
+    try:
+        har_dir_resolved = har_dir.resolve()
+        base_dir_resolved = base_dir.resolve()
+        if not har_dir_resolved.is_relative_to(base_dir_resolved):
+            raise ValueError(f"Path traversal detected: {run_id}")
+    except (OSError, RuntimeError) as e:
+        raise ValueError(f"Invalid path for run_id {run_id}: {e}") from e
+
     har_dir.mkdir(parents=True, exist_ok=True)
     return har_dir
 
@@ -404,17 +437,83 @@ def get_actions_path(run_id: str, output_dir: str | None = None) -> Path:
 
 
 def get_scripts_dir(run_id: str, output_dir: str | None = None) -> Path:
-    """Get the scripts directory for a specific run."""
+    """Get the scripts directory for a specific run.
+
+    Args:
+        run_id: Run identifier (must be alphanumeric with hyphens/underscores only)
+        output_dir: Optional custom output directory
+
+    Returns:
+        Path to the scripts directory
+
+    Raises:
+        ValueError: If run_id contains invalid characters or attempts path traversal
+    """
+    # Validate run_id to prevent path traversal attacks
+    if not run_id:
+        raise ValueError("run_id cannot be empty")
+
+    # Only allow alphanumeric characters, hyphens, and underscores
+    if not re.match(r"^[a-zA-Z0-9_-]+$", run_id):
+        raise ValueError(f"Invalid run_id: {run_id}. Only alphanumeric characters, hyphens, and underscores are allowed")
+
+    # Limit length to prevent extremely long paths
+    if len(run_id) > 64:
+        raise ValueError(f"run_id too long: {len(run_id)} characters (max 64)")
+
     base_dir = get_base_output_dir(output_dir)
     scripts_dir = base_dir / "scripts" / run_id
+
+    # Verify the resolved path is within the base directory (defense in depth)
+    try:
+        scripts_dir_resolved = scripts_dir.resolve()
+        base_dir_resolved = base_dir.resolve()
+        if not scripts_dir_resolved.is_relative_to(base_dir_resolved):
+            raise ValueError(f"Path traversal detected: {run_id}")
+    except (OSError, RuntimeError) as e:
+        raise ValueError(f"Invalid path for run_id {run_id}: {e}") from e
+
     scripts_dir.mkdir(parents=True, exist_ok=True)
     return scripts_dir
 
 
 def get_docs_dir(run_id: str, output_dir: str | None = None) -> Path:
-    """Get the docs directory for a specific run."""
+    """Get the docs directory for a specific run.
+
+    Args:
+        run_id: Run identifier (must be alphanumeric with hyphens/underscores only)
+        output_dir: Optional custom output directory
+
+    Returns:
+        Path to the docs directory
+
+    Raises:
+        ValueError: If run_id contains invalid characters or attempts path traversal
+    """
+    # Validate run_id to prevent path traversal attacks
+    if not run_id:
+        raise ValueError("run_id cannot be empty")
+
+    # Only allow alphanumeric characters, hyphens, and underscores
+    if not re.match(r"^[a-zA-Z0-9_-]+$", run_id):
+        raise ValueError(f"Invalid run_id: {run_id}. Only alphanumeric characters, hyphens, and underscores are allowed")
+
+    # Limit length to prevent extremely long paths
+    if len(run_id) > 64:
+        raise ValueError(f"run_id too long: {len(run_id)} characters (max 64)")
+
     base_dir = get_base_output_dir(output_dir)
     docs_dir = base_dir / "docs" / run_id
+
+    # Verify the resolved path is within the base directory (defense in depth)
+    try:
+        docs_dir_resolved = docs_dir.resolve()
+        base_dir_resolved = base_dir.resolve()
+        if not docs_dir_resolved.is_relative_to(base_dir_resolved):
+            raise ValueError(f"Path traversal detected: {run_id}")
+    except (OSError, RuntimeError) as e:
+        raise ValueError(f"Invalid path for run_id {run_id}: {e}") from e
+
     docs_dir.mkdir(parents=True, exist_ok=True)
     return docs_dir
 

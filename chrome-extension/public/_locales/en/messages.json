@@ -1,0 +1,10 @@
+{
+  "extName": {
+    "message": "reverse-api-engineer",
+    "description": "Extension name"
+  },
+  "extDescription": {
+    "message": "Capture browser traffic and generate API clients using reverse-api-engineer",
+    "description": "Extension description"
+  }
+}

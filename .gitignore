@@ -94,3 +94,7 @@ FEATURES.md
 docs/
 collected/
 collector_mode_plan.md
+
+chrome-extension/node_modules/
+chrome-extension/dist/
+chrome-extension-old
