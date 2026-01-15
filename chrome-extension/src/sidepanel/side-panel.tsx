@@ -32,7 +32,7 @@ export function SidePanel() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputValue, setInputValue] = useState('')
   const [warningMessage, setWarningMessage] = useState<string | null>(null)
-  
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const currentResponseIdRef = useRef<string | null>(null)
   const warningTimeoutRef = useRef<any>(null)
@@ -108,7 +108,7 @@ export function SidePanel() {
     setMessages(prev => {
       // Find or create the current assistant message
       let currentId = currentResponseIdRef.current
-      
+
       if (!currentId) {
         currentId = `assistant-${Date.now()}`
         currentResponseIdRef.current = currentId
@@ -220,7 +220,7 @@ export function SidePanel() {
             </div>
           )}
         </div>
-        
+
         <div className="flex items-center gap-2">
           {/* Capture Toggle Button in Header */}
           <Tooltip.Root>
@@ -228,11 +228,10 @@ export function SidePanel() {
               render={
                 <Button
                   onClick={toggleCapture}
-                  className={`px-3 py-1.5 rounded text-[11px] font-bold uppercase tracking-widest transition-all ${
-                    state.capturing 
-                      ? 'text-primary bg-primary/10 hover:bg-primary/20' 
+                  className={`px-3 py-1.5 rounded text-[11px] font-bold uppercase tracking-widest transition-all ${state.capturing
+                      ? 'text-primary bg-primary/10 hover:bg-primary/20'
                       : 'text-white/60 hover:text-white hover:bg-white/10'
-                  }`}
+                    }`}
                 >
                   {state.capturing ? 'Stop Capture' : 'Start Capture'}
                 </Button>
@@ -240,17 +239,17 @@ export function SidePanel() {
             />
             <Tooltip.Portal>
               <Tooltip.Positioner sideOffset={4}>
-              <Tooltip.Popup className="bg-background-secondary text-white text-[10px] px-2 py-1 rounded shadow-lg border border-border z-[100] font-mono">
-                {state.capturing ? 'Stop process' : 'Start recording'}
-                {state.stats.total > 0 && ` (${state.stats.total} requests)`}
-              </Tooltip.Popup>
+                <Tooltip.Popup className="bg-background-secondary text-white text-[10px] px-2 py-1 rounded shadow-lg border border-border z-[100] font-mono">
+                  {state.capturing ? 'Stop process' : 'Start recording'}
+                  {state.stats.total > 0 && ` (${state.stats.total} requests)`}
+                </Tooltip.Popup>
               </Tooltip.Positioner>
             </Tooltip.Portal>
           </Tooltip.Root>
         </div>
       </header>
 
-       {/* Native host warning */}
+      {/* Native host warning */}
       {!state.nativeHostConnected && (
         <div className="mx-4 mt-4 p-3 border border-primary/50 bg-primary/5 rounded">
           <div className="flex items-start gap-3">
@@ -345,8 +344,8 @@ export function SidePanel() {
             !state.nativeHostConnected
               ? 'Native host disconnected'
               : state.stats.total === 0
-              ? 'Capture traffic to begin'
-              : 'Build an API client...'
+                ? 'Capture traffic to begin'
+                : 'Build an API client...'
           }
         />
       </div>
