@@ -356,7 +356,9 @@ class NativeHostHandler:
             har_dir.mkdir(parents=True, exist_ok=True)
 
             har_path = har_dir / "recording.har"
-            # Save without indentation for performance (HAR files can be very large)
+            # Save without indentation to improve I/O performance and slightly reduce size.
+            # Note: If HAR data embeds response bodies, the overall file can still be very large;
+            # this function only controls JSON formatting, not how bodies are stored.
             har_path.write_text(json.dumps(har_data, separators=(',', ':')))
 
             self.current_run_id = run_id
