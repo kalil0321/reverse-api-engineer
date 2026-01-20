@@ -455,7 +455,7 @@ class ManualBrowser:
                 channel="chrome",  # Use real Chrome binary
                 headless=False,
                 record_har_path=str(self.har_path),
-                record_har_content="attach",
+                record_har_content="embed",
                 no_viewport=True,
                 args=[
                     "--start-maximized",
@@ -542,7 +542,7 @@ class ManualBrowser:
         # Create context with HAR recording and realistic settings
         self._context = self._browser.new_context(
             record_har_path=str(self.har_path),
-            record_har_content="attach",
+            record_har_content="embed",
             no_viewport=True,
             locale="en-US",
             timezone_id="America/New_York",
@@ -953,7 +953,7 @@ class AgentBrowser:
             browser = Browser(
                 record_har_path=str(self.har_path),
                 record_har_mode="full",
-                record_har_content="attach",
+                record_har_content="embed",
             )
 
             suppress_browser_use_logs()
