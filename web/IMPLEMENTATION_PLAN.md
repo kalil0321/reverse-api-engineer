@@ -7,16 +7,18 @@ This document outlines the implementation strategy for building a cloud-based ve
 1. **Cloud Browser with HAR Recording** - Providing users with a remote browser they can interact with while capturing network traffic
 2. **Sandbox Environment** - Running the AI engineer in an isolated environment with access to HAR files
 
+---
+
 ## Architecture Options
 
-### Option A: Cloud Browser + Separate Sandbox (Recommended)
+### Option A: Unified Fly.io Sprite (Recommended)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         Next.js Frontend                         │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
 │  │ Browser View │  │  Chat Panel  │  │  Generated Scripts   │  │
-│  │  (WebSocket) │  │              │  │      Preview         │  │
+│  │  (VNC/noVNC) │  │              │  │      Preview         │  │
 │  └──────────────┘  └──────────────┘  └──────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -24,257 +26,340 @@ This document outlines the implementation strategy for building a cloud-based ve
 ┌─────────────────────────────────────────────────────────────────┐
 │                      Backend API (Next.js)                       │
 │  ┌──────────────────────┐  ┌────────────────────────────────┐  │
-│  │  Session Management  │  │  File Storage (S3/R2/Supabase) │  │
+│  │  Session Management  │  │  Sprite Orchestration API      │  │
 │  └──────────────────────┘  └────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
-                    │                         │
-                    ▼                         ▼
-┌────────────────────────────┐    ┌──────────────────────────────┐
-│    Cloud Browser Service   │    │      Code Sandbox Service    │
-│  ┌──────────────────────┐  │    │  ┌────────────────────────┐  │
-│  │     Browserbase      │  │    │  │    E2B.dev Sandbox     │  │
-│  │    (HAR Recording)   │  │    │  │  - Python runtime      │  │
-│  │  - Live streaming    │  │    │  │  - Claude SDK          │  │
-│  │  - User interaction  │  │    │  │  - File system access  │  │
-│  └──────────────────────┘  │    │  └────────────────────────┘  │
-└────────────────────────────┘    └──────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      Fly.io Sprite (per user)                    │
+│  ┌──────────────────────┐  ┌────────────────────────────────┐  │
+│  │  Playwright Browser  │  │   Reverse API Engineer         │  │
+│  │  - HAR recording     │  │   - Claude pre-installed       │  │
+│  │  - VNC streaming     │  │   - Persistent environment     │  │
+│  │  - Anti-detection    │  │   - Checkpoint/restore         │  │
+│  └──────────────────────┘  └────────────────────────────────┘  │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  100GB NVMe Storage (persistent, billed per block used)  │  │
+│  │  - HAR files in /workspace/har/                          │  │
+│  │  - Scripts in /workspace/scripts/                        │  │
+│  │  - Checkpoints at /.sprite/checkpoints/                  │  │
+│  └──────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 **Pros:**
-- Best separation of concerns
-- Can scale browser and sandbox independently
-- Browserbase handles browser complexity
-- E2B provides secure code execution
+- Single service - browser and sandbox in one VM
+- Persistent state - no environment rebuild between sessions
+- Checkpoint/restore in ~300ms - rollback if something breaks
+- Claude, Gemini, Codex pre-installed
+- 100GB storage, only pay for blocks written
+- Auto-idle stops billing but preserves state
+- Cheaper than E2B (~$0.02/hr vs ~$0.05/hr)
+- No Docker images needed
 
 **Cons:**
-- Two external services to manage
-- Need to transfer HAR files between services
+- Need to implement VNC streaming for browser view
+- Slightly slower cold start (1-12s vs E2B's 400ms)
 
-### Option B: Unified Sandbox with Cloud Browser
+### Option B: Cloud Browser + Separate Sprite
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         Next.js Frontend                         │
 └─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   E2B Sandbox (Desktop Template)                 │
-│  ┌──────────────────────┐  ┌────────────────────────────────┐  │
-│  │  Playwright Browser  │  │   Reverse API Engineer CLI     │  │
-│  │  (with HAR capture)  │  │   (running in sandbox)         │  │
-│  └──────────────────────┘  └────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
+                    │                         │
+                    ▼                         ▼
+┌────────────────────────────┐    ┌──────────────────────────────┐
+│    Browserbase             │    │      Fly.io Sprite           │
+│  - Live streaming          │    │  - Claude pre-installed      │
+│  - HAR recording           │    │  - Persistent state          │
+│  - Managed service         │    │  - Checkpoint/restore        │
+└────────────────────────────┘    └──────────────────────────────┘
 ```
 
 **Pros:**
-- Single service, simpler architecture
-- HAR files already in the same filesystem
-- Closer to CLI experience
+- Better browser streaming UX (Browserbase native embed)
+- Separation of concerns
 
 **Cons:**
-- E2B desktop sandbox is more expensive
-- Less flexible browser interaction (no native streaming)
-- Heavier sandbox instances
+- Two services to manage
+- Need to transfer HAR files between services
+- Higher cost
 
 ---
 
-## Recommended Approach: Option A
+## Recommended Approach: Option A (Unified Sprite)
 
-### Phase 1: Cloud Browser Integration
+### Why Fly.io Sprites over E2B?
 
-#### Service Selection: Browserbase
+| Feature | Fly.io Sprites | E2B |
+|---------|---------------|-----|
+| **State Persistence** | Survives idle, resumes instantly | Ephemeral, rebuilds each time |
+| **Checkpoint/Restore** | 300ms snapshots, last 5 auto-mounted | Not built-in |
+| **Pricing** | ~$0.02/hr, pay only for blocks written | ~$0.05/hr, pay for allocated |
+| **Storage** | 100GB NVMe, TRIM-friendly billing | Limited, Docker-based |
+| **Docker Required** | No | Yes |
+| **Pre-installed AI** | Claude, Gemini, Codex | Manual setup required |
+| **Idle Billing** | Stops billing, preserves state | Session ends, state lost |
+| **Cold Start** | 1-12 seconds | ~400ms |
 
-[Browserbase](https://browserbase.com) provides:
-- Playwright-compatible cloud browsers
-- Built-in HAR recording via CDP
-- Live session streaming via WebSocket
-- Stealth mode and anti-detection
+**Key insight**: Sprites are designed for exactly our use case - persistent coding agent environments. The agent can install packages once, process multiple HAR files across sessions, and checkpoint before risky operations.
 
-#### Implementation Steps
+---
 
-1. **Browser Session API**
-   ```typescript
-   // POST /api/browser/session
-   // Creates a new Browserbase session with HAR recording enabled
+## Phase 1: Sprite Setup
 
-   interface CreateSessionResponse {
-     sessionId: string;
-     connectUrl: string;      // WebSocket URL for live view
-     debuggerUrl: string;     // CDP endpoint for HAR recording
-   }
-   ```
+### Sprite Configuration
 
-2. **Browser Live View Component**
-   ```typescript
-   // Use Browserbase's embed or custom WebSocket streaming
-   // Options:
-   // - Browserbase embed iframe (simplest)
-   // - noVNC for VNC-based streaming
-   // - Custom WebSocket with canvas rendering
-   ```
+```typescript
+// Sprite creation via Fly.io API
+interface SpriteConfig {
+  name: string;           // User-specific sprite
+  size: 'shared-cpu-1x';  // Start small
+  region: 'ord';          // Chicago (or nearest)
+  env: {
+    ANTHROPIC_API_KEY: string;
+  };
+}
+```
 
-3. **HAR Recording**
-   ```typescript
-   // Browserbase supports HAR via:
-   // 1. Built-in recording (session.recording)
-   // 2. CDP Network domain events
-   // 3. Playwright's page.routeFromHAR() in record mode
+### Pre-installed Environment
 
-   // On session end:
-   // - Download HAR from Browserbase
-   // - Store in S3/R2 with session ID
-   ```
+Sprites come with Claude pre-installed. We'll add:
+- Playwright with Chromium
+- Python 3.11+ with our dependencies
+- VNC server for browser streaming
+- Reverse API Engineer CLI
 
-#### Alternative: Self-hosted Playwright
+```bash
+# Sprite init script
+playwright install chromium
+pip install reverse-api-engineer httpx anthropic
+```
 
-If cost is a concern, run Playwright in containers:
-- Use [browserless.io](https://browserless.io) for managed Playwright
-- Or deploy Playwright containers on Fly.io/Railway
-- Implement VNC streaming with noVNC
+### Checkpoint Strategy
 
-### Phase 2: Code Sandbox Integration
+```typescript
+// Checkpoint before risky operations
+async function safeOperation(sprite: Sprite, operation: () => Promise<void>) {
+  await sprite.checkpoint('before-operation');
+  try {
+    await operation();
+  } catch (error) {
+    await sprite.restore('before-operation');
+    throw error;
+  }
+}
+```
 
-#### Service Selection: E2B
+---
 
-[E2B](https://e2b.dev) provides:
-- Secure sandboxed environments
-- Python runtime with pip
-- File system access
-- 24-hour sandbox lifetime
+## Phase 2: Browser Integration
 
-#### Implementation Steps
+### VNC Streaming Setup
 
-1. **Custom Sandbox Template**
-   ```dockerfile
-   # e2b.Dockerfile
-   FROM e2b/base
+Since Sprites run a full Linux environment, we can use VNC for browser streaming:
 
-   # Install Python and dependencies
-   RUN pip install anthropic httpx
+```typescript
+// Sprite runs VNC server
+// x11vnc -display :0 -forever -shared -rfbport 5900
 
-   # Copy engineer code (or install from pip)
-   COPY src/reverse_api /app/reverse_api
-   ```
+// Frontend connects via noVNC (WebSocket to VNC bridge)
+interface BrowserViewProps {
+  spriteId: string;
+  vncUrl: string;  // wss://sprite-{id}.fly.dev:5900
+}
+```
 
-2. **Sandbox API**
-   ```typescript
-   // POST /api/sandbox/create
-   // Creates E2B sandbox with HAR files uploaded
+### HAR Recording
 
-   interface CreateSandboxRequest {
-     harSessionId: string;    // Reference to stored HAR
-   }
+```typescript
+// Inside Sprite - Playwright with HAR recording
+import { chromium } from 'playwright';
 
-   interface CreateSandboxResponse {
-     sandboxId: string;
-     status: 'ready' | 'initializing';
-   }
-   ```
+const browser = await chromium.launch({ headless: false });
+const context = await browser.newContext({
+  recordHar: {
+    path: '/workspace/har/session.har',
+    mode: 'full',
+    content: 'embed'
+  }
+});
 
-3. **Engineer Execution**
-   ```typescript
-   // POST /api/sandbox/{id}/run
-   // Runs the engineer with streaming output
+// User interacts via VNC...
 
-   // Sandbox executes:
-   // 1. Load HAR files from /workspace/har/
-   // 2. Run engineer.py with Claude API
-   // 3. Stream progress back via WebSocket
-   // 4. Save generated scripts to /workspace/scripts/
-   ```
+await context.close();  // HAR file saved
+```
 
-4. **Script Download**
-   ```typescript
-   // GET /api/sandbox/{id}/scripts
-   // Downloads generated Python scripts as zip
-   ```
+### Browser Control API
 
-### Phase 3: Frontend Implementation
+```typescript
+// POST /api/sprite/{id}/browser/start
+interface StartBrowserRequest {
+  url?: string;  // Initial URL
+}
 
-#### Pages Structure
+// POST /api/sprite/{id}/browser/stop
+interface StopBrowserResponse {
+  harPath: string;  // /workspace/har/session.har
+}
+
+// GET /api/sprite/{id}/browser/vnc
+// Returns WebSocket URL for noVNC connection
+```
+
+---
+
+## Phase 3: Engineer Integration
+
+### Running the Engineer
+
+```typescript
+// POST /api/sprite/{id}/engineer/run
+interface RunEngineerRequest {
+  harPath: string;
+  prompt?: string;
+}
+
+// Sprite executes:
+// 1. Load HAR from /workspace/har/
+// 2. Create checkpoint before generation
+// 3. Run reverse-api-engineer with Claude
+// 4. Stream progress via WebSocket
+// 5. Save scripts to /workspace/scripts/
+```
+
+### Streaming Output
+
+```typescript
+// WebSocket connection for real-time output
+const ws = new WebSocket(`wss://api/sprite/${spriteId}/engineer/stream`);
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  switch (data.type) {
+    case 'progress':
+      updateProgress(data.message);
+      break;
+    case 'code':
+      displayCode(data.content);
+      break;
+    case 'complete':
+      showDownloadButton(data.scriptPath);
+      break;
+  }
+};
+```
+
+---
+
+## Phase 4: Frontend Implementation
+
+### Pages Structure
 
 ```
 src/app/
 ├── page.tsx                    # Landing page
 ├── dashboard/
-│   └── page.tsx               # User's sessions list
-├── session/
-│   ├── new/
-│   │   └── page.tsx           # Start new capture
+│   └── page.tsx               # User's sprites and sessions
+├── sprite/
 │   └── [id]/
-│       ├── page.tsx           # Active session view
-│       ├── browser/           # Browser interaction
+│       ├── page.tsx           # Active sprite view
+│       ├── browser/           # VNC browser view
+│       │   └── page.tsx
 │       └── engineer/          # Engineer chat + results
+│           └── page.tsx
 └── api/
-    ├── browser/
-    │   ├── session/route.ts   # Create/manage browser sessions
-    │   └── har/route.ts       # Download HAR files
-    ├── sandbox/
-    │   ├── route.ts           # Create sandbox
+    ├── sprite/
+    │   ├── route.ts           # Create/list sprites
     │   └── [id]/
-    │       ├── run/route.ts   # Run engineer
-    │       └── scripts/route.ts # Download scripts
+    │       ├── browser/
+    │       │   ├── start/route.ts
+    │       │   ├── stop/route.ts
+    │       │   └── vnc/route.ts
+    │       ├── engineer/
+    │       │   ├── run/route.ts
+    │       │   └── stream/route.ts
+    │       ├── checkpoint/route.ts
+    │       └── files/route.ts
     └── auth/
         └── [...nextauth]/route.ts
 ```
 
-#### Key Components
+### Key Components
 
-1. **BrowserView** - Live browser streaming
+1. **VNCViewer** - Browser view via noVNC
    ```typescript
-   // Uses iframe embed or WebSocket canvas
+   // Uses @novnc/novnc or react-vnc
+   // Full-screen browser interaction
    // Controls: URL bar, back/forward, stop recording
    ```
 
 2. **EngineerChat** - Chat interface for engineer
    ```typescript
-   // Similar to CLI interface
-   // Shows progress, token usage, costs
-   // Displays generated code with syntax highlighting
+   // Real-time streaming output
+   // Token usage and cost display
+   // Code preview with syntax highlighting
    ```
 
-3. **ScriptPreview** - View and download generated scripts
+3. **CheckpointManager** - Manage sprite checkpoints
    ```typescript
-   // Monaco editor for viewing
-   // Download as zip
-   // Copy to clipboard
+   // List checkpoints at /.sprite/checkpoints/
+   // One-click restore
+   // Create manual checkpoints
+   ```
+
+4. **FileExplorer** - Browse sprite filesystem
+   ```typescript
+   // View /workspace/har/ and /workspace/scripts/
+   // Download files
+   // Delete old sessions
    ```
 
 ---
 
 ## Data Flow
 
-### Capture Flow
+### Complete Session Flow
 
 ```
-1. User clicks "Start Capture"
-   └── POST /api/browser/session
-       └── Create Browserbase session with HAR recording
+1. User logs in
+   └── Check for existing Sprite
+       └── Create new Sprite if none exists (1-12s cold start)
+       └── Or resume existing Sprite instantly
 
-2. Browser view loads
-   └── WebSocket connection to Browserbase
+2. User clicks "Start Capture"
+   └── POST /api/sprite/{id}/browser/start
+       └── Launch Playwright with HAR recording
+       └── Start VNC server
+       └── Return VNC WebSocket URL
+
+3. Browser view loads
+   └── noVNC connects to Sprite VNC
        └── User interacts with browser
+       └── All traffic recorded to HAR
 
-3. User clicks "Stop & Generate"
-   └── POST /api/browser/session/{id}/stop
-       └── Download HAR from Browserbase
-       └── Store HAR in S3/R2
-       └── Return harSessionId
-
-4. Create sandbox
-   └── POST /api/sandbox/create
-       └── Create E2B sandbox
-       └── Upload HAR files to sandbox
+4. User clicks "Stop & Generate"
+   └── POST /api/sprite/{id}/browser/stop
+       └── Close browser, save HAR
+       └── Create checkpoint (300ms)
 
 5. Run engineer
-   └── POST /api/sandbox/{id}/run (WebSocket)
-       └── Execute engineer in sandbox
-       └── Stream progress to frontend
+   └── POST /api/sprite/{id}/engineer/run
+       └── WebSocket streams progress
+       └── Engineer analyzes HAR with Claude
+       └── Scripts saved to /workspace/scripts/
 
 6. Download scripts
-   └── GET /api/sandbox/{id}/scripts
+   └── GET /api/sprite/{id}/files?path=/workspace/scripts/
        └── Return generated Python scripts
+
+7. Sprite idles (auto after inactivity)
+   └── Billing stops
+   └── State preserved
+   └── Resumes instantly on next request
 ```
 
 ---
@@ -282,18 +367,17 @@ src/app/
 ## Technology Stack
 
 ### Frontend
-- **Next.js 15** - App router, server components
+- **Next.js 16** - App router, server components
 - **Tailwind CSS** - Styling
 - **shadcn/ui** - UI components
 - **Monaco Editor** - Code display
+- **noVNC** - VNC client for browser view
 - **Zustand** - Client state management
 
 ### Backend
 - **Next.js API Routes** - API layer
-- **Browserbase SDK** - Cloud browser management
-- **E2B SDK** - Sandbox management
-- **Cloudflare R2 / AWS S3** - HAR file storage
-- **Supabase / Postgres** - Session metadata
+- **Fly.io Sprites API** - Sprite management
+- **Supabase / Postgres** - User data, session metadata
 
 ### Authentication
 - **NextAuth.js** with GitHub/Google providers
@@ -301,9 +385,8 @@ src/app/
 
 ### Infrastructure
 - **Vercel** - Next.js hosting
-- **Browserbase** - Cloud browsers
-- **E2B** - Code sandboxes
-- **Cloudflare R2** - File storage (free egress)
+- **Fly.io Sprites** - Persistent sandboxes with browser
+- **Supabase** - Database (free tier)
 
 ---
 
@@ -311,87 +394,111 @@ src/app/
 
 ### Per Session Estimate
 
-| Service | Usage | Cost |
-|---------|-------|------|
-| Browserbase | 5 min session | ~$0.05 |
-| E2B Sandbox | 10 min runtime | ~$0.02 |
+| Component | Usage | Cost |
+|-----------|-------|------|
+| Fly.io Sprite | 15 min active | ~$0.005 |
+| Sprite Storage | ~10MB HAR + scripts | ~$0.001 |
 | Claude API | ~50k tokens | ~$0.15 |
-| R2 Storage | 1 MB HAR | ~$0.00 |
-| **Total** | | **~$0.22/session** |
+| **Total** | | **~$0.16/session** |
+
+*Note: Sprites auto-idle and stop billing. Storage only charges for blocks written.*
 
 ### Monthly Infrastructure
 
 | Service | Plan | Cost |
 |---------|------|------|
 | Vercel | Pro | $20/mo |
-| Browserbase | Starter | $0 (100 sessions) |
-| E2B | Hobby | $0 (100 hours) |
-| R2 | Free tier | $0 |
+| Fly.io Sprites | Pay-as-you-go | ~$5-20/mo* |
 | Supabase | Free | $0 |
-| **Total** | | **~$20/mo base** |
+| **Total** | | **~$25-40/mo base** |
+
+*Depends on usage. Sprites idle automatically.*
+
+### Cost Comparison: Sprites vs E2B
+
+| Scenario | Fly.io Sprites | E2B |
+|----------|---------------|-----|
+| 100 sessions/month | ~$16 | ~$22 |
+| 1000 sessions/month | ~$160 | ~$220 |
+| Idle sprite (24h) | ~$0 | N/A (session ends) |
 
 ---
 
 ## Implementation Phases
 
-### Phase 1: MVP (2-3 weeks)
-- [ ] Basic Next.js app with auth
-- [ ] Browserbase integration (create session, embed view)
-- [ ] HAR download and storage
-- [ ] E2B sandbox with engineer
-- [ ] Basic chat UI for engineer output
+### Phase 1: MVP
+- [ ] Basic Next.js 16 app with auth
+- [ ] Fly.io Sprite creation/management
+- [ ] VNC streaming with noVNC
+- [ ] Playwright HAR recording in Sprite
+- [ ] Basic engineer execution
+- [ ] File download
 
-### Phase 2: Polish (1-2 weeks)
-- [ ] Better browser controls (URL bar, navigation)
-- [ ] Session history and management
-- [ ] Script preview with syntax highlighting
-- [ ] Download scripts as zip
-- [ ] Usage tracking and limits
+### Phase 2: Polish
+- [ ] Better VNC controls (URL bar, zoom)
+- [ ] Checkpoint management UI
+- [ ] Session history
+- [ ] Script preview with Monaco
+- [ ] Usage tracking
 
-### Phase 3: Advanced Features (2-3 weeks)
-- [ ] Agent mode (browser-use in cloud)
+### Phase 3: Advanced Features
+- [ ] Agent mode (browser-use in Sprite)
 - [ ] Re-engineer from previous HAR
-- [ ] Team sharing and collaboration
-- [ ] Custom sandbox templates
+- [ ] Team sharing
+- [ ] Custom Sprite templates
 - [ ] Webhook integrations
 
 ---
 
 ## Open Questions
 
-1. **Browser streaming quality** - iframe embed vs custom WebSocket?
-2. **Sandbox persistence** - How long to keep sandboxes alive?
-3. **HAR storage** - Keep indefinitely or time-limited?
-4. **Pricing model** - Per session? Subscription? Free tier limits?
-5. **Agent mode complexity** - Worth implementing in v1?
+1. **VNC latency** - Is noVNC good enough for interactive browsing?
+2. **Sprite per user vs shared pool?** - Trade-off between isolation and cost
+3. **Checkpoint retention** - How many checkpoints to keep?
+4. **Multi-browser sessions** - Support multiple HAR captures per Sprite?
+5. **Local development** - Fly.io plans open-source local Sprites
 
 ---
 
 ## Alternatives Considered
 
-### Browserless.io instead of Browserbase
-- Similar features, different pricing
-- Less native HAR support
-- Consider if Browserbase pricing is prohibitive
+### E2B instead of Sprites
+- Faster cold start (400ms vs 1-12s)
+- But ephemeral - loses state between sessions
+- More expensive ($0.05/hr vs $0.02/hr)
+- Requires Docker images
+- No checkpoint/restore
 
-### Modal.com instead of E2B
+### Browserbase + Sprites (Hybrid)
+- Better browser streaming UX
+- But adds complexity and cost
+- HAR transfer between services
+- Consider if VNC latency is unacceptable
+
+### Modal.com
 - More powerful, GPU support
 - Higher learning curve
-- Consider for future scaling
+- Consider for compute-intensive features later
 
-### Fly.io Machines
-- Self-managed containers
-- More control, more complexity
-- Consider for cost optimization later
+---
+
+## References
+
+- [Fly.io Sprites Announcement](https://fly.io/blog/code-and-let-live/)
+- [Sprites Design & Implementation](https://fly.io/blog/design-and-implementation/)
+- [Fly.io Pricing](https://fly.io/pricing/)
+- [noVNC - HTML5 VNC Client](https://novnc.com/)
+- [Playwright HAR Recording](https://playwright.dev/docs/network#record-and-replay-requests)
 
 ---
 
 ## Next Steps
 
-1. Create Browserbase account and test session creation
-2. Create E2B account and build custom sandbox template
-3. Implement basic session flow in Next.js
-4. Add authentication with NextAuth
-5. Build browser view component
-6. Build engineer chat component
-7. Test end-to-end flow
+1. Create Fly.io account and test Sprite creation
+2. Set up Playwright + VNC in a Sprite
+3. Test noVNC integration from Next.js
+4. Implement basic session flow
+5. Add authentication with NextAuth
+6. Build VNC viewer component
+7. Build engineer chat component
+8. Test end-to-end flow
