@@ -1,3 +1,26 @@
+export interface Session {
+  id: string
+  runId: string
+  name: string
+  tabId: number
+  startTime: string
+  endTime?: string
+  requestCount: number
+  isActive: boolean
+  messages: ChatMessage[]
+  codegenScript?: string
+}
+
+export interface ChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content?: string
+  events?: AgentEvent[]
+  timestamp: string
+}
+
+export type AppMode = 'capture' | 'codegen'
+
 export interface AppState {
   capturing: boolean
   runId: string | null
@@ -7,6 +30,8 @@ export interface AppState {
     total: number
   }
   current_task?: string | null
+  activeSessionId: string | null
+  mode: AppMode
 }
 
 export interface AgentEvent {
@@ -34,6 +59,14 @@ export type MessageType =
   | { type: 'chat'; message: string; model?: string }
   | { type: 'getSettings' }
   | { type: 'saveSettings'; settings: Settings }
+  | { type: 'getSessions' }
+  | { type: 'createSession'; name?: string }
+  | { type: 'switchSession'; sessionId: string }
+  | { type: 'deleteSession'; sessionId: string }
+  | { type: 'renameSession'; sessionId: string; name: string }
+  | { type: 'setMode'; mode: AppMode }
+  | { type: 'startCodegen' }
+  | { type: 'stopCodegen' }
 
 export interface CaptureEvent {
   type: 'complete' | 'failed' | 'started'

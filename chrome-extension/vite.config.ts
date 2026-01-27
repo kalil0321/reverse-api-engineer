@@ -55,11 +55,15 @@ export default defineConfig({
       input: {
         sidepanel: resolve(__dirname, 'src/sidepanel/index.html'),
         'service-worker': resolve(__dirname, 'src/background/service-worker.ts'),
+        'codegen-recorder': resolve(__dirname, 'src/content/codegen-recorder.ts'),
       },
       output: {
         entryFileNames: (chunkInfo) => {
           if (chunkInfo.name === 'service-worker') {
             return 'background/service-worker.js'
+          }
+          if (chunkInfo.name === 'codegen-recorder') {
+            return 'content/codegen-recorder.js'
           }
           return 'sidepanel/[name].js'
         },
@@ -70,7 +74,7 @@ export default defineConfig({
           }
           return 'assets/[name]-[hash][extname]'
         },
-        // Prevent code splitting for service worker
+        // Prevent code splitting for service worker and content script
         manualChunks: undefined,
       },
     },
