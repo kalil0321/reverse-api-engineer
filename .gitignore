@@ -88,7 +88,8 @@ RELEASE_NOTES.md
 RELEASE.md
 prompt*.md
 
-test*
+test_env/
+test_env*/
 
 FEATURES.md
 docs/

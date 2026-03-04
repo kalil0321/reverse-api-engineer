@@ -71,6 +71,29 @@ packages = ["src/reverse_api"]
 dev = [
     "mypy>=1.19.1",
     "ruff>=0.14.10",
+    "pytest>=8.0.0",
+    "pytest-cov>=6.0.0",
+    "pytest-asyncio>=0.24.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["src/reverse_api"]
+omit = [
+    "src/reverse_api/cli.py",
+    "src/reverse_api/browser.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+precision = 1
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "if TYPE_CHECKING:",
 ]
 
 [tool.ruff]
