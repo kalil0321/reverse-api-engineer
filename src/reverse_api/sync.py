@@ -50,40 +50,28 @@ class SyncHandler(FileSystemEventHandler):
         self.last_sync_time = 0
         self.file_count = 0
 
-    def _is_temporary_file(self, file_path: str) -> bool:
-        """Check if a file is a temporary file that should be ignored."""
+    def _is_ignored_file(self, file_path: str) -> bool:
+        """Check if a file should be ignored during sync."""
         path = Path(file_path)
-        name = path.name
-
-        # Check for temporary file patterns
-        if name.endswith(".tmp") or ".tmp." in name:
-            return True
-
-        # Check for __pycache__ and node_modules directories
-        if "__pycache__" in path.parts or "node_modules" in path.parts:
-            return True
-
-        # Check for other common temporary patterns
-        if name.startswith(".") and name.endswith(".swp"):
-            return True
-        if name.startswith("~"):
-            return True
-
-        return False
+        try:
+            relative = path.relative_to(self.source_dir)
+        except ValueError:
+            relative = path
+        return _should_skip_path(relative)
 
     def on_created(self, event: FileSystemEvent):
         """Handle file creation."""
-        if not event.is_directory and not self._is_temporary_file(event.src_path):
+        if not event.is_directory and not self._is_ignored_file(event.src_path):
             self._queue_sync(event.src_path)
 
     def on_modified(self, event: FileSystemEvent):
         """Handle file modification."""
-        if not event.is_directory and not self._is_temporary_file(event.src_path):
+        if not event.is_directory and not self._is_ignored_file(event.src_path):
             self._queue_sync(event.src_path)
 
     def on_deleted(self, event: FileSystemEvent):
         """Handle file deletion."""
-        if not event.is_directory and not self._is_temporary_file(event.src_path):
+        if not event.is_directory and not self._is_ignored_file(event.src_path):
             self._queue_sync(event.src_path, is_delete=True)
 
     def _queue_sync(self, file_path: str, is_delete: bool = False):
@@ -221,20 +209,23 @@ class FileSyncWatcher:
             return
 
         for item in self.source_dir.rglob("*"):
-            if item.is_file() and not self.handler._is_temporary_file(str(item)):
-                relative = item.relative_to(self.source_dir)
-                dest = self.dest_dir / relative
+            if not item.is_file():
+                continue
+            relative = item.relative_to(self.source_dir)
+            if _should_skip_path(relative):
+                continue
+            dest = self.dest_dir / relative
 
-                # Only sync if destination doesn't exist or is older
-                try:
-                    if not dest.exists() or item.stat().st_mtime > dest.stat().st_mtime:
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(item, dest)
-                        if self.handler.on_sync:
-                            self.handler.on_sync(f"Synced {item.name}")
-                except (FileNotFoundError, OSError):
-                    # File was deleted or inaccessible, skip silently
-                    pass
+            # Only sync if destination doesn't exist or is older
+            try:
+                if not dest.exists() or item.stat().st_mtime > dest.stat().st_mtime:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(item, dest)
+                    if self.handler.on_sync:
+                        self.handler.on_sync(f"Synced {item.name}")
+            except (FileNotFoundError, OSError):
+                # File was deleted or inaccessible, skip silently
+                pass
 
     def get_status(self) -> dict:
         """Get current sync status."""
@@ -253,10 +244,28 @@ class FileSyncWatcher:
         }
 
 
-def _should_skip_path(path: Path) -> bool:
-    """Check if a path should be skipped during sync (node_modules, __pycache__, etc.)."""
+def _should_skip_path(relative_path: Path) -> bool:
+    """Check if a relative path should be skipped during sync.
+
+    Checks for ignored directories (node_modules, __pycache__) and
+    temporary file patterns (.tmp, .swp, ~-prefixed).
+    """
+    name = relative_path.name
+
+    # Check for ignored directories
     skip_dirs = {"node_modules", "__pycache__"}
-    return bool(skip_dirs & set(path.parts))
+    if skip_dirs & set(relative_path.parts):
+        return True
+
+    # Check for temporary file patterns
+    if name.endswith(".tmp") or ".tmp." in name:
+        return True
+    if name.startswith(".") and name.endswith(".swp"):
+        return True
+    if name.startswith("~"):
+        return True
+
+    return False
 
 
 def sync_directory_once(source_dir: Path, dest_dir: Path):
@@ -275,8 +284,10 @@ def sync_directory_once(source_dir: Path, dest_dir: Path):
     final_dest_dir.mkdir(parents=True, exist_ok=True)
 
     for item in source_dir.rglob("*"):
-        if item.is_file() and not _should_skip_path(item):
+        if item.is_file():
             relative = item.relative_to(source_dir)
+            if _should_skip_path(relative):
+                continue
             dest = final_dest_dir / relative
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(item, dest)
