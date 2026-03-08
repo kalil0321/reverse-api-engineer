@@ -784,9 +784,9 @@ def handle_settings(mode_color=THEME_PRIMARY):
                     console.print(
                         " [dim]Valid formats for stagehand:[/dim]\n"
                         " [dim]  - openai/computer-use-preview-2025-03-11[/dim]\n"
-                        " [dim]  - anthropic/claude-sonnet-4-6-20250929[/dim]\n"
+                        " [dim]  - anthropic/claude-sonnet-4-6-20260301[/dim]\n"
                         " [dim]  - anthropic/claude-haiku-4-5-20251001[/dim]\n"
-                        " [dim]  - anthropic/claude-opus-4-6-20251101[/dim]\n"
+                        " [dim]  - anthropic/claude-opus-4-6-20260301[/dim]\n"
                     )
 
     elif action == "real_time_sync":
