@@ -15,10 +15,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
-import questionary
-
 from .base_engineer import BaseEngineer
-from .tui import THEME_PRIMARY, THEME_SECONDARY
 
 # Suppress claude_agent_sdk logs
 logging.getLogger("claude_agent_sdk").setLevel(logging.WARNING)
@@ -28,125 +25,14 @@ logging.getLogger("claude_agent_sdk._internal.transport.subprocess_cli").setLeve
 class ClaudeEngineer(BaseEngineer):
     """Uses Claude Agent SDK to analyze HAR files and generate Python API scripts."""
 
-    async def _handle_ask_user_question(
-        self, tool_name: str, input_params: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def _handle_ask_user_question(self, tool_name: str, input_params: dict[str, Any]) -> dict[str, Any]:
         """Handle AskUserQuestion tool by prompting the user interactively."""
         if tool_name != "AskUserQuestion":
             # Default allow for other tools in acceptEdits mode
             return {"behavior": "allow", "updatedInput": input_params}
 
         questions = input_params.get("questions", [])
-        answers = {}
-
-        # Display header
-        self.ui.console.print()
-        self.ui.console.print(
-            f"  [{THEME_PRIMARY}]?[/{THEME_PRIMARY}] [bold white]Agent Question[/bold white]"
-        )
-        self.ui.console.print()
-
-        for q in questions:
-            question_text = q.get("question", "")
-            header = q.get("header", "")
-            options = q.get("options", [])
-            multi_select = q.get("multiSelect", False)
-
-            if not question_text:
-                continue
-
-            # Show context if header exists
-            if header:
-                self.ui.console.print(f"  [dim]{header}[/dim]")
-
-            try:
-                if multi_select:
-                    # Multi-select question
-                    choices = [
-                        f"{opt.get('label', '')} - {opt.get('description', '')}"
-                        if opt.get("description")
-                        else opt.get("label", "")
-                        for opt in options
-                    ]
-                    if choices:
-                        selected = await questionary.checkbox(
-                            f" > {question_text}",
-                            choices=choices,
-                            qmark="",
-                            style=questionary.Style(
-                                [
-                                    ("pointer", f"fg:{THEME_PRIMARY} bold"),
-                                    ("highlighted", f"fg:{THEME_PRIMARY} bold"),
-                                    ("selected", f"fg:{THEME_PRIMARY}"),
-                                ]
-                            ),
-                        ).ask_async()
-
-                        if selected is None:
-                            raise KeyboardInterrupt
-
-                        # Extract just the labels (before the " - " separator)
-                        labels = [
-                            s.split(" - ")[0] if " - " in s else s
-                            for s in selected
-                        ]
-                        answers[question_text] = ", ".join(labels)
-                    else:
-                        # Text input fallback
-                        answer = await questionary.text(
-                            f" > {question_text}",
-                            qmark="",
-                            style=questionary.Style([("question", f"fg:{THEME_SECONDARY}")]),
-                        ).ask_async()
-                        if answer is None:
-                            raise KeyboardInterrupt
-                        answers[question_text] = answer.strip()
-
-                else:
-                    # Single select question
-                    choices = [
-                        f"{opt.get('label', '')} - {opt.get('description', '')}"
-                        if opt.get("description")
-                        else opt.get("label", "")
-                        for opt in options
-                    ]
-                    if choices:
-                        answer = await questionary.select(
-                            f" > {question_text}",
-                            choices=choices,
-                            qmark="",
-                            style=questionary.Style(
-                                [
-                                    ("pointer", f"fg:{THEME_PRIMARY} bold"),
-                                    ("highlighted", f"fg:{THEME_PRIMARY} bold"),
-                                ]
-                            ),
-                        ).ask_async()
-
-                        if answer is None:
-                            raise KeyboardInterrupt
-
-                        # Extract just the label (before the " - " separator)
-                        label = answer.split(" - ")[0] if " - " in answer else answer
-                        answers[question_text] = label
-                    else:
-                        # Text input fallback
-                        answer = await questionary.text(
-                            f" > {question_text}",
-                            qmark="",
-                            style=questionary.Style([("question", f"fg:{THEME_SECONDARY}")]),
-                        ).ask_async()
-                        if answer is None:
-                            raise KeyboardInterrupt
-                        answers[question_text] = answer.strip()
-
-                self.ui.console.print(f"  [dim]→ {answers[question_text]}[/dim]")
-
-            except KeyboardInterrupt:
-                self.ui.console.print(f"  [dim]User cancelled question[/dim]")
-                answers[question_text] = ""
-
-        self.ui.console.print()
+        answers = await self._ask_user_interactive(questions)
 
         return {
             "behavior": "allow",
@@ -284,6 +170,7 @@ def run_reverse_engineering(
     sdk: str = "claude",
     opencode_provider: str | None = None,
     opencode_model: str | None = None,
+    copilot_model: str | None = None,
     enable_sync: bool = False,
     is_fresh: bool = False,
     output_language: str = "python",
@@ -292,9 +179,10 @@ def run_reverse_engineering(
     """Run reverse engineering with the specified SDK.
 
     Args:
-        sdk: "opencode" or "claude" - determines which SDK to use
+        sdk: "claude", "opencode", or "copilot" - determines which SDK to use
         opencode_provider: Provider ID for OpenCode (e.g., "anthropic")
         opencode_model: Model ID for OpenCode (e.g., "claude-sonnet-4-6")
+        copilot_model: Model ID for Copilot (e.g., "gpt-5")
         enable_sync: Enable real-time file syncing during engineering
         is_fresh: Whether to start fresh (ignore previous scripts)
         output_language: Target language - "python", "javascript", or "typescript"
@@ -318,6 +206,24 @@ def run_reverse_engineering(
             is_fresh=is_fresh,
             output_language=output_language,
             output_mode=output_mode,
+        )
+    elif sdk == "copilot":
+        from .copilot_engineer import CopilotEngineer
+
+        engineer = CopilotEngineer(
+            run_id=run_id,
+            har_path=har_path,
+            prompt=prompt,
+            model=model,
+            additional_instructions=additional_instructions,
+            output_dir=output_dir,
+            verbose=verbose,
+            enable_sync=enable_sync,
+            sdk=sdk,
+            is_fresh=is_fresh,
+            output_language=output_language,
+            output_mode=output_mode,
+            copilot_model=copilot_model,
         )
     else:
         engineer = ClaudeEngineer(

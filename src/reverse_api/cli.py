@@ -357,6 +357,8 @@ def repl_loop():
     sdk = config_manager.get("sdk", "claude")
     if sdk == "opencode":
         model = config_manager.get("opencode_model", "claude-opus-4-6")
+    elif sdk == "copilot":
+        model = config_manager.get("copilot_model", "gpt-5")
     else:
         model = config_manager.get("claude_code_model", "claude-sonnet-4-6")
 
@@ -553,6 +555,7 @@ def handle_settings(mode_color=THEME_PRIMARY):
         Choice(title="Agent Provider", value="agent_provider"),
         Choice(title="Browser-Use Model", value="browser_use_model"),
         Choice(title="Claude Code Model", value="claude_code_model"),
+        Choice(title="Copilot Model", value="copilot_model"),
         Choice(title="OpenCode Model", value="opencode_model"),
         Choice(title="OpenCode Provider", value="opencode_provider"),
         Choice(title="Output Directory", value="output_dir"),
@@ -602,8 +605,9 @@ def handle_settings(mode_color=THEME_PRIMARY):
 
     elif action == "sdk":
         sdk_choices = [
-            Choice(title="opencode", value="opencode"),
             Choice(title="claude", value="claude"),
+            Choice(title="copilot", value="copilot"),
+            Choice(title="opencode", value="opencode"),
             Choice(title="back", value="back"),
         ]
         sdk = questionary.select(
@@ -689,6 +693,28 @@ def handle_settings(mode_color=THEME_PRIMARY):
             else:
                 config_manager.set("opencode_provider", new_provider)
                 console.print(f" [dim]updated[/dim] opencode provider: {new_provider}\n")
+
+    elif action == "copilot_model":
+        current = config_manager.get("copilot_model", "gpt-5")
+        new_model = questionary.text(
+            " > copilot model",
+            default=current or "gpt-5",
+            instruction="(e.g., 'gpt-5', 'gpt-4.1')",
+            qmark="",
+            style=questionary.Style(
+                [
+                    ("question", f"fg:{THEME_SECONDARY}"),
+                    ("instruction", f"fg:{THEME_DIM} italic"),
+                ]
+            ),
+        ).ask()
+        if new_model is not None:
+            new_model = new_model.strip()
+            if not new_model:
+                console.print(" [yellow]error:[/yellow] copilot model cannot be empty\n")
+            else:
+                config_manager.set("copilot_model", new_model)
+                console.print(f" [dim]updated[/dim] copilot model: {new_model}\n")
 
     elif action == "opencode_model":
         current = config_manager.get("opencode_model", "claude-opus-4-6")
@@ -1464,6 +1490,18 @@ def run_auto_capture(prompt=None, url=None, model=None, output_dir=None):
                 sdk=sdk,
                 output_language=output_language,
             )
+        elif sdk == "copilot":
+            from .auto_engineer import CopilotAutoEngineer
+
+            engineer = CopilotAutoEngineer(
+                run_id=run_id,
+                prompt=prompt,
+                copilot_model=config_manager.get("copilot_model", "gpt-5"),
+                output_dir=output_dir,
+                enable_sync=config_manager.get("real_time_sync", False),
+                sdk=sdk,
+                output_language=output_language,
+            )
         else:
             from .auto_engineer import ClaudeAutoEngineer
 
@@ -1604,6 +1642,21 @@ def run_engineer(
             sdk=sdk,
             opencode_provider=config_manager.get("opencode_provider", "anthropic"),
             opencode_model=config_manager.get("opencode_model", "claude-opus-4-6"),
+            enable_sync=enable_sync,
+            additional_instructions=additional_instructions,
+            is_fresh=is_fresh,
+            output_language=output_language,
+            output_mode=output_mode,
+        )
+    elif sdk == "copilot":
+        result = run_reverse_engineering(
+            run_id=run_id,
+            har_path=har_path,
+            prompt=prompt,
+            model=model,
+            output_dir=output_dir,
+            sdk=sdk,
+            copilot_model=config_manager.get("copilot_model", "gpt-5"),
             enable_sync=enable_sync,
             additional_instructions=additional_instructions,
             is_fresh=is_fresh,

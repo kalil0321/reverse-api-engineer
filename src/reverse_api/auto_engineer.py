@@ -577,3 +577,180 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
                         debug_log(f"Cleaned up MCP server: {self.mcp_name}")
                 except Exception:
                     pass  # Ignore cleanup errors
+
+
+class CopilotAutoEngineer:
+    """Auto mode using Copilot SDK: LLM controls browser via MCP while reverse engineering.
+
+    Uses composition rather than inheritance since CopilotEngineer requires lazy imports.
+    Delegates to CopilotEngineer for the core logic and adds MCP browser integration.
+    """
+
+    def __init__(
+        self,
+        run_id: str,
+        prompt: str,
+        copilot_model: str | None = None,
+        output_dir: str | None = None,
+        **kwargs: Any,
+    ):
+        from .copilot_engineer import CopilotEngineer
+
+        har_dir = get_har_dir(run_id, output_dir)
+        har_path = har_dir / "recording.har"
+
+        self._engineer = CopilotEngineer(
+            run_id=run_id,
+            har_path=har_path,
+            prompt=prompt,
+            copilot_model=copilot_model,
+            output_dir=output_dir,
+            **kwargs,
+        )
+        self.mcp_run_id = run_id
+
+    def start_sync(self) -> None:
+        self._engineer.start_sync()
+
+    def stop_sync(self) -> None:
+        self._engineer.stop_sync()
+
+    async def analyze_and_generate(self) -> dict[str, Any] | None:
+        """Run auto mode with Copilot SDK and MCP browser integration."""
+        try:
+            from copilot import CopilotClient, PermissionHandler
+        except ImportError:
+            self._engineer.ui.error(
+                "GitHub Copilot SDK not installed. From source: uv sync --extra copilot. Installed: pip install 'reverse-api-engineer[copilot]'"
+            )
+            return None
+
+        eng = self._engineer
+        eng.ui.header(eng.run_id, eng.prompt, eng.copilot_model, eng.sdk)
+        eng.ui.start_analysis()
+
+        auto_prompt = ClaudeAutoEngineer._build_auto_prompt(eng)
+        eng.message_store.save_prompt(auto_prompt)
+
+        done_event = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        accumulated_text: list[str] = []
+
+        def on_event(event: Any) -> None:
+            event_type = event.type.value if hasattr(event.type, "value") else str(event.type)
+
+            if event_type == "assistant.message_delta":
+                delta = ""
+                if hasattr(event, "data") and hasattr(event.data, "delta_content"):
+                    delta = event.data.delta_content or ""
+                if delta:
+                    accumulated_text.append(delta)
+                    eng.ui.thinking(delta)
+            elif event_type == "assistant.message":
+                if hasattr(event, "data") and hasattr(event.data, "usage"):
+                    usage = event.data.usage
+                    if isinstance(usage, dict):
+                        eng.usage_metadata["input_tokens"] = usage.get("prompt_tokens", 0)
+                        eng.usage_metadata["output_tokens"] = usage.get("completion_tokens", 0)
+            elif event_type == "session.idle":
+                # Use thread-safe call in case SDK invokes callback from a different thread
+                loop.call_soon_threadsafe(done_event.set)
+
+        client = None
+        try:
+            client = CopilotClient(
+                {
+                    "auto_start": True,
+                    "use_logged_in_user": True,
+                }
+            )
+            await client.start()
+
+            mcp_config = {
+                "type": "local",
+                "command": "npx",
+                "args": [
+                    "-y",
+                    "rae-playwright-mcp@latest",
+                    "run-mcp-server",
+                    "--run-id",
+                    self.mcp_run_id,
+                ],
+                "tools": ["*"],
+                "timeout": 30000,
+            }
+
+            async def on_pre_tool_use(input: dict, _invocation: dict) -> dict:
+                tool_name = input.get("toolName", "unknown")
+                tool_args = input.get("toolArgs") or {}
+                eng.ui.tool_start(tool_name, tool_args)
+                eng.message_store.save_tool_start(tool_name, tool_args)
+                return {"permissionDecision": "allow", "modifiedArgs": tool_args}
+
+            async def on_post_tool_use(input: dict, invocation: dict) -> dict:
+                tool_name = input.get("toolName", "unknown")
+                is_error = invocation.get("resultType") == "error" if isinstance(invocation, dict) else False
+                output = invocation.get("result") if isinstance(invocation, dict) else None
+                eng.ui.tool_result(tool_name, is_error=is_error, output=str(output) if output else None)
+                eng.message_store.save_tool_result(tool_name, is_error, str(output) if output else None)
+                return {}
+
+            session = await client.create_session(
+                {
+                    "model": eng.copilot_model,
+                    "streaming": True,
+                    "infinite_sessions": {"enabled": True},
+                    "mcp_servers": {"playwright": mcp_config},
+                    "on_permission_request": PermissionHandler.approve_all,
+                    "hooks": {
+                        "on_pre_tool_use": on_pre_tool_use,
+                        "on_post_tool_use": on_post_tool_use,
+                    },
+                }
+            )
+
+            session.on(on_event)
+            await session.send({"prompt": auto_prompt})
+
+            # Wait with timeout protection (10 minutes)
+            try:
+                await asyncio.wait_for(done_event.wait(), timeout=600)
+            except TimeoutError:
+                eng.ui.error("Session timed out (10 min)")
+                eng.message_store.save_error("Session timed out")
+                return None
+
+            if accumulated_text:
+                eng.message_store.save_thinking("".join(accumulated_text))
+
+            script_path = str(eng.scripts_dir / eng._get_client_filename())
+            local_path = str(eng.local_scripts_dir / eng._get_client_filename()) if eng.local_scripts_dir else None
+            eng.ui.success(script_path, local_path)
+            eng.usage_metadata["estimated_cost_usd"] = 0.0
+
+            result: dict[str, Any] = {
+                "script_path": script_path,
+                "usage": eng.usage_metadata,
+            }
+            eng.message_store.save_result(result)
+            return result
+
+        except Exception as e:
+            error_msg = str(e)
+            eng.ui.error(error_msg)
+            eng.message_store.save_error(error_msg)
+
+            if "buffer size" in error_msg.lower() or "1048576" in error_msg or "exceeded maximum buffer" in error_msg.lower():
+                eng.ui.console.print("\n[yellow]Screenshot too large (exceeds 1MB limit)[/yellow]")
+                eng.ui.console.print("[dim]Tip: The AI should take element-specific screenshots instead of full-page screenshots.[/dim]")
+            else:
+                eng.ui.console.print("\n[dim]Make sure GitHub Copilot CLI is installed and you are logged in: gh auth login[/dim]")
+            return None
+
+        finally:
+            # Always stop the client to avoid resource leaks
+            if client is not None:
+                try:
+                    await client.stop()
+                except Exception:
+                    pass

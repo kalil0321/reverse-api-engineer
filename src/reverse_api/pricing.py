@@ -92,6 +92,28 @@ MODEL_PRICING = {
         "cache_read": 0.50,
         "reasoning": 25.00,
     },
+    # GPT models (for Copilot SDK - cost is $0 with GitHub subscription)
+    "gpt-5": {
+        "input": 0,
+        "output": 0,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "reasoning": 0,
+    },
+    "gpt-4.1": {
+        "input": 0,
+        "output": 0,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "reasoning": 0,
+    },
+    "gpt-4.1-mini": {
+        "input": 0,
+        "output": 0,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "reasoning": 0,
+    },
 }
 
 

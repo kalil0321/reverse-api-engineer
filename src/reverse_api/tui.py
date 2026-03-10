@@ -33,6 +33,13 @@ TOOL_ICONS = {
     "WebFetch": "wf",
     "Task": "tk",
     "AskUserQuestion": "??",
+    "browser_navigate": "br",
+    "browser_click": "br",
+    "browser_type": "br",
+    "browser_snapshot": "br",
+    "browser_tabs": "br",
+    "browser_lock": "br",
+    "browser_unlock": "br",
     "default": "> ",
 }
 
@@ -106,20 +113,17 @@ class ClaudeUI:
                 if len(output_lines) > max_lines:
                     self.console.print(f"  [dim]│[/dim] [dim]... ({len(output_lines) - max_lines} more lines)[/dim]")
 
-    def thinking(self, text: str, max_length: int = 100) -> None:
+    def thinking(self, text: str, max_length: int = 500) -> None:
         """Display Claude's thinking/response text."""
         if not self.verbose:
             return
 
-        # Only show substantial thinking (skip short status updates)
-        if len(text) < 20:
+        if len(text) < 5:
             return
 
-        # Truncate and clean
-        display_text = text[:max_length].replace("\n", " ").strip()
-        if len(text) > max_length:
-            display_text += "..."
-
+        display_text = text.replace("\n", " ").strip()
+        if len(display_text) > max_length:
+            display_text = display_text[:max_length] + "..."
         self.console.print(f"  [dim].. {display_text}[/dim]")
 
     def progress(self, message: str) -> None:
@@ -165,6 +169,17 @@ class ClaudeUI:
         elif tool_name == "WebFetch":
             url = tool_input.get("url", "")
             return f"[dim]{url[:60]}{'...' if len(url) > 60 else ''}[/dim]"
+        elif tool_name == "browser_navigate":
+            url = tool_input.get("url", "")
+            return f"[dim]{url[:50]}{'...' if len(url) > 50 else ''}[/dim]"
+        elif tool_name == "browser_click":
+            ref = tool_input.get("elementRef", "")
+            return f"[dim]ref={ref[:40]}{'...' if len(ref) > 40 else ''}[/dim]"
+        elif tool_name == "browser_type":
+            text = tool_input.get("text", "")[:30]
+            return f"[dim]'{text}{'...' if len(text) >= 30 else ''}'[/dim]"
+        elif tool_name == "browser_snapshot":
+            return "[dim]page structure[/dim]"
         return ""
 
     def _truncate_path(self, path: str, max_len: int = 60) -> str:
