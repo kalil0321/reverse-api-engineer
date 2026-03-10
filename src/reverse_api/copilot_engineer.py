@@ -28,7 +28,9 @@ class CopilotEngineer(BaseEngineer):
         try:
             from copilot import define_tool
         except ImportError:
-            raise ImportError("GitHub Copilot SDK not installed. Install with: uv pip install 'reverse-api-engineer[copilot]'") from None
+            raise ImportError(
+                "GitHub Copilot SDK not installed. From source: uv sync --extra copilot. Installed: pip install 'reverse-api-engineer[copilot]'"
+            ) from None
 
         from pydantic import BaseModel, Field
 
@@ -60,9 +62,11 @@ class CopilotEngineer(BaseEngineer):
     async def analyze_and_generate(self) -> dict[str, Any] | None:
         """Run the reverse engineering analysis with GitHub Copilot."""
         try:
-            from copilot import CopilotClient
+            from copilot import CopilotClient, PermissionHandler
         except ImportError:
-            self.ui.error("GitHub Copilot SDK not installed. Install with: uv pip install 'reverse-api-engineer[copilot]'")
+            self.ui.error(
+                "GitHub Copilot SDK not installed. From source: uv sync --extra copilot. Installed: pip install 'reverse-api-engineer[copilot]'"
+            )
             return None
 
         self.ui.header(self.run_id, self.prompt, self.copilot_model, self.sdk)
@@ -122,6 +126,7 @@ class CopilotEngineer(BaseEngineer):
                     "streaming": True,
                     "infinite_sessions": {"enabled": True},
                     "tools": [ask_user_tool],
+                    "on_permission_request": PermissionHandler.approve_all,
                 }
             )
 

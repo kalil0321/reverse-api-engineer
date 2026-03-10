@@ -618,9 +618,11 @@ class CopilotAutoEngineer:
     async def analyze_and_generate(self) -> dict[str, Any] | None:
         """Run auto mode with Copilot SDK and MCP browser integration."""
         try:
-            from copilot import CopilotClient
+            from copilot import CopilotClient, PermissionHandler
         except ImportError:
-            self._engineer.ui.error("GitHub Copilot SDK not installed. Install with: uv pip install 'reverse-api-engineer[copilot]'")
+            self._engineer.ui.error(
+                "GitHub Copilot SDK not installed. From source: uv sync --extra copilot. Installed: pip install 'reverse-api-engineer[copilot]'"
+            )
             return None
 
         eng = self._engineer
@@ -665,15 +667,33 @@ class CopilotAutoEngineer:
             await client.start()
 
             mcp_config = {
-                "type": "stdio",
+                "type": "local",
                 "command": "npx",
                 "args": [
+                    "-y",
                     "rae-playwright-mcp@latest",
                     "run-mcp-server",
                     "--run-id",
                     self.mcp_run_id,
                 ],
+                "tools": ["*"],
+                "timeout": 30000,
             }
+
+            async def on_pre_tool_use(input: dict, invocation: dict) -> dict:
+                tool_name = input.get("toolName", "unknown")
+                tool_args = input.get("toolArgs") or {}
+                eng.ui.tool_start(tool_name, tool_args)
+                eng.message_store.save_tool_start(tool_name, tool_args)
+                return {"permissionDecision": "allow", "modifiedArgs": tool_args}
+
+            async def on_post_tool_use(input: dict, invocation: dict) -> dict:
+                tool_name = input.get("toolName", "unknown")
+                is_error = invocation.get("resultType") == "error" if isinstance(invocation, dict) else False
+                output = invocation.get("result") if isinstance(invocation, dict) else None
+                eng.ui.tool_result(tool_name, is_error=is_error, output=str(output) if output else None)
+                eng.message_store.save_tool_result(tool_name, is_error, str(output) if output else None)
+                return {}
 
             session = await client.create_session(
                 {
@@ -681,6 +701,11 @@ class CopilotAutoEngineer:
                     "streaming": True,
                     "infinite_sessions": {"enabled": True},
                     "mcp_servers": {"playwright": mcp_config},
+                    "on_permission_request": PermissionHandler.approve_all,
+                    "hooks": {
+                        "on_pre_tool_use": on_pre_tool_use,
+                        "on_post_tool_use": on_post_tool_use,
+                    },
                 }
             )
 
