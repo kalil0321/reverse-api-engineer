@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-03-10
+
+### Added
+- **GitHub Copilot SDK**: Third SDK option for reverse engineering using GitHub Copilot
+  - New `CopilotEngineer` for HAR analysis via Copilot subscription (cost: $0)
+  - Auto mode support with MCP browser integration via Copilot SDK
+  - Interactive `AskUserQuestion` tool support for Copilot sessions
+  - Permission handler and tool use hooks for agent visibility
+  - Install with: `pip install 'reverse-api-engineer[copilot]'`
+- **Comprehensive Test Suite**: 593 tests achieving 97.4% code coverage
+
+### Changed
+- **Claude Model Updates**: Updated from Claude 4.5 to Claude 4.6 (Opus and Sonnet)
+- **Sync Filtering**: Unified sync filtering logic with relative paths; excludes `node_modules`
+- **TUI Improvements**: Reduced thinking truncation for better agent visibility
+
+### Fixed
+- **Python 3.11 Compatibility**: Fixed multi-line f-string expressions that required Python 3.12+
+- **Thread Safety**: Used `loop.call_soon_threadsafe` for Copilot SDK event callbacks
+- **Session Timeouts**: Added 10-minute timeout protection for Copilot session completion
+- **Resource Cleanup**: Ensured `CopilotClient` is always stopped via `try/finally`
+- **HAR Recording**: Changed HAR recording content mode to embed and optimized file saving
+
 ## [0.3.2] - 2026-01-15
 
 ### Added
