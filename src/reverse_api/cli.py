@@ -41,6 +41,7 @@ from .utils import (
     get_config_path,
     get_har_dir,
     get_history_path,
+    get_messages_path,
     get_scripts_dir,
     get_timestamp,
     parse_codegen_tag,
@@ -1849,6 +1850,112 @@ def list_runs(as_json, full, limit, mode, model, search):
                 r["script_dir"],
             )
 
+    console.print(table)
+
+
+@main.command("show")
+@click.argument("run_id", required=False)
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON object.")
+def show_run(run_id, as_json):
+    """Show detailed info for a specific run."""
+    from rich.table import Table
+    from rich.text import Text
+
+    if run_id:
+        run = session_manager.get_run(run_id)
+    elif session_manager.history:
+        run = session_manager.history[0]
+    else:
+        console.print("No runs found.", style="dim")
+        return
+
+    if run is None:
+        console.print(f"Run not found: {run_id}")
+        return
+
+    details = _get_run_details(run)
+    rid = details["run_id"]
+    output_dir = config_manager.get("output_dir")
+    base_dir = get_base_output_dir(output_dir)
+
+    # Extra fields
+    details["url"] = run.get("url")
+    details["output_mode"] = run.get("output_mode", "client")
+
+    usage = run.get("usage", {})
+    details["input_tokens"] = usage.get("input_tokens", 0)
+    details["output_tokens"] = usage.get("output_tokens", 0)
+    details["cache_creation_input_tokens"] = usage.get("cache_creation_input_tokens", 0)
+    details["cache_read_input_tokens"] = usage.get("cache_read_input_tokens", 0)
+
+    # Artifact paths with existence
+    har_dir = base_dir / "har" / rid
+    messages_path = get_messages_path(rid, output_dir)
+    script_dir = Path(details["script_dir"])
+
+    details["har_dir"] = str(har_dir)
+    details["har_dir_exists"] = har_dir.exists()
+    details["messages_path"] = str(messages_path)
+    details["messages_path_exists"] = messages_path.exists()
+    details["script_dir_exists"] = script_dir.exists()
+
+    # HAR entry count
+    har_entries = None
+    if har_dir.exists():
+        recording = har_dir / "recording.har"
+        if recording.exists():
+            try:
+                har_data = json.loads(recording.read_text())
+                har_entries = len(har_data.get("log", {}).get("entries", []))
+            except Exception:
+                pass
+    details["har_entries"] = har_entries
+
+    if as_json:
+        click.echo(json.dumps(details, indent=2))
+        return
+
+    # Rich table output
+    table = Table(show_header=False, show_lines=True)
+    table.add_column(style="bold cyan")
+    table.add_column()
+
+    def _path_val(path_str: str, exists: bool) -> Text:
+        t = Text(path_str + " ")
+        t.append("✓" if exists else "✗", style="green" if exists else "red")
+        return t
+
+    rows: list[tuple[str, Text | str]] = [
+        ("prompt", details["prompt"]),
+        ("timestamp", details["timestamp"]),
+        ("model", details["model"]),
+        ("mode", details["mode"]),
+        ("sdk", details["sdk"]),
+        ("output_mode", details["output_mode"]),
+        ("url", details.get("url")),
+        ("cost", f"${details['cost']:.2f}" if details["cost"] is not None else None),
+        ("input_tokens", str(details["input_tokens"])),
+        ("output_tokens", str(details["output_tokens"])),
+        ("cache_creation", str(details["cache_creation_input_tokens"])),
+        ("cache_read", str(details["cache_read_input_tokens"])),
+        ("har_dir", _path_val(details["har_dir"], details["har_dir_exists"])),
+        ("har_entries", str(har_entries) if har_entries is not None else None),
+        ("script_dir", _path_val(details["script_dir"], details["script_dir_exists"])),
+    ]
+
+    files = details["files"]
+    if files:
+        rows.append(("files", ", ".join(files) + f" ({len(files)})"))
+
+    rows.append(("local_path", details.get("local_path")))
+    rows.append(("messages", _path_val(details["messages_path"], details["messages_path_exists"])))
+
+    for key, val in rows:
+        if val is None or val == "":
+            continue
+        table.add_row(key, val if isinstance(val, Text) else str(val))
+
+    console.print(f"\nRun {rid}")
     console.print(table)
 
 
