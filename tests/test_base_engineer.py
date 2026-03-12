@@ -58,6 +58,50 @@ class TestBaseEngineerInit:
                 mock_docs.assert_called_once()
                 assert engineer.output_mode == "docs"
 
+    def test_existing_client_language_preserved_for_iterative_runs(self, tmp_path):
+        """Existing client language overrides the configured output language."""
+        har_path = tmp_path / "test.har"
+        har_path.touch()
+        scripts_dir = tmp_path / "scripts"
+        scripts_dir.mkdir()
+        client_path = scripts_dir / "api_client.ts"
+        client_path.write_text("export {};\n")
+
+        with patch("reverse_api.base_engineer.get_scripts_dir", return_value=scripts_dir):
+            with patch("reverse_api.base_engineer.MessageStore"):
+                engineer = ConcreteEngineer(
+                    run_id="test123",
+                    har_path=har_path,
+                    prompt="test prompt",
+                    output_language="python",
+                    output_dir=str(tmp_path),
+                )
+
+        assert engineer.output_language == "typescript"
+        assert engineer.existing_client_path == client_path
+
+    def test_fresh_runs_can_switch_output_language(self, tmp_path):
+        """Fresh runs ignore existing client language and honor the requested one."""
+        har_path = tmp_path / "test.har"
+        har_path.touch()
+        scripts_dir = tmp_path / "scripts"
+        scripts_dir.mkdir()
+        (scripts_dir / "api_client.ts").write_text("export {};\n")
+
+        with patch("reverse_api.base_engineer.get_scripts_dir", return_value=scripts_dir):
+            with patch("reverse_api.base_engineer.MessageStore"):
+                engineer = ConcreteEngineer(
+                    run_id="test123",
+                    har_path=har_path,
+                    prompt="test prompt",
+                    output_language="python",
+                    is_fresh=True,
+                    output_dir=str(tmp_path),
+                )
+
+        assert engineer.output_language == "python"
+        assert engineer.existing_client_path is None
+
 
 class TestBaseEngineerHelpers:
     """Test helper methods."""
@@ -198,6 +242,32 @@ class TestBaseEngineerBuildPrompt:
         prompt = eng._build_analysis_prompt()
         assert "Tag-Based Workflows" in prompt
         assert eng.run_id in prompt
+
+    def test_prompt_includes_existing_client_guidance(self, tmp_path):
+        """Prompt tells the agent to keep editing the existing client language."""
+        har_path = tmp_path / "test.har"
+        har_path.touch()
+        scripts_dir = tmp_path / "scripts"
+        scripts_dir.mkdir()
+        client_path = scripts_dir / "api_client.js"
+        client_path.write_text("export {};\n")
+
+        with patch("reverse_api.base_engineer.get_scripts_dir", return_value=scripts_dir):
+            with patch("reverse_api.base_engineer.get_docs_dir", return_value=tmp_path / "docs"):
+                with patch("reverse_api.base_engineer.MessageStore") as mock_ms:
+                    mock_ms.return_value.messages_path = tmp_path / "messages" / "test.jsonl"
+                    eng = ConcreteEngineer(
+                        run_id="test123",
+                        har_path=har_path,
+                        prompt="test prompt",
+                        output_language="python",
+                        output_dir=str(tmp_path),
+                    )
+
+        prompt = eng._build_analysis_prompt()
+        assert str(client_path) in prompt
+        assert "iterative edit" in prompt
+        assert "JavaScript" in prompt
 
 
 class TestBaseEngineerSync:

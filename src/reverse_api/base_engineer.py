@@ -15,6 +15,12 @@ from .utils import generate_folder_name, get_docs_dir, get_scripts_dir
 class BaseEngineer(ABC):
     """Abstract base class for API reverse engineering implementations."""
 
+    _OUTPUT_LANGUAGE_EXTENSIONS = {
+        "python": ".py",
+        "javascript": ".js",
+        "typescript": ".ts",
+    }
+
     def __init__(
         self,
         run_id: str,
@@ -49,7 +55,8 @@ class BaseEngineer(ABC):
         self.enable_sync = enable_sync
         self.sdk = sdk
         self.is_fresh = is_fresh
-        self.output_language = output_language
+        self.output_language = self._resolve_output_language(output_language)
+        self.existing_client_path = self._get_existing_client_path()
         self.sync_watcher: FileSyncWatcher | None = None
         self.local_scripts_dir: Path | None = None
 
@@ -223,11 +230,63 @@ class BaseEngineer(ABC):
 
     def _get_output_extension(self) -> str:
         """Return file extension based on output language."""
+        return self._OUTPUT_LANGUAGE_EXTENSIONS.get(self.output_language, ".py")
+
+    def _get_existing_client_candidates(self) -> dict[str, Path]:
+        """Return existing API client files keyed by language."""
+        if self.output_mode == "docs":
+            return {}
+
+        candidates: dict[str, Path] = {}
+        for language, extension in self._OUTPUT_LANGUAGE_EXTENSIONS.items():
+            client_path = self.scripts_dir / f"api_client{extension}"
+            if client_path.exists():
+                candidates[language] = client_path
+        return candidates
+
+    def _resolve_output_language(self, requested_language: str) -> str:
+        """Keep iterative edits in the same language as the existing client."""
+        if self.output_mode == "docs" or self.is_fresh:
+            return requested_language
+
+        existing_clients = self._get_existing_client_candidates()
+        if not existing_clients:
+            return requested_language
+
+        if requested_language in existing_clients:
+            return requested_language
+
+        return max(
+            existing_clients.items(),
+            key=lambda item: item[1].stat().st_mtime_ns,
+        )[0]
+
+    def _get_existing_client_path(self) -> Path | None:
+        """Return the current client path when iterating on an existing run."""
+        return self._get_existing_client_candidates().get(self.output_language)
+
+    def _get_language_name(self) -> str:
+        """Return a human-readable language name."""
         return {
-            "python": ".py",
-            "javascript": ".js",
-            "typescript": ".ts",
-        }.get(self.output_language, ".py")
+            "python": "Python",
+            "javascript": "JavaScript",
+            "typescript": "TypeScript",
+        }.get(self.output_language, "Python")
+
+    def _get_existing_client_guidance(self) -> str:
+        """Return prompt guidance for iterative edits on an existing client."""
+        if self.output_mode == "docs" or self.is_fresh or not self.existing_client_path:
+            return ""
+
+        language_name = self._get_language_name()
+        return f"""
+There is already an existing {language_name} client for this run:
+<existing_client>
+{self.existing_client_path}
+</existing_client>
+
+**IMPORTANT: This is an iterative edit. Update that file in place and keep the implementation in {language_name} unless the user explicitly asks for a fresh rewrite.**
+"""
 
     def _get_client_filename(self) -> str:
         """Return the output filename based on mode."""
@@ -425,11 +484,7 @@ Your OpenAPI spec should be production-ready and suitable for:
             mode_description = "generate an OpenAPI 3.0 specification documenting"
             task_description = "OpenAPI documentation"
         else:
-            language_name = {
-                "python": "Python",
-                "javascript": "JavaScript",
-                "typescript": "TypeScript",
-            }.get(self.output_language, "Python")
+            language_name = self._get_language_name()
             mode_description = f"reverse engineer API calls and generate production-ready {language_name} code that replicates"
             task_description = f"{language_name} API client"
 
@@ -464,6 +519,7 @@ Here is the output directory where you should save your generated files:
 <output_dir>
 {self.scripts_dir}
 </output_dir>
+{self._get_existing_client_guidance()}
 
 **IMPORTANT: You have access to the AskUserQuestion tool to ask clarifying questions during your analysis.**
 Use this tool when you need to clarify functional requirements, prioritize features, choose between implementation approaches, or gather any other information that would help you generate better {task_description}.
