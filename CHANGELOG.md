@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-03-12
+
+### Added
+- **`show` CLI subcommand**: View details of a specific run by ID
+- **Chrome Extension improvements**: Multi-session support, codegen recording, side panel UX overhaul
+  - Session isolation fixes to prevent capture data bleeding across sessions
+  - Message persistence across panel reloads and session switches
+  - Traffic list with expandable request details and clear button
+  - Restricted page detection with user feedback
+  - ANSI escape code stripping in terminal output
+  - PrismLight language fallback for unregistered languages
+  - Bundle size reduced from 1112KB to 436KB (removed shiki, lucide-react, ansi-to-react, @base-ui/react)
+- **Mintlify API client example**
+
+### Changed
+- **Background update check**: Version check now runs in a background thread to avoid blocking CLI startup
+
+### Fixed
+- **Engineer language preservation**: Iterative edits now preserve the original output language instead of resetting
+- **Native host Gatekeeper handling**: Scoped xattr to the actual claude-code package directory
+- **Codegen selector escaping**: Dynamic attribute values now escaped with CSS.escape() to prevent broken selectors
+- **Chrome Extension manifest**: Removed unused `scripting` permission; pinned devicon CDN to v2.16.0
+
 ## [0.4.0] - 2026-03-10
 
 ### Added
