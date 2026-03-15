@@ -336,6 +336,7 @@ def prompt_interactive_options(
 def main(ctx: click.Context):
     """Reverse API - Capture browser traffic for API reverse engineering."""
     setproctitle.setproctitle("reverse-api-engineer")
+    setproctitle.setthreadtitle("reverse-api-engineer")
     if ctx.invoked_subcommand is None:
         repl_loop()
 
