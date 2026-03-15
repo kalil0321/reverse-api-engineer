@@ -5,17 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.4] - 2026-03-15
+## [0.4.5] - 2026-03-15
 
 ### Fixed
-- **Stream closed errors (#51)**: Fixed "Error in hook callback hook_0: Stream closed" by clearing inherited `CLAUDECODE` env var from CLI subprocess and extending stream close timeout
-- **Async generator cleanup**: Avoid early return inside `query()` loop to prevent cancel-scope errors
+- **Stream closed errors (#51)**: Reverted from `query()` to `ClaudeSDKClient` which maintains a persistent bidirectional connection, eliminating "Error in hook callback hook_0: Stream closed" errors. The original AUQ fix (v0.4.3) unnecessarily switched APIs — only the `can_use_tool` callback signature needed updating
+- **CLAUDECODE env var leak**: Clear inherited `CLAUDECODE` env var from CLI subprocess to prevent nested session interference when running inside Claude Code
 - **CLI stderr noise**: Filter minified JS stack traces into a single clean error line (use `DEBUG=1` for full output)
 
 ### Changed
 - **claude-agent-sdk**: Bumped minimum version to 0.1.48
 - **Agent mode**: No longer prompts for URL (agent navigates autonomously)
 - **Header UI**: Version and task labels now use mode-specific colors (agent=coral, engineer=blue, collector=gold)
+
+## [0.4.4] - 2026-03-15
+
+### Fixed
+- **Stream closed errors (#51)**: Partial fix using `query()` with env var workarounds (superseded by v0.4.5)
 
 ## [0.4.3] - 2026-03-12
 
