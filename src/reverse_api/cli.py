@@ -1,5 +1,6 @@
 import asyncio
 import json
+import random
 import re
 from pathlib import Path
 
@@ -61,6 +62,29 @@ MODE_DESCRIPTIONS = {
     "agent": "autonomous agent + capture",
     "collector": "ai-powered data collection",
 }
+
+AGENT_TASK_SUGGESTIONS = [
+    "Go to github.com/trending and capture the top 10 trending repos' API calls",
+    "Navigate to news.ycombinator.com, browse the front page and capture API interactions",
+    "Go to weather.com, search for New York weather and capture the forecast API",
+    "Visit reddit.com/r/programming, browse posts and capture the Reddit API calls",
+    "Go to maps.google.com, search for restaurants near Times Square and capture API calls",
+    "Navigate to twitter.com/explore and capture trending topics API interactions",
+    "Go to amazon.com, search for 'mechanical keyboard' and capture product search API",
+    "Visit spotify.com/search, search for an artist and capture the search API",
+    "Navigate to stackoverflow.com, search for 'python async' and capture the search API",
+    "Go to npmjs.com, search for 'express' and capture the package registry API",
+    "Visit producthunt.com and capture the feed/listing API calls",
+    "Go to crunchbase.com and browse company profiles to capture their API",
+    "Navigate to linkedin.com/jobs, search for 'software engineer' and capture job search API",
+    "Go to airbnb.com, search for stays in Paris and capture the listing search API",
+    "Visit imdb.com, search for a movie and capture the title/search API calls",
+    "Go to wolframalpha.com, run a query and capture the computation API",
+    "Navigate to booking.com, search for hotels in Tokyo and capture the search API",
+    "Go to zillow.com, search for homes in San Francisco and capture the listing API",
+    "Visit translate.google.com, translate a paragraph and capture the translation API",
+    "Go to unsplash.com, search for 'mountains' and capture the photo search API",
+]
 
 
 def prompt_interactive_options(
@@ -217,6 +241,15 @@ def prompt_interactive_options(
             # If no completion, just move cursor right
             buff.cursor_right()
 
+    @kb.add("c-r")  # Ctrl+R: random task suggestion (agent mode)
+    def random_suggestion(event):
+        """Fill prompt with a random task suggestion for agent mode."""
+        if mode_state["mode"] == "agent":
+            suggestion = random.choice(AGENT_TASK_SUGGESTIONS)
+            buff = event.app.current_buffer
+            buff.text = suggestion
+            buff.cursor_position = len(suggestion)
+
     def get_prompt():
         """Generate prompt with current mode indicator."""
         mode = mode_state["mode"]
@@ -330,11 +363,18 @@ def prompt_interactive_options(
     }
 
 
-@click.group(invoke_without_command=True)
+CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
+
+
+@click.group(invoke_without_command=True, context_settings=CONTEXT_SETTINGS)
 @click.pass_context
 @click.version_option(version=__version__)
 def main(ctx: click.Context):
-    """Reverse API - Capture browser traffic for API reverse engineering."""
+    """reverse-api-engineer: reverse engineer apis.
+
+    Run without a subcommand to start the interactive REPL; use agent, manual,
+    or engineer for CLI mode.
+    """
     setproctitle.setproctitle("reverse-api-engineer")
     setproctitle.setthreadtitle("reverse-api-engineer")
     if ctx.invoked_subcommand is None:
@@ -359,7 +399,7 @@ def repl_loop():
         model = config_manager.get("claude_code_model", "claude-sonnet-4-6")
 
     display_banner(console, sdk=sdk, model=model)
-    console.print("  [dim]shift+tab to cycle modes: agent | manual | engineer | collector[/dim]")
+    console.print("  [dim]shift+tab to cycle modes | ctrl+r for random task (agent)[/dim]")
     display_footer(console)
 
     # Show update message if background check has completed
@@ -414,7 +454,7 @@ def repl_loop():
                 else:
                     # Unknown command - show error and available commands
                     console.print(f" [red]Unknown command:[/red] {cmd}")
-                    console.print(" [dim]Available commands: /settings, /history, /messages, /help, /exit[/dim]")
+                    console.print(" [dim]Available commands: /settings, /history, /messages, /help, /commands, /exit[/dim]")
                 continue
 
             mode = options.get("mode", "agent")
@@ -977,6 +1017,9 @@ def handle_agent_help(mode_color=THEME_PRIMARY):
     table.add_row("", "")
 
     table.add_row("Shift+Tab", "Cycle to other modes (Manual, Engineer).")
+    table.add_row("", "")
+
+    table.add_row("Ctrl+R", "Fill prompt with a random task suggestion.\n[dim]Press multiple times to cycle through ideas.[/dim]")
 
     console.print(table)
     console.print()
@@ -1079,7 +1122,10 @@ def handle_help(mode_color=THEME_PRIMARY):
     )
     commands_table.add_row("", "")
 
-    commands_table.add_row("/help", "Show this help message\n[dim]Usage: /help[/dim]")
+    commands_table.add_row(
+        "/help or /commands",
+        "Show this help message\n[dim]Usage: /help[/dim]",
+    )
     commands_table.add_row("", "")
 
     commands_table.add_row("/exit or /quit", "Exit the application\n[dim]Usage: /exit[/dim]")
@@ -1096,6 +1142,7 @@ def handle_help(mode_color=THEME_PRIMARY):
     modes_table.add_row("agent", "Autonomous agent + capture")
     modes_table.add_row("manual", "Full pipeline: browser + reverse engineering")
     modes_table.add_row("engineer", "Reverse engineer only (enter run_id)")
+    modes_table.add_row("collector", "AI-powered data collection")
 
     console.print(" [bold white]Modes[/bold white] [dim]Shift+Tab to cycle[/dim]")
     console.print(modes_table)
@@ -1180,6 +1227,27 @@ def handle_messages(run_id: str, mode_color=THEME_PRIMARY):
 def manual(prompt, url, reverse_engineer, model, output_dir):
     """Start a manual browser session."""
     run_manual_capture(prompt, url, reverse_engineer, model, output_dir)
+
+
+@main.command()
+@click.option("--prompt", "-p", default=None, help="Instruction for the autonomous agent.")
+@click.option("--url", "-u", default=None, help="Optional starting URL.")
+@click.option(
+    "--reverse-engineer/--no-engineer",
+    "reverse_engineer",
+    default=True,
+    help="Run reverse engineering after capture.",
+)
+@click.option(
+    "--model",
+    "-m",
+    type=click.Choice(["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"]),
+    default=None,
+)
+@click.option("--output-dir", "-o", default=None, help="Custom output directory.")
+def agent(prompt, url, reverse_engineer, model, output_dir):
+    """Run autonomous agent browser session."""
+    run_agent_capture(prompt=prompt, url=url, reverse_engineer=reverse_engineer, model=model, output_dir=output_dir)
 
 
 def run_manual_capture(prompt=None, url=None, reverse_engineer=True, model=None, output_dir=None):
