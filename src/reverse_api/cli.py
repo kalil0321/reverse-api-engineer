@@ -1590,6 +1590,8 @@ def run_auto_capture(prompt=None, url=None, model=None, output_dir=None):
 
         try:
             result = asyncio.run(engineer.analyze_and_generate())
+        except KeyboardInterrupt:
+            result = None
         finally:
             # Always stop sync when done
             engineer.stop_sync()

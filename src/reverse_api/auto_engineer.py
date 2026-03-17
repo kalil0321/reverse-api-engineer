@@ -9,15 +9,10 @@ from typing import Any
 
 import httpx
 from claude_agent_sdk import (
-    AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
     PermissionResultAllow,
-    ResultMessage,
-    TextBlock,
     ToolPermissionContext,
-    ToolResultBlock,
-    ToolUseBlock,
 )
 
 from .engineer import ClaudeEngineer
@@ -240,7 +235,10 @@ Your final response should confirm the files were created and provide a brief su
         return PermissionResultAllow(updated_input=input_data)
 
     async def analyze_and_generate(self) -> dict[str, Any] | None:
-        """Run auto mode with MCP browser integration."""
+        """Run auto mode with MCP browser integration.
+
+        Reuses _process_streaming_response and follow-up loop from ClaudeEngineer.
+        """
         self.ui.header(self.run_id, self.prompt, self.model, mode="agent")
         self.ui.start_analysis()
         self.message_store.save_prompt(self._build_auto_prompt())
@@ -266,83 +264,34 @@ Your final response should confirm the files were created and provide a brief su
             stderr=self._handle_cli_stderr,
         )
 
+        last_result: dict[str, Any] | None = None
+
         try:
             async with ClaudeSDKClient(options=options) as client:
                 await client.query(self._build_auto_prompt())
 
-                async for message in client.receive_response():
-                    if hasattr(message, "usage") and isinstance(message.usage, dict):
-                        self.usage_metadata.update(message.usage)
+                # Process initial response
+                last_result = await self._process_streaming_response(client)
+                if last_result is None:
+                    return None
 
-                    if isinstance(message, AssistantMessage):
-                        last_tool_name = None
-                        for block in message.content:
-                            if isinstance(block, ToolUseBlock):
-                                last_tool_name = block.name
-                                self.ui.tool_start(block.name, block.input)
-                                self.message_store.save_tool_start(block.name, block.input)
-                            elif isinstance(block, ToolResultBlock):
-                                is_error = block.is_error if block.is_error else False
+                # Conversation loop: prompt for follow-ups
+                while True:
+                    follow_up = await self._prompt_follow_up()
+                    if not follow_up:
+                        return last_result
 
-                                output = None
-                                if hasattr(block, "content"):
-                                    output = block.content
-                                elif hasattr(block, "result"):
-                                    output = block.result
-                                elif hasattr(block, "output"):
-                                    output = block.output
+                    self.ui.console.print()
+                    self.message_store.save_prompt(follow_up)
+                    await client.query(follow_up)
 
-                                tool_name = last_tool_name or "Tool"
-                                self.ui.tool_result(tool_name, is_error, output)
-                                self.message_store.save_tool_result(tool_name, is_error, str(output) if output else None)
-                            elif isinstance(block, TextBlock):
-                                self.ui.thinking(block.text)
-                                self.message_store.save_thinking(block.text)
+                    result = await self._process_streaming_response(client)
+                    if result is not None:
+                        last_result = result
 
-                    elif isinstance(message, ResultMessage):
-                        if message.is_error:
-                            self.ui.error(message.result or "Unknown error")
-                            self.message_store.save_error(message.result or "Unknown error")
-                            return None
-                        else:
-                            script_path = str(self.scripts_dir / self._get_client_filename())
-                            local_path = str(self.local_scripts_dir / self._get_client_filename()) if self.local_scripts_dir else None
-                            self.ui.success(script_path, local_path)
-
-                            if self.usage_metadata:
-                                input_tokens = self.usage_metadata.get("input_tokens", 0)
-                                output_tokens = self.usage_metadata.get("output_tokens", 0)
-                                cache_creation_tokens = self.usage_metadata.get("cache_creation_input_tokens", 0)
-                                cache_read_tokens = self.usage_metadata.get("cache_read_input_tokens", 0)
-
-                                from .pricing import calculate_cost
-
-                                cost = calculate_cost(
-                                    model_id=self.model,
-                                    input_tokens=input_tokens,
-                                    output_tokens=output_tokens,
-                                    cache_creation_tokens=cache_creation_tokens,
-                                    cache_read_tokens=cache_read_tokens,
-                                )
-                                self.usage_metadata["estimated_cost_usd"] = cost
-
-                                self.ui.console.print("  [dim]Usage:[/dim]")
-                                if input_tokens > 0:
-                                    self.ui.console.print(f"  [dim]  input: {input_tokens:,} tokens[/dim]")
-                                if cache_creation_tokens > 0:
-                                    self.ui.console.print(f"  [dim]  cache creation: {cache_creation_tokens:,} tokens[/dim]")
-                                if cache_read_tokens > 0:
-                                    self.ui.console.print(f"  [dim]  cache read: {cache_read_tokens:,} tokens[/dim]")
-                                if output_tokens > 0:
-                                    self.ui.console.print(f"  [dim]  output: {output_tokens:,} tokens[/dim]")
-                                self.ui.console.print(f"  [dim]  total cost: ${cost:.4f}[/dim]")
-
-                            result: dict[str, Any] = {
-                                "script_path": script_path,
-                                "usage": self.usage_metadata,
-                            }
-                            self.message_store.save_result(result)
-                            return result
+        except KeyboardInterrupt:
+            self.ui.console.print("\n  [dim]run aborted[/dim]")
+            return last_result
 
         except Exception as e:
             error_msg = str(e)
@@ -360,8 +309,6 @@ Your final response should confirm the files were created and provide a brief su
             else:
                 self.ui.console.print("\n[dim]Make sure Claude Code CLI is installed: npm install -g @anthropic-ai/claude-code[/dim]")
             return None
-
-        return None
 
 
 class OpenCodeAutoEngineer(OpenCodeEngineer):
