@@ -39,6 +39,21 @@ class ClaudeEngineer(BaseEngineer):
         # Auto-approve all other tools
         return PermissionResultAllow(updated_input=input_data)
 
+    _USAGE_ACCUMULATE_KEYS = {
+        "input_tokens",
+        "output_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+    }
+
+    def _accumulate_usage(self, usage: dict) -> None:
+        """Merge usage data, summing token counts instead of replacing."""
+        for key, value in usage.items():
+            if key in self._USAGE_ACCUMULATE_KEYS and isinstance(value, (int, float)):
+                self.usage_metadata[key] = self.usage_metadata.get(key, 0) + value
+            else:
+                self.usage_metadata[key] = value
+
     async def _process_streaming_response(self, client: ClaudeSDKClient) -> dict[str, Any] | None:
         """Process a single streaming response from the SDK client.
 
@@ -46,7 +61,7 @@ class ClaudeEngineer(BaseEngineer):
         """
         async for message in client.receive_response():
             if hasattr(message, "usage") and isinstance(message.usage, dict):
-                self.usage_metadata.update(message.usage)
+                self._accumulate_usage(message.usage)
 
             if isinstance(message, AssistantMessage):
                 last_tool_name = None
