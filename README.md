@@ -12,7 +12,15 @@ No more manual reverse engineering—just browse, capture, and get clean API cod
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/kalil0321/reverse-api-engineer/main/assets/reverse-api-engineer.gif" alt="Reverse API Engineer Demo">
+  <img src="https://raw.githubusercontent.com/kalil0321/reverse-api-engineer/main/assets/rae-autoscout.gif" alt="Agent Mode Demo">
+  <br>
+  <em>Agent mode</em>
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/kalil0321/reverse-api-engineer/main/assets/reverse-api-engineer.gif" alt="Manual Mode Demo">
+  <br>
+  <em>Manual mode</em>
 </p>
 
 ## Table of Contents
