@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-04-06
+
+### Added
+- **`run` command**: Execute generated scripts directly from the CLI with `reverse-api-engineer run <id|name>`. Supports fuzzy name matching, `--ls` to list scripts, `--file` to pick a specific script, and `--` to pass arguments through to the script
+- **Shared venv**: Scripts run inside a shared venv at `~/.reverse-api/runs/.venv` with `requests` pre-installed. Per-run `requirements.txt` is installed on top automatically
+- **Auto-install missing imports**: When a script fails with `ModuleNotFoundError`, offers to install the missing package and retry
+
+### Security
+- **litellm** >=1.83.0 — fixes critical OIDC auth bypass + high privilege escalation
+- **requests** >=2.33.0 — fixes insecure temp file reuse
+- **aiohttp** >=3.13.4 — fixes header injection, SSRF, DoS vulnerabilities
+- **pygments** >=2.20.0 — fixes ReDoS
+- **cryptography** >=46.0.6 — fixes incomplete DNS constraint enforcement
+
 ## [0.6.0] - 2026-04-01
 
 ### Added
