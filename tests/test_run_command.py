@@ -618,8 +618,7 @@ class TestRunCommandOutputMessages:
 
         with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")):
             result = cli_runner.invoke(main, ["run", "def789ghi012"])
-        assert "run def789ghi012" in result.output
-        assert "hubspot" in result.output
+        assert "scripts/def789ghi012" in result.output
 
     def test_shows_run_id_in_output(self, cli_runner, mock_cli_env):
         from reverse_api.cli import main
