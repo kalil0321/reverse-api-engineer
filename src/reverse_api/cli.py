@@ -2179,7 +2179,7 @@ def run_script(ctx, identifier, script_args, file_name, list_scripts):
 
             match = _re.search(r"No module named ['\"]([^'\"]+)['\"]", result.stderr)
             if match:
-                missing = match.group(1)
+                missing = match.group(1).split(".")[0]
                 console.print(f"[yellow]Missing dependency: {missing}[/yellow]")
 
                 install = questionary.confirm(
