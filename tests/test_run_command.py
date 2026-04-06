@@ -381,7 +381,7 @@ class TestRunCommandFileFlag:
 
     def test_file_flag_selects_script(self, cli_runner, mock_cli_env):
         from reverse_api.cli import main
-        with patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_sub:
+        with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")) as mock_sub:
             result = cli_runner.invoke(main, ["run", "abc123def456", "--file", "example_usage.py"])
         assert mock_sub.called
         call_args = mock_sub.call_args[0][0]
@@ -406,7 +406,7 @@ class TestRunCommandExecution:
 
     def test_single_script_auto_selected(self, cli_runner, mock_cli_env):
         from reverse_api.cli import main
-        with patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_sub:
+        with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")) as mock_sub:
             result = cli_runner.invoke(main, ["run", "def789ghi012"])
         assert mock_sub.called
         call_args = mock_sub.call_args[0][0]
@@ -414,7 +414,7 @@ class TestRunCommandExecution:
 
     def test_args_passthrough(self, cli_runner, mock_cli_env):
         from reverse_api.cli import main
-        with patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_sub:
+        with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")) as mock_sub:
             result = cli_runner.invoke(main, ["run", "def789ghi012", "--", "--org", "acme", "--limit", "10"])
         call_args = mock_sub.call_args[0][0]
         assert "--org" in call_args
@@ -424,13 +424,13 @@ class TestRunCommandExecution:
 
     def test_exit_code_forwarded(self, cli_runner, mock_cli_env):
         from reverse_api.cli import main
-        with patch("subprocess.run", return_value=MagicMock(returncode=42)):
+        with patch("subprocess.run", return_value=MagicMock(returncode=42, stdout="", stderr="err")):
             result = cli_runner.invoke(main, ["run", "def789ghi012"])
         assert result.exit_code == 42
 
     def test_exit_code_zero_on_success(self, cli_runner, mock_cli_env):
         from reverse_api.cli import main
-        with patch("subprocess.run", return_value=MagicMock(returncode=0)):
+        with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="ok", stderr="")):
             result = cli_runner.invoke(main, ["run", "def789ghi012"])
         assert result.exit_code == 0
 
@@ -441,7 +441,7 @@ class TestRunCommandExecution:
         with patch("questionary.Choice", side_effect=lambda **kw: kw):
             with patch("questionary.select") as mock_select:
                 mock_select.return_value.ask.return_value = script_path
-                with patch("subprocess.run", return_value=MagicMock(returncode=0)):
+                with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")):
                     result = cli_runner.invoke(main, ["run", "abc123def456"])
                 mock_select.assert_called_once()
 
@@ -484,7 +484,7 @@ class TestRunCommandVenv:
         req = tmp_path / "scripts" / "def789ghi012" / "requirements.txt"
         req.write_text("requests>=2.28")
 
-        with patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_sub:
+        with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")) as mock_sub:
             result = cli_runner.invoke(main, ["run", "def789ghi012"])
 
         # Should have called subprocess.run 3 times: venv create, pip install, script run
@@ -516,7 +516,7 @@ class TestRunCommandVenv:
         (venv / "bin").mkdir()
         (venv / "bin" / "python").write_text("#!/bin/sh")
 
-        with patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_sub:
+        with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")) as mock_sub:
             result = cli_runner.invoke(main, ["run", "def789ghi012"])
 
         # Should only call subprocess.run once (just the script), no venv/pip
@@ -524,7 +524,7 @@ class TestRunCommandVenv:
 
     def test_no_venv_without_requirements(self, cli_runner, mock_cli_env):
         from reverse_api.cli import main
-        with patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_sub:
+        with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")) as mock_sub:
             result = cli_runner.invoke(main, ["run", "def789ghi012"])
 
         # Should call subprocess.run exactly once (just the script, no venv/pip)
@@ -540,7 +540,7 @@ class TestRunCommandVenv:
         req = tmp_path / "scripts" / "def789ghi012" / "requirements.txt"
         req.write_text("httpx>=0.25\nbeautifulsoup4")
 
-        with patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_sub:
+        with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")) as mock_sub:
             result = cli_runner.invoke(main, ["run", "def789ghi012"])
 
         # pip install call should reference the requirements.txt
@@ -548,19 +548,51 @@ class TestRunCommandVenv:
         assert str(req) in [str(a) for a in pip_call]
 
 
+class TestRunCommandImportRetry:
+    """Test automatic retry on ModuleNotFoundError."""
+
+    def test_offers_install_on_import_error(self, cli_runner, mock_cli_env):
+        from reverse_api.cli import main
+        failed = MagicMock(returncode=1, stdout="", stderr="Traceback (most recent call last):\nModuleNotFoundError: No module named 'requests'")
+        success = MagicMock(returncode=0, stdout="ok", stderr="")
+        with patch("subprocess.run", side_effect=[failed, MagicMock(returncode=0, stdout="", stderr=""), MagicMock(returncode=0, stdout="", stderr=""), MagicMock(returncode=0, stdout="", stderr=""), success]) as mock_sub:
+            with patch("questionary.confirm") as mock_confirm:
+                mock_confirm.return_value.ask.return_value = True
+                result = cli_runner.invoke(main, ["run", "def789ghi012"])
+        assert "Missing dependency: requests" in result.output
+        assert "Installed" in result.output
+
+    def test_user_declines_install(self, cli_runner, mock_cli_env):
+        from reverse_api.cli import main
+        failed = MagicMock(returncode=1, stdout="", stderr="ModuleNotFoundError: No module named 'foo'")
+        with patch("subprocess.run", return_value=failed):
+            with patch("questionary.confirm") as mock_confirm:
+                mock_confirm.return_value.ask.return_value = False
+                result = cli_runner.invoke(main, ["run", "def789ghi012"])
+        assert result.exit_code == 1
+
+    def test_non_import_error_passes_through(self, cli_runner, mock_cli_env):
+        from reverse_api.cli import main
+        failed = MagicMock(returncode=1, stdout="", stderr="TypeError: something else broke")
+        with patch("subprocess.run", return_value=failed):
+            result = cli_runner.invoke(main, ["run", "def789ghi012"])
+        assert result.exit_code == 1
+        assert "TypeError" in result.output
+
+
 class TestRunCommandOutputMessages:
     """Test user-facing output messages."""
 
     def test_shows_running_message(self, cli_runner, mock_cli_env):
         from reverse_api.cli import main
-        with patch("subprocess.run", return_value=MagicMock(returncode=0)):
+        with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")):
             result = cli_runner.invoke(main, ["run", "def789ghi012"])
         assert "Running" in result.output
         assert "api_client.py" in result.output
 
     def test_shows_run_id_in_output(self, cli_runner, mock_cli_env):
         from reverse_api.cli import main
-        with patch("subprocess.run", return_value=MagicMock(returncode=0)):
+        with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")):
             result = cli_runner.invoke(main, ["run", "def789ghi012"])
         assert "def789ghi012" in result.output
 
@@ -570,7 +602,7 @@ class TestRunCommandOutputMessages:
         req = tmp_path / "scripts" / "def789ghi012" / "requirements.txt"
         req.write_text("requests")
 
-        with patch("subprocess.run", return_value=MagicMock(returncode=0)):
+        with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")):
             result = cli_runner.invoke(main, ["run", "def789ghi012"])
         assert "Installing dependencies" in result.output
         assert "Dependencies installed" in result.output

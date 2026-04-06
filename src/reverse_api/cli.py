@@ -2160,9 +2160,52 @@ def run_script(ctx, identifier, script_args, file_name, list_scripts):
     else:
         python_path = sys.executable
 
-    # Execute
+    # Execute (with retry on missing imports)
     console.print(f"Running [cyan]{script.name}[/cyan] from run [dim]{run_id}[/dim]")
-    result = subprocess.run([python_path, str(script), *script_args])
+    result = subprocess.run(
+        [python_path, str(script), *script_args],
+        capture_output=True, text=True,
+    )
+
+    if result.returncode != 0 and "ModuleNotFoundError: No module named" in (result.stderr or ""):
+        # Extract module name from "No module named 'requests'"
+        import re as _re
+
+        match = _re.search(r"No module named ['\"]([^'\"]+)['\"]", result.stderr)
+        if match:
+            missing = match.group(1)
+            console.print(f"[yellow]Missing dependency: {missing}[/yellow]")
+
+            install = questionary.confirm(
+                f"Install '{missing}' and retry?", default=True
+            ).ask()
+            if install:
+                # Ensure venv exists
+                venv_bin = "Scripts" if sys.platform == "win32" else "bin"
+                if not venv_dir.exists():
+                    subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
+                pip_path = venv_dir / venv_bin / ("pip.exe" if sys.platform == "win32" else "pip")
+                python_path = str(venv_dir / venv_bin / ("python.exe" if sys.platform == "win32" else "python"))
+
+                # Install the original requirements.txt too if it exists
+                if requirements.exists():
+                    subprocess.run([str(pip_path), "install", "-q", "-r", str(requirements)], check=True)
+                subprocess.run([str(pip_path), "install", "-q", missing], check=True)
+                console.print(f"Installed [green]{missing}[/green]. Retrying...")
+
+                result = subprocess.run([python_path, str(script), *script_args])
+                raise SystemExit(result.returncode)
+
+        # If we couldn't parse or user declined, show the original error
+        sys.stderr.write(result.stderr)
+        sys.stdout.write(result.stdout)
+        raise SystemExit(result.returncode)
+
+    # Normal exit — print captured output
+    if result.stdout:
+        sys.stdout.write(result.stdout)
+    if result.stderr:
+        sys.stderr.write(result.stderr)
     raise SystemExit(result.returncode)
 
 
