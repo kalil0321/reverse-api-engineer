@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_CONFIG = {
-    "agent_provider": "auto",  # "auto" (Playwright MCP), "chrome-mcp" (Chrome DevTools MCP), "browser-use", or "stagehand"
+    "agent_provider": "stagehand",  # "auto" (Playwright MCP), "chrome-mcp" (Chrome DevTools MCP), "browser-use", or "stagehand"
     "browser_use_model": "bu-llm",  # "bu-llm" or "{provider}/{model_name}" (e.g. "openai/gpt-5-mini")
     "claude_code_model": "claude-sonnet-4-6",
     "collector_model": "claude-sonnet-4-6",  # Model for collector mode
@@ -16,7 +16,7 @@ DEFAULT_CONFIG = {
     "output_language": "python",  # "python", "javascript", or "typescript"
     "real_time_sync": True,  # Enable real-time file sync during engineering
     "sdk": "claude",  # "claude", "opencode", or "copilot"
-    "stagehand_model": "openai/computer-use-preview-2025-03-11",  # "{provider}/{model_name}" format
+    "stagehand_model": "anthropic/claude-sonnet-4-5-20250929",  # "{provider}/{model_name}" format
 }
 
 

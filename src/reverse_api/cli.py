@@ -836,14 +836,14 @@ def handle_settings(mode_color=THEME_PRIMARY):
     elif action == "stagehand_model":
         from .browser import parse_agent_model
 
-        current = config_manager.get("stagehand_model", "openai/computer-use-preview-2025-03-11")
+        current = config_manager.get("stagehand_model", "anthropic/claude-sonnet-4-5-20250929")
         instruction = (
-            "(Format: 'openai/model' or 'anthropic/model', e.g., 'openai/computer-use-preview-2025-03-11' or 'anthropic/claude-sonnet-4-6-20260301')"
+            "(Format: 'openai/model' or 'anthropic/model', e.g., 'openai/computer-use-preview-2025-03-11' or 'anthropic/claude-sonnet-4-5-20250929')"
         )
 
         new_model = questionary.text(
             " > stagehand model",
-            default=current or "openai/computer-use-preview-2025-03-11",
+            default=current or "anthropic/claude-sonnet-4-5-20250929",
             instruction=instruction,
             qmark="",
             style=questionary.Style(
@@ -868,9 +868,9 @@ def handle_settings(mode_color=THEME_PRIMARY):
                     console.print(
                         " [dim]Valid formats for stagehand:[/dim]\n"
                         " [dim]  - openai/computer-use-preview-2025-03-11[/dim]\n"
-                        " [dim]  - anthropic/claude-sonnet-4-6-20260301[/dim]\n"
+                        " [dim]  - anthropic/claude-sonnet-4-5-20250929[/dim]\n"
                         " [dim]  - anthropic/claude-haiku-4-5-20251001[/dim]\n"
-                        " [dim]  - anthropic/claude-opus-4-6-20260301[/dim]\n"
+                        " [dim]  - anthropic/claude-opus-4-5-20251101[/dim]\n"
                     )
 
     elif action == "real_time_sync":
@@ -1411,44 +1411,6 @@ def run_agent_capture(prompt=None, url=None, reverse_engineer=False, model=None,
         # Optionally run reverse engineering
         if reverse_engineer:
             engineer_prompt = prompt
-            try:
-                wants_new_prompt = questionary.confirm(
-                    " > new prompt for engineer?",
-                    default=False,
-                    qmark="",
-                    style=questionary.Style(
-                        [
-                            ("question", f"fg:{THEME_SECONDARY}"),
-                            ("instruction", f"fg:{THEME_DIM} italic"),
-                        ]
-                    ),
-                ).ask()
-
-                if wants_new_prompt is None:
-                    raise KeyboardInterrupt
-
-                if wants_new_prompt:
-                    new_prompt = questionary.text(
-                        " > engineer prompt",
-                        instruction="(Enter to use original)",
-                        default="",
-                        qmark="",
-                        style=questionary.Style(
-                            [
-                                ("question", f"fg:{THEME_SECONDARY}"),
-                                ("instruction", f"fg:{THEME_DIM} italic"),
-                            ]
-                        ),
-                    ).ask()
-
-                    if new_prompt is None:
-                        raise KeyboardInterrupt
-
-                    if new_prompt and new_prompt.strip():
-                        engineer_prompt = new_prompt.strip()
-            except KeyboardInterrupt:
-                pass
-
             result = run_engineer(
                 run_id=run_id,
                 har_path=har_path,

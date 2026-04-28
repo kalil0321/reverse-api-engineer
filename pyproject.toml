@@ -39,7 +39,7 @@ dependencies = [
 agent = [
     # browser-use must be installed separately from git (PyPI doesn't allow git dependencies)
     # See installation instructions in README
-    "stagehand"
+    "stagehand>=0.5.14,<1.0"
 ]
 pricing = [
     "litellm>=1.83.0",
@@ -63,6 +63,14 @@ reverse-api-engineer = "reverse_api.cli:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "agent" },
+        { extra = "pricing" },
+    ],
+]
 
 [tool.hatch.metadata]
 allow-direct-references = true
