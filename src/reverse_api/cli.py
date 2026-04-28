@@ -399,7 +399,7 @@ def handle_settings():
             console.print(f" [dim]updated[/dim] agent provider: {provider}\n")
             # If switching to stagehand, validate current model
             if provider == "stagehand":
-                current_model = config_manager.get("agent_model", "bu-llm")
+                current_model = config_manager.get("agent_model", "anthropic/claude-sonnet-4-5-20250929")
                 try:
                     from .browser import parse_agent_model
 
@@ -416,8 +416,8 @@ def handle_settings():
     elif action == "agent_model":
         from .browser import parse_agent_model
 
-        current = config_manager.get("agent_model", "bu-llm")
-        agent_provider = config_manager.get("agent_provider", "browser-use")
+        current = config_manager.get("agent_model", "anthropic/claude-sonnet-4-5-20250929")
+        agent_provider = config_manager.get("agent_provider", "stagehand")
 
         instruction = "(Format: 'bu-llm' or 'provider/model', e.g., 'openai/gpt-4')"
         if agent_provider == "stagehand":
@@ -425,7 +425,7 @@ def handle_settings():
 
         new_model = questionary.text(
             " > agent model",
-            default=current or "bu-llm",
+            default=current or "anthropic/claude-sonnet-4-5-20250929",
             instruction=instruction,
             qmark="",
             style=questionary.Style(
@@ -693,8 +693,8 @@ def run_agent_capture(
     timestamp = get_timestamp()
 
     # Get agent model and provider from config
-    agent_model = config_manager.get("agent_model", "bu-llm")
-    agent_provider = config_manager.get("agent_provider", "browser-use")
+    agent_model = config_manager.get("agent_model", "anthropic/claude-sonnet-4-5-20250929")
+    agent_provider = config_manager.get("agent_provider", "stagehand")
 
     # Record initial session
     session_manager.add_run(

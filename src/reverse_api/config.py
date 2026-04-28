@@ -8,9 +8,9 @@ DEFAULT_CONFIG = {
     "model": "claude-sonnet-4-5",
     "output_dir": None,  # None means use ~/.reverse-api/runs
     "sdk": "claude",  # "opencode" or "claude"
-    "agent_provider": "browser-use",
+    "agent_provider": "stagehand",
     # We support openai & google as model providers
-    "agent_model": "bu-llm", # "bu-llm" or "{provider}/{model_name}" (e.g. "openai/gpt-5-mini")
+    "agent_model": "anthropic/claude-sonnet-4-5-20250929", # "bu-llm" or "{provider}/{model_name}" (e.g. "openai/gpt-5-mini")
 }
 
 
