@@ -54,8 +54,98 @@ console = Console()
 config_manager = ConfigManager(get_config_path())
 session_manager = SessionManager(get_history_path())
 
-# Stable schema version for --json outputs consumed by other agents/scripts.
+# Schema version for --json outputs. Wrappers can query it via
+# `reverse-api-engineer --json-schema-version`.
 AGENT_JSON_SCHEMA_VERSION = 1
+
+# Map of stable usage keys → SDK-specific candidates (first match wins).
+# Lets `agent --json` and `engineer --json` emit a stable cost/token shape
+# regardless of which SDK (Claude / OpenCode / Copilot) ran underneath.
+_STABLE_USAGE_KEYS: dict[str, tuple[str, ...]] = {
+    "input_tokens": ("input_tokens",),
+    "output_tokens": ("output_tokens",),
+    "cache_read_tokens": ("cache_read_input_tokens", "cache_read_tokens"),
+    "cache_write_tokens": ("cache_creation_input_tokens", "cache_write_tokens"),
+    "total_cost_usd": ("estimated_cost_usd", "total_cost_usd", "total_cost"),
+}
+
+
+def _normalize_usage(raw: dict | None) -> dict:
+    """Return a stable subset of usage fields, keeping the SDK-native dict under .raw.
+
+    Wrappers can rely on the top-level keys; per-SDK extras stay under raw.
+    """
+    if not raw or not isinstance(raw, dict):
+        return {}
+    out: dict = {}
+    for stable_key, candidates in _STABLE_USAGE_KEYS.items():
+        for c in candidates:
+            if c in raw:
+                out[stable_key] = raw[c]
+                break
+    out["raw"] = raw
+    return out
+
+
+# Machine-readable error categories. Wrappers can react differently to each
+# without pattern-matching on the human-readable `error` string.
+ERROR_KINDS = (
+    "misuse",            # user input invalid / missing required arg
+    "config_invalid",    # config file or env var malformed
+    "permission_denied", # filesystem / API perm denied
+    "network",           # DNS / TCP / TLS / timeout
+    "engine_failure",    # SDK or capture engine crashed mid-run
+    "interrupted",       # KeyboardInterrupt / SIGINT
+    "unknown",           # default fallback
+)
+
+
+def _format_error_message(error: str | BaseException | None) -> str | None:
+    """Render an exception or string into a human-readable error message.
+
+    KeyboardInterrupt has no useful str() — we return the conventional
+    "interrupted" so downstream wrappers can match on a stable message.
+    Empty exception messages fall back to the class name.
+    """
+    if error is None:
+        return None
+    if isinstance(error, KeyboardInterrupt):
+        return "interrupted"
+    if isinstance(error, BaseException):
+        return str(error) or type(error).__name__
+    return error
+
+
+def _classify_error(error: str | BaseException | None, *, default: str = "unknown") -> str | None:
+    """Map an Exception or human error message to one of the ERROR_KINDS.
+
+    Callers may pass a stronger hint by setting `default` (e.g. `misuse` from
+    a CLI argument check, before any exception).
+    """
+    if error is None:
+        return None
+    if isinstance(error, BaseException):
+        if isinstance(error, KeyboardInterrupt):
+            return "interrupted"
+        if isinstance(error, PermissionError):
+            return "permission_denied"
+        if isinstance(error, (ConnectionError, TimeoutError)):
+            return "network"
+        msg = str(error)
+    else:
+        msg = error
+    low = msg.lower()
+    if "permission denied" in low or "errno 13" in low:
+        return "permission_denied"
+    if "interrupted" in low:
+        return "interrupted"
+    if "is required" in low or "missing required" in low or "no such option" in low or "in non-interactive" in low:
+        return "misuse"
+    if any(kw in low for kw in ("connection refused", "timeout", "timed out", "dns", "network", "unreachable", "ssl")):
+        return "network"
+    if "not found" in low or "no run" in low or "produced no run" in low or "produced no result" in low:
+        return "engine_failure"
+    return default
 
 
 @contextmanager
@@ -91,7 +181,8 @@ def _build_agent_payload(
     prompt: str | None,
     url: str | None,
     output_dir: str | None = None,
-    error: str | None = None,
+    error: str | BaseException | None = None,
+    error_kind_hint: str = "unknown",
 ) -> dict:
     """Normalize an agent capture result into a stable JSON shape.
 
@@ -101,22 +192,27 @@ def _build_agent_payload(
     result = result or {}
     run_id = result.get("run_id")
     inner_error = result.get("error")
-    final_error = error or inner_error or (None if run_id else "agent capture produced no run")
+    final_error_obj = error if error is not None else inner_error
+    if final_error_obj is None and not run_id:
+        final_error_obj = "agent capture produced no run"
+    error_str = _format_error_message(final_error_obj)
+    error_kind = _classify_error(final_error_obj, default=error_kind_hint) if final_error_obj else None
     har_path = None
     if run_id:
         candidate = get_har_dir(run_id, output_dir) / "recording.har"
         har_path = str(candidate) if candidate.exists() else None
     return {
         "schema_version": AGENT_JSON_SCHEMA_VERSION,
-        "status": "error" if final_error else "ok",
+        "status": "error" if error_str else "ok",
         "run_id": run_id,
         "prompt": prompt,
         "url": url,
         "mode": result.get("mode"),
         "har_path": har_path,
         "script_path": result.get("script_path"),
-        "usage": result.get("usage") or {},
-        "error": final_error,
+        "usage": _normalize_usage(result.get("usage")),
+        "error": error_str,
+        "error_kind": error_kind,
     }
 
 
@@ -126,7 +222,8 @@ def _build_engineer_payload(
     run_id: str,
     prompt: str | None,
     fresh: bool,
-    error: str | None = None,
+    error: str | BaseException | None = None,
+    error_kind_hint: str = "unknown",
 ) -> dict:
     """Normalize an engineer-mode result into a stable JSON shape.
 
@@ -135,18 +232,23 @@ def _build_engineer_payload(
     to --prompt (which may have been used as either a full replacement or as
     additional instructions depending on --fresh).
     """
-    result = result if result is not None else {}
-    inner_error = result.get("error") if isinstance(result, dict) else None
-    final_error = error or inner_error or (None if result else "engineering produced no result")
+    result = result if isinstance(result, dict) else {}
+    inner_error = result.get("error")
+    final_error_obj = error if error is not None else inner_error
+    if final_error_obj is None and not result:
+        final_error_obj = "engineering produced no result"
+    error_str = _format_error_message(final_error_obj)
+    error_kind = _classify_error(final_error_obj, default=error_kind_hint) if final_error_obj else None
     return {
         "schema_version": AGENT_JSON_SCHEMA_VERSION,
-        "status": "error" if final_error else "ok",
+        "status": "error" if error_str else "ok",
         "run_id": run_id,
         "prompt": prompt,
         "fresh": fresh,
-        "script_path": result.get("script_path") if isinstance(result, dict) else None,
-        "usage": (result.get("usage") if isinstance(result, dict) else None) or {},
-        "error": final_error,
+        "script_path": result.get("script_path"),
+        "usage": _normalize_usage(result.get("usage")),
+        "error": error_str,
+        "error_kind": error_kind,
     }
 
 # Mode definitions
@@ -416,15 +518,26 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 @click.group(invoke_without_command=True, context_settings=CONTEXT_SETTINGS)
 @click.pass_context
 @click.version_option(version=__version__)
-def main(ctx: click.Context):
+@click.option(
+    "--json-schema-version",
+    "show_schema_version",
+    is_flag=True,
+    help="Print the agent/engineer JSON schema_version this binary emits and exit.",
+)
+def main(ctx: click.Context, show_schema_version: bool):
     """reverse-api-engineer: reverse engineer apis.
 
     Run without a subcommand to start the interactive REPL; use agent, manual,
     or engineer for CLI mode.
 
     Most subcommands accept --json and --no-interactive for scripted use; see
-    `<cmd> --help` for per-command details.
+    `<cmd> --help` for per-command details. Wrappers that need to gate on the
+    payload schema can call `reverse-api-engineer --json-schema-version`.
     """
+    if show_schema_version:
+        click.echo(str(AGENT_JSON_SCHEMA_VERSION))
+        ctx.exit(0)
+
     if ctx.invoked_subcommand is None:
         # Refuse to drop into the prompt_toolkit REPL when stdin is not a TTY:
         # without an interactive terminal the REPL would block on stdin
@@ -1121,6 +1234,7 @@ def agent(prompt, url, model, output_dir, no_interactive, as_json, headless):
                 url=url,
                 output_dir=output_dir,
                 error="--prompt is required in non-interactive/--json mode",
+                error_kind_hint="misuse",
             )
             click.echo(json.dumps(misuse))
         else:
@@ -1154,13 +1268,15 @@ def agent(prompt, url, model, output_dir, no_interactive, as_json, headless):
                 headless=headless,
             )
             payload = _build_agent_payload(result, prompt=prompt, url=url, output_dir=output_dir)
-        except KeyboardInterrupt:
+        except KeyboardInterrupt as e:
             payload = _build_agent_payload(
-                {}, prompt=prompt, url=url, output_dir=output_dir, error="interrupted"
+                {}, prompt=prompt, url=url, output_dir=output_dir, error=e
             )
         except Exception as e:
+            # Pass the exception object so _classify_error can use isinstance
+            # (PermissionError → permission_denied, ConnectionError → network, ...)
             payload = _build_agent_payload(
-                {}, prompt=prompt, url=url, output_dir=output_dir, error=str(e)
+                {}, prompt=prompt, url=url, output_dir=output_dir, error=e
             )
 
     real_stdout.write(json.dumps(payload) + "\n")
@@ -1557,13 +1673,14 @@ def engineer(run_id, prompt, fresh, model, output_dir, no_interactive, as_json):
                 interactive=interactive,
             )
             payload = _build_engineer_payload(result, run_id=run_id, prompt=prompt, fresh=fresh)
-        except KeyboardInterrupt:
+        except KeyboardInterrupt as e:
             payload = _build_engineer_payload(
-                None, run_id=run_id, prompt=prompt, fresh=fresh, error="interrupted"
+                None, run_id=run_id, prompt=prompt, fresh=fresh, error=e
             )
         except Exception as e:
+            # Pass the exception object so _classify_error can use isinstance.
             payload = _build_engineer_payload(
-                None, run_id=run_id, prompt=prompt, fresh=fresh, error=str(e)
+                None, run_id=run_id, prompt=prompt, fresh=fresh, error=e
             )
 
     real_stdout.write(json.dumps(payload) + "\n")

@@ -27,6 +27,7 @@ EXPECTED_ENGINEER_KEYS = {
     "script_path",
     "usage",
     "error",
+    "error_kind",
 }
 
 
@@ -78,7 +79,10 @@ class TestBuildEngineerPayload:
 
     def test_success_shape(self):
         payload = _build_engineer_payload(
-            {"script_path": "/abs/api_client.py", "usage": {"total_cost": 0.001}},
+            {
+                "script_path": "/abs/api_client.py",
+                "usage": {"input_tokens": 1, "output_tokens": 2, "total_cost": 0.001},
+            },
             run_id="abc123",
             prompt="add pagination",
             fresh=False,
@@ -89,14 +93,18 @@ class TestBuildEngineerPayload:
         assert payload["prompt"] == "add pagination"
         assert payload["fresh"] is False
         assert payload["script_path"] == "/abs/api_client.py"
-        assert payload["usage"]["total_cost"] == 0.001
+        # `total_cost` (legacy/Copilot key) is normalized to `total_cost_usd`
+        assert payload["usage"]["total_cost_usd"] == 0.001
+        assert payload["usage"]["raw"]["total_cost"] == 0.001
         assert payload["error"] is None
+        assert payload["error_kind"] is None
         assert set(payload.keys()) == EXPECTED_ENGINEER_KEYS
 
     def test_none_result_is_error(self):
         payload = _build_engineer_payload(None, run_id="abc", prompt=None, fresh=False)
         assert payload["status"] == "error"
         assert payload["error"]
+        assert payload["error_kind"] == "engine_failure"
         assert set(payload.keys()) == EXPECTED_ENGINEER_KEYS
 
     def test_explicit_error_overrides(self):
@@ -189,6 +197,115 @@ class TestEngineerCommandJson:
         with patch("reverse_api.cli.run_engineer", return_value={"script_path": "/x.py"}):
             result = runner.invoke(engineer, ["abc123", "--no-interactive"])
         assert result.exit_code == 0, result.output
+
+
+class TestSchemaV2Normalization:
+    """v2 helpers: _normalize_usage, _classify_error, --json-schema-version."""
+
+    def test_normalize_usage_picks_stable_keys(self):
+        """Claude SDK emits cache_creation_input_tokens / estimated_cost_usd;
+        Copilot/OpenCode use different keys. Normalization gives a stable
+        subset and parks everything under .raw."""
+        from reverse_api.cli import _normalize_usage
+
+        out = _normalize_usage({
+            "input_tokens": 10,
+            "output_tokens": 20,
+            "cache_creation_input_tokens": 100,
+            "cache_read_input_tokens": 200,
+            "estimated_cost_usd": 0.05,
+            "service_tier": "standard",
+            "iterations": [],
+        })
+        assert out["input_tokens"] == 10
+        assert out["output_tokens"] == 20
+        assert out["cache_write_tokens"] == 100
+        assert out["cache_read_tokens"] == 200
+        assert out["total_cost_usd"] == 0.05
+        # SDK extras are preserved under raw, not promoted to top level
+        assert out["raw"]["service_tier"] == "standard"
+        assert out["raw"]["iterations"] == []
+        assert "service_tier" not in out  # stable subset only
+        assert "iterations" not in out
+
+    def test_normalize_usage_alt_legacy_keys(self):
+        """`total_cost` (Copilot) and direct `cache_read_tokens` (already-normalized
+        input) map cleanly through the same pipeline."""
+        from reverse_api.cli import _normalize_usage
+
+        out = _normalize_usage({"total_cost": 0.42, "cache_read_tokens": 5})
+        assert out["total_cost_usd"] == 0.42
+        assert out["cache_read_tokens"] == 5
+
+    def test_normalize_usage_empty(self):
+        from reverse_api.cli import _normalize_usage
+
+        assert _normalize_usage(None) == {}
+        assert _normalize_usage({}) == {}
+        assert _normalize_usage("not a dict") == {}
+
+    def test_classify_error_kinds(self):
+        from reverse_api.cli import _classify_error
+
+        assert _classify_error(None) is None
+        assert _classify_error(KeyboardInterrupt()) == "interrupted"
+        assert _classify_error(PermissionError("nope")) == "permission_denied"
+        assert _classify_error(ConnectionError("DNS failed")) == "network"
+        assert _classify_error(TimeoutError("timed out")) == "network"
+        assert _classify_error("[Errno 13] Permission denied: '/x'") == "permission_denied"
+        assert _classify_error("--prompt is required in non-interactive/--json mode") == "misuse"
+        assert _classify_error("agent capture produced no run") == "engine_failure"
+        assert _classify_error("connection refused") == "network"
+        assert _classify_error("totally unrecognized message") == "unknown"
+        # Caller can override the default
+        assert _classify_error("totally unrecognized message", default="engine_failure") == "engine_failure"
+
+    def test_misuse_payload_has_misuse_kind(self):
+        """`agent --json` without --prompt → error_kind=misuse (not unknown)."""
+        from reverse_api.cli import agent
+
+        runner = CliRunner()
+        result = runner.invoke(agent, ["--json"])
+        payload = json.loads(result.stdout.strip())
+        assert payload["error_kind"] == "misuse"
+
+    def test_keyboard_interrupt_payload_has_interrupted_kind(self):
+        from reverse_api.cli import agent
+
+        runner = CliRunner()
+        with patch("reverse_api.cli.run_agent_capture", side_effect=KeyboardInterrupt):
+            result = runner.invoke(agent, ["--json", "-p", "x"])
+        payload = json.loads(result.stdout.strip().splitlines()[-1])
+        assert payload["error_kind"] == "interrupted"
+        assert payload["error"] == "interrupted"
+
+    def test_permission_error_payload_has_permission_denied_kind(self):
+        from reverse_api.cli import agent
+
+        runner = CliRunner()
+        with patch(
+            "reverse_api.cli.run_agent_capture",
+            side_effect=PermissionError(13, "Permission denied", "/forbidden"),
+        ):
+            result = runner.invoke(agent, ["--json", "-p", "x"])
+        payload = json.loads(result.stdout.strip().splitlines()[-1])
+        assert payload["error_kind"] == "permission_denied"
+
+
+class TestJsonSchemaVersionFlag:
+    """`--json-schema-version` exposes the version a wrapper can gate on."""
+
+    def test_root_flag_emits_version(self):
+        runner = CliRunner()
+        result = runner.invoke(main, ["--json-schema-version"])
+        assert result.exit_code == 0
+        from reverse_api.cli import AGENT_JSON_SCHEMA_VERSION as v
+        assert result.stdout.strip() == str(v)
+
+    def test_root_flag_advertised_in_help(self):
+        runner = CliRunner()
+        result = runner.invoke(main, ["--help"])
+        assert "--json-schema-version" in result.output
 
 
 class TestRootHelpMentionsScripted:

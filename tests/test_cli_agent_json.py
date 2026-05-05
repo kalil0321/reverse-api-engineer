@@ -28,6 +28,7 @@ EXPECTED_PAYLOAD_KEYS = {
     "script_path",
     "usage",
     "error",
+    "error_kind",
 }
 
 
@@ -40,20 +41,37 @@ class TestBuildAgentPayload:
                 "run_id": "abc123",
                 "mode": "auto",
                 "script_path": str(tmp_path / "scripts" / "api_client.py"),
-                "usage": {"input_tokens": 1, "output_tokens": 2, "total_cost": 0.001},
+                # Mix of Claude SDK keys to exercise normalization (cache_creation_input_tokens
+                # → cache_write_tokens, estimated_cost_usd → total_cost_usd).
+                "usage": {
+                    "input_tokens": 1,
+                    "output_tokens": 2,
+                    "cache_creation_input_tokens": 100,
+                    "cache_read_input_tokens": 50,
+                    "estimated_cost_usd": 0.001,
+                },
             },
             prompt="capture the X api",
             url="https://example.com",
         )
         assert payload["schema_version"] == AGENT_JSON_SCHEMA_VERSION
+        assert set(payload.keys()) == EXPECTED_PAYLOAD_KEYS
         # No run produced a HAR yet on disk in this test, so har_path is None
         assert payload["status"] == "ok"
         assert payload["run_id"] == "abc123"
         assert payload["mode"] == "auto"
         assert payload["prompt"] == "capture the X api"
         assert payload["url"] == "https://example.com"
-        assert payload["usage"]["total_cost"] == 0.001
+        # Stable normalized usage subset
+        assert payload["usage"]["input_tokens"] == 1
+        assert payload["usage"]["output_tokens"] == 2
+        assert payload["usage"]["cache_write_tokens"] == 100
+        assert payload["usage"]["cache_read_tokens"] == 50
+        assert payload["usage"]["total_cost_usd"] == 0.001
+        # Raw SDK shape still available for power users
+        assert payload["usage"]["raw"]["cache_creation_input_tokens"] == 100
         assert payload["error"] is None
+        assert payload["error_kind"] is None
         # Must be JSON-serializable (no Path objects sneaking through)
         json.dumps(payload)
 
@@ -62,6 +80,7 @@ class TestBuildAgentPayload:
         assert payload["status"] == "error"
         assert payload["error"]
         assert payload["run_id"] is None
+        assert payload["error_kind"] == "engine_failure"
 
     def test_explicit_error_overrides(self):
         payload = _build_agent_payload(
