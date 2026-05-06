@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import random
 import sys
 from contextlib import contextmanager
@@ -173,6 +174,153 @@ def _quiet_consoles_for_json():
         sys.stdout = real_stdout
         for c, original_inner in redirected_consoles:
             c._file = original_inner
+
+
+def _build_dry_run_payload(
+    *,
+    prompt: str | None,
+    url: str | None,
+    model: str | None,
+    output_dir: str | None,
+    headless: bool,
+) -> dict:
+    """Validate config / env / deps without launching a browser.
+
+    Returns a payload with the same top-level shape as `_build_agent_payload`
+    plus a `checks` array (each item: name, status: ok|warn|error, message)
+    and a `would_run` sub-object showing what an actual `agent` invocation
+    would do with these inputs. Status is `error` if any check is `error`,
+    otherwise `ok`. Misuse errors (missing prompt) get `error_kind=misuse`;
+    runtime issues (missing API key, missing node) get `config_invalid`.
+    """
+    import shutil
+    import subprocess
+
+    checks: list[dict] = []
+
+    # 1. Prompt
+    if not prompt or not prompt.strip():
+        checks.append({"name": "prompt", "status": "error", "message": "--prompt is required"})
+    else:
+        checks.append({"name": "prompt", "status": "ok", "message": f"{len(prompt)} chars"})
+
+    # 2. URL (optional, but if given it must look reasonable)
+    if url:
+        if url.startswith("http://") or url.startswith("https://"):
+            checks.append({"name": "url", "status": "ok", "message": url})
+        else:
+            checks.append({
+                "name": "url",
+                "status": "error",
+                "message": f"url must start with http:// or https://, got {url!r}",
+            })
+    else:
+        checks.append({"name": "url", "status": "ok", "message": "(none — agent will pick a start)"})
+
+    # 3. Agent provider
+    agent_provider = config_manager.get("agent_provider", "auto")
+    if agent_provider in ("auto", "chrome-mcp"):
+        checks.append({"name": "agent_provider", "status": "ok", "message": agent_provider})
+    else:
+        checks.append({
+            "name": "agent_provider",
+            "status": "error",
+            "message": f"unknown agent_provider {agent_provider!r}; expected 'auto' or 'chrome-mcp'",
+        })
+
+    # 4. SDK + API key presence (we only check env var existence, not validity)
+    sdk = config_manager.get("sdk", "claude")
+    sdk_env_var = {
+        "claude": "ANTHROPIC_API_KEY",
+        "opencode": "OPENCODE_API_KEY",
+        "copilot": "GITHUB_COPILOT_TOKEN",
+    }.get(sdk)
+    if sdk_env_var is None:
+        checks.append({
+            "name": "sdk",
+            "status": "error",
+            "message": f"unknown sdk {sdk!r}; expected 'claude', 'opencode', or 'copilot'",
+        })
+    elif not os.environ.get(sdk_env_var):
+        checks.append({
+            "name": f"sdk:{sdk}",
+            "status": "warn",
+            "message": f"{sdk_env_var} not set in env (the SDK may still resolve auth via a config file)",
+        })
+    else:
+        checks.append({"name": f"sdk:{sdk}", "status": "ok", "message": f"{sdk_env_var} present"})
+
+    # 5. Node.js for MCP servers (both auto and chrome-mcp use npx)
+    node = shutil.which("node")
+    if node is None:
+        checks.append({
+            "name": "node",
+            "status": "error",
+            "message": "node not found in PATH; required by both auto (rae-playwright-mcp) and chrome-mcp",
+        })
+    else:
+        try:
+            ver = subprocess.run(
+                [node, "--version"], capture_output=True, text=True, timeout=5
+            ).stdout.strip()
+            checks.append({"name": "node", "status": "ok", "message": ver})
+        except Exception as e:
+            checks.append({"name": "node", "status": "warn", "message": f"could not query version: {e}"})
+
+    # 6. Headed chrome-mcp requires the user has a real Chrome with auto-connect
+    if agent_provider == "chrome-mcp" and not headless:
+        checks.append({
+            "name": "chrome-mcp:auto-connect",
+            "status": "warn",
+            "message": "chrome-mcp without --headless requires Chrome 146+ with auto-connect enabled at chrome://inspect/#remote-debugging — this is not auto-checkable",
+        })
+
+    # 7. Output dir writability
+    base = Path(output_dir or config_manager.get("output_dir") or "~/.reverse-api/runs").expanduser()
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+        probe = base / ".dry_run_write_probe"
+        probe.write_text("")
+        probe.unlink()
+        checks.append({"name": "output_dir", "status": "ok", "message": str(base)})
+    except Exception as e:
+        checks.append({
+            "name": "output_dir",
+            "status": "error",
+            "message": f"{base}: {e}",
+        })
+
+    # Aggregate
+    has_error = any(c["status"] == "error" for c in checks)
+    final_error = None
+    error_kind = None
+    if has_error:
+        first_err = next(c for c in checks if c["status"] == "error")
+        final_error = f"{first_err['name']}: {first_err['message']}"
+        # Misuse for prompt/url; config_invalid otherwise
+        error_kind = "misuse" if first_err["name"] in ("prompt", "url") else "config_invalid"
+
+    return {
+        "schema_version": AGENT_JSON_SCHEMA_VERSION,
+        "status": "error" if has_error else "ok",
+        "run_id": None,
+        "prompt": prompt,
+        "url": url,
+        "mode": "dry-run",
+        "har_path": None,
+        "script_path": None,
+        "usage": {},
+        "error": final_error,
+        "error_kind": error_kind,
+        "would_run": {
+            "agent_provider": agent_provider,
+            "sdk": sdk,
+            "model": model or config_manager.get("claude_code_model", "claude-sonnet-4-6"),
+            "output_dir": str(base),
+            "headless": headless,
+        },
+        "checks": checks,
+    }
 
 
 def _build_agent_payload(
@@ -1218,12 +1366,28 @@ Exit codes:
     is_flag=True,
     help="Launch the MCP-controlled browser in headless mode (required on machines without an X server). For chrome-mcp this drops --autoConnect since auto-connect requires a headed Chrome instance.",
 )
-def agent(prompt, url, model, output_dir, no_interactive, as_json, headless):
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Validate prompt/url/config/env without launching the browser. Emits a manifest of what would run + check results. Implies --json. Exits 0 if all checks pass, 1 if any error.",
+)
+def agent(prompt, url, model, output_dir, no_interactive, as_json, headless, dry_run):
     """Run autonomous agent browser session.
 
     Agent mode runs an integrated capture + reverse-engineering pipeline; if you
     only want a HAR recording, use `manual --no-engineer` instead.
     """
+    if dry_run:
+        # --dry-run is fundamentally about emitting machine-parseable validation
+        # results, so it implies --json (and therefore --no-interactive).
+        with _quiet_consoles_for_json() as real_stdout:
+            payload = _build_dry_run_payload(
+                prompt=prompt, url=url, model=model, output_dir=output_dir, headless=headless
+            )
+        real_stdout.write(json.dumps(payload) + "\n")
+        real_stdout.flush()
+        sys.exit(0 if payload["status"] == "ok" else 1)
+
     no_interactive = no_interactive or as_json
 
     if no_interactive and not (prompt and prompt.strip()):

@@ -308,6 +308,126 @@ class TestJsonSchemaVersionFlag:
         assert "--json-schema-version" in result.output
 
 
+class TestAgentDryRun:
+    """`agent --dry-run` validates without launching the browser."""
+
+    def test_dry_run_ok_path(self, tmp_path):
+        """All checks pass → status=ok, exit 0, full payload + checks array."""
+        from reverse_api.cli import agent as agent_cmd
+
+        runner = CliRunner()
+        # Patch config_manager so we don't depend on the user's real config
+        with patch("reverse_api.cli.config_manager") as cm, \
+             patch.dict("os.environ", {"ANTHROPIC_API_KEY": "fake"}, clear=False):
+            cm.get.side_effect = lambda key, default=None: {
+                "agent_provider": "auto",
+                "sdk": "claude",
+                "claude_code_model": "claude-sonnet-4-6",
+                "output_dir": str(tmp_path),
+            }.get(key, default)
+            result = runner.invoke(
+                agent_cmd, ["--dry-run", "-p", "fetch jobs", "-u", "https://example.com"]
+            )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout.strip())
+        assert payload["status"] == "ok"
+        assert payload["mode"] == "dry-run"
+        assert payload["run_id"] is None
+        assert payload["error"] is None
+        assert payload["would_run"]["agent_provider"] == "auto"
+        assert payload["would_run"]["sdk"] == "claude"
+        assert payload["would_run"]["headless"] is False
+        # Checks include prompt, url, agent_provider, sdk, node, output_dir
+        check_names = {c["name"] for c in payload["checks"]}
+        assert "prompt" in check_names
+        assert "url" in check_names
+        assert "agent_provider" in check_names
+        assert "node" in check_names
+        assert "output_dir" in check_names
+
+    def test_dry_run_missing_prompt_is_misuse(self, tmp_path):
+        """Missing --prompt → error_kind=misuse, exit 1, no browser launched."""
+        from reverse_api.cli import agent as agent_cmd
+
+        runner = CliRunner()
+        with patch("reverse_api.cli.config_manager") as cm:
+            cm.get.side_effect = lambda key, default=None: {
+                "agent_provider": "auto",
+                "sdk": "claude",
+                "output_dir": str(tmp_path),
+            }.get(key, default)
+            result = runner.invoke(agent_cmd, ["--dry-run"])
+
+        assert result.exit_code == 1
+        payload = json.loads(result.stdout.strip())
+        assert payload["status"] == "error"
+        assert payload["error_kind"] == "misuse"
+        assert any(c["name"] == "prompt" and c["status"] == "error" for c in payload["checks"])
+
+    def test_dry_run_bad_url_is_misuse(self, tmp_path):
+        """A url that doesn't start with http(s):// is flagged."""
+        from reverse_api.cli import agent as agent_cmd
+
+        runner = CliRunner()
+        with patch("reverse_api.cli.config_manager") as cm:
+            cm.get.side_effect = lambda key, default=None: {
+                "agent_provider": "auto",
+                "sdk": "claude",
+                "output_dir": str(tmp_path),
+            }.get(key, default)
+            result = runner.invoke(agent_cmd, ["--dry-run", "-p", "x", "-u", "ftp://nope"])
+
+        assert result.exit_code == 1
+        payload = json.loads(result.stdout.strip())
+        assert payload["error_kind"] == "misuse"
+        assert any(c["name"] == "url" and c["status"] == "error" for c in payload["checks"])
+
+    def test_dry_run_unwritable_output_dir_is_config_invalid(self):
+        """Unwritable output_dir → error_kind=config_invalid, not misuse."""
+        from reverse_api.cli import agent as agent_cmd
+
+        runner = CliRunner()
+        with patch("reverse_api.cli.config_manager") as cm:
+            cm.get.side_effect = lambda key, default=None: {
+                "agent_provider": "auto",
+                "sdk": "claude",
+                "output_dir": "/sys/forbidden",
+            }.get(key, default)
+            result = runner.invoke(
+                agent_cmd, ["--dry-run", "-p", "x", "--output-dir", "/sys/forbidden"]
+            )
+
+        assert result.exit_code == 1
+        payload = json.loads(result.stdout.strip())
+        assert payload["error_kind"] == "config_invalid"
+        assert any(c["name"] == "output_dir" and c["status"] == "error" for c in payload["checks"])
+
+    def test_dry_run_does_not_launch_browser(self, tmp_path):
+        """--dry-run must NOT call run_agent_capture (no browser, no LLM, no cost)."""
+        from reverse_api.cli import agent as agent_cmd
+
+        runner = CliRunner()
+        with patch("reverse_api.cli.config_manager") as cm, \
+             patch("reverse_api.cli.run_agent_capture") as mock_run:
+            cm.get.side_effect = lambda key, default=None: {
+                "agent_provider": "auto",
+                "sdk": "claude",
+                "output_dir": str(tmp_path),
+            }.get(key, default)
+            runner.invoke(agent_cmd, ["--dry-run", "-p", "x", "-u", "https://example.com"])
+        mock_run.assert_not_called()
+
+    def test_dry_run_help_mentions_implies_json(self):
+        from reverse_api.cli import agent as agent_cmd
+
+        runner = CliRunner()
+        result = runner.invoke(agent_cmd, ["--help"])
+        assert "--dry-run" in result.output
+        # Click reflows whitespace, so "Implies\n--json" or "Implies --json"
+        assert "Implies" in result.output and "--json" in result.output
+
+
 class TestRootHelpMentionsScripted:
     """Item #6 partial: root --help should advertise scripted features."""
 
