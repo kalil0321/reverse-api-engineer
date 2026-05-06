@@ -250,7 +250,9 @@ def _build_dry_run_payload(
     else:
         checks.append({"name": f"sdk:{sdk}", "status": "ok", "message": f"{sdk_env_var} present"})
 
-    # 5. Node.js for MCP servers (both auto and chrome-mcp use npx)
+    # 5. Node.js + npx for MCP servers (both auto and chrome-mcp shell out to
+    # `npx <package>`; minimal Docker images sometimes ship `node` without
+    # `npx`, so checking only `node` would lull dry-run into a false ok).
     node = shutil.which("node")
     if node is None:
         checks.append({
@@ -267,6 +269,16 @@ def _build_dry_run_payload(
         except Exception as e:
             checks.append({"name": "node", "status": "warn", "message": f"could not query version: {e}"})
 
+    npx = shutil.which("npx")
+    if npx is None:
+        checks.append({
+            "name": "npx",
+            "status": "error",
+            "message": "npx not found in PATH; both MCP servers are launched via `npx <package>`",
+        })
+    else:
+        checks.append({"name": "npx", "status": "ok", "message": npx})
+
     # 6. Headed chrome-mcp requires the user has a real Chrome with auto-connect
     if agent_provider == "chrome-mcp" and not headless:
         checks.append({
@@ -275,11 +287,18 @@ def _build_dry_run_payload(
             "message": "chrome-mcp without --headless requires Chrome 146+ with auto-connect enabled at chrome://inspect/#remote-debugging — this is not auto-checkable",
         })
 
-    # 7. Output dir writability
+    # 7. Output dir writability — probe with a unique filename so we never
+    # clobber a real user file (a fixed name like `.dry_run_write_probe`
+    # could legitimately exist in someone's output dir).
+    import secrets
+
     base = Path(output_dir or config_manager.get("output_dir") or "~/.reverse-api/runs").expanduser()
     try:
         base.mkdir(parents=True, exist_ok=True)
-        probe = base / ".dry_run_write_probe"
+        probe = base / f".rae_dry_run_probe_{os.getpid()}_{secrets.token_hex(4)}"
+        # If somehow this exact filename already exists, refuse to touch it.
+        if probe.exists():
+            raise FileExistsError(f"unique probe path collision: {probe}")
         probe.write_text("")
         probe.unlink()
         checks.append({"name": "output_dir", "status": "ok", "message": str(base)})
@@ -300,6 +319,21 @@ def _build_dry_run_payload(
         # Misuse for prompt/url; config_invalid otherwise
         error_kind = "misuse" if first_err["name"] in ("prompt", "url") else "config_invalid"
 
+    # `would_run.model` resolution mirrors the live capture path: each SDK
+    # has its own model config key, so picking `claude_code_model` for an
+    # opencode/copilot session would misreport what would actually run.
+    sdk_model_key = {
+        "claude": "claude_code_model",
+        "opencode": "opencode_model",
+        "copilot": "copilot_model",
+    }.get(sdk, "claude_code_model")
+    sdk_default_model = {
+        "claude": "claude-sonnet-4-6",
+        "opencode": "claude-opus-4-6",
+        "copilot": "gpt-5",
+    }.get(sdk, "claude-sonnet-4-6")
+    resolved_model = model or config_manager.get(sdk_model_key, sdk_default_model)
+
     return {
         "schema_version": AGENT_JSON_SCHEMA_VERSION,
         "status": "error" if has_error else "ok",
@@ -315,7 +349,7 @@ def _build_dry_run_payload(
         "would_run": {
             "agent_provider": agent_provider,
             "sdk": sdk,
-            "model": model or config_manager.get("claude_code_model", "claude-sonnet-4-6"),
+            "model": resolved_model,
             "output_dir": str(base),
             "headless": headless,
         },

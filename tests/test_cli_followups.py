@@ -427,6 +427,110 @@ class TestAgentDryRun:
         # Click reflows whitespace, so "Implies\n--json" or "Implies --json"
         assert "Implies" in result.output and "--json" in result.output
 
+    def test_dry_run_checks_npx_separately_from_node(self, tmp_path):
+        """cubic-dev-ai PR #67 review (P2): MCP servers shell out to `npx`,
+        so dry-run must check npx availability — not just node — otherwise
+        a minimal Docker image with node-but-no-npx passes dry-run and then
+        fails the real run."""
+        from reverse_api.cli import agent as agent_cmd
+
+        runner = CliRunner()
+
+        # Pretend npx is missing while node is present
+        def fake_which(name):
+            if name == "node":
+                return "/usr/bin/node"
+            if name == "npx":
+                return None
+            return None
+
+        with patch("reverse_api.cli.config_manager") as cm, \
+             patch("shutil.which", side_effect=fake_which):
+            cm.get.side_effect = lambda key, default=None: {
+                "agent_provider": "auto",
+                "sdk": "claude",
+                "output_dir": str(tmp_path),
+            }.get(key, default)
+            result = runner.invoke(agent_cmd, ["--dry-run", "-p", "x"])
+
+        assert result.exit_code == 1
+        payload = json.loads(result.stdout.strip())
+        assert payload["error_kind"] == "config_invalid"
+        npx_check = next(c for c in payload["checks"] if c["name"] == "npx")
+        assert npx_check["status"] == "error"
+        assert "npx not found" in npx_check["message"]
+
+    def test_dry_run_probe_does_not_clobber_existing_files(self, tmp_path):
+        """cubic-dev-ai PR #67 review (P2): a fixed probe filename like
+        `.dry_run_write_probe` could legitimately exist in a user's output
+        dir and would be deleted by the probe. We use a unique filename
+        with PID + random hex so collisions are astronomically unlikely,
+        and refuse to touch any path that already exists."""
+        from reverse_api.cli import agent as agent_cmd
+
+        # Pre-populate the output dir with a file that would collide with
+        # the OLD fixed probe name. The dry-run must not delete it.
+        canary = tmp_path / ".dry_run_write_probe"
+        canary.write_text("user data — do not delete")
+
+        runner = CliRunner()
+        with patch("reverse_api.cli.config_manager") as cm:
+            cm.get.side_effect = lambda key, default=None: {
+                "agent_provider": "auto",
+                "sdk": "claude",
+                "output_dir": str(tmp_path),
+            }.get(key, default)
+            result = runner.invoke(agent_cmd, ["--dry-run", "-p", "x"])
+
+        assert result.exit_code == 0, result.output
+        # The user's pre-existing file is untouched
+        assert canary.exists()
+        assert canary.read_text() == "user data — do not delete"
+
+    def test_dry_run_resolves_correct_model_per_sdk(self, tmp_path):
+        """cubic-dev-ai PR #67 review (P2): when sdk=opencode the live agent
+        uses `opencode_model`, not `claude_code_model`. would_run.model must
+        reflect what would actually run, otherwise the manifest lies."""
+        from reverse_api.cli import agent as agent_cmd
+
+        runner = CliRunner()
+
+        # Configure opencode SDK with a custom opencode_model
+        with patch("reverse_api.cli.config_manager") as cm:
+            cm.get.side_effect = lambda key, default=None: {
+                "agent_provider": "auto",
+                "sdk": "opencode",
+                "opencode_model": "claude-opus-4-6-custom",
+                "claude_code_model": "claude-sonnet-4-6-irrelevant",
+                "output_dir": str(tmp_path),
+            }.get(key, default)
+            result = runner.invoke(agent_cmd, ["--dry-run", "-p", "x"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout.strip())
+        assert payload["would_run"]["sdk"] == "opencode"
+        assert payload["would_run"]["model"] == "claude-opus-4-6-custom"
+        # And NOT the claude_code_model that the old code would have grabbed
+        assert "irrelevant" not in payload["would_run"]["model"]
+
+    def test_dry_run_copilot_model_resolution(self, tmp_path):
+        from reverse_api.cli import agent as agent_cmd
+
+        runner = CliRunner()
+        with patch("reverse_api.cli.config_manager") as cm:
+            cm.get.side_effect = lambda key, default=None: {
+                "agent_provider": "auto",
+                "sdk": "copilot",
+                "copilot_model": "gpt-5-custom",
+                "output_dir": str(tmp_path),
+            }.get(key, default)
+            result = runner.invoke(agent_cmd, ["--dry-run", "-p", "x"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout.strip())
+        assert payload["would_run"]["sdk"] == "copilot"
+        assert payload["would_run"]["model"] == "gpt-5-custom"
+
 
 class TestRootHelpMentionsScripted:
     """Item #6 partial: root --help should advertise scripted features."""
