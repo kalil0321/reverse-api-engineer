@@ -2465,44 +2465,5 @@ def run_script(ctx, identifier, script_args, file_name, list_scripts, no_interac
     raise SystemExit(result.returncode)
 
 
-@main.command("install-host")
-@click.option(
-    "--extension-id",
-    default=None,
-    help="Chrome extension ID (required - get from chrome://extensions/)",
-)
-def install_host(extension_id: str | None):
-    """Install the native messaging host for Chrome extension integration."""
-    from .native_host import install_native_host
-
-    success, message = install_native_host(extension_id)
-    if success:
-        console.print(f"[green]{message}[/green]")
-    else:
-        console.print(f"[red]{message}[/red]")
-        raise SystemExit(1)
-
-
-@main.command("uninstall-host")
-def uninstall_host():
-    """Uninstall the native messaging host."""
-    from .native_host import uninstall_native_host
-
-    success, message = uninstall_native_host()
-    if success:
-        console.print(f"[green]{message}[/green]")
-    else:
-        console.print(f"[red]{message}[/red]")
-        raise SystemExit(1)
-
-
-@main.command("run-host")
-def run_host_cmd():
-    """Run the native messaging host (used by Chrome extension)."""
-    from .native_host import run_host
-
-    run_host()
-
-
 if __name__ == "__main__":
     main()

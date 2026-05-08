@@ -39,7 +39,6 @@ No more manual reverse engineering—just browse, capture, and get clean API cod
   - [SDK Selection](#sdk-selection)
 - [CLI Commands](#-cli-commands)
 - [Claude Code Plugin](#-claude-code-plugin)
-- [Chrome Extension](#-chrome-extension)
 - [Examples](#-examples)
 - [Development](#-development)
 - [Contributing](#-contributing)
@@ -80,24 +79,13 @@ Install Playwright browsers:
 playwright install chromium
 ```
 
-### Enhanced Pricing Support (Optional)
+### Pricing
 
-By default, Reverse API Engineer includes pricing data for the most common models (Claude 4.6, Gemini 3). For extended model coverage (100+ additional models including OpenAI GPT, Mistral, DeepSeek, and more), install with pricing extras:
+Reverse API Engineer includes built-in pricing for the most common models (Claude 4.6, Gemini 3, GPT-4.1/5). Cost tracking uses a 2-tier fallback:
+1. **Local pricing table** — built-in pricing for common models
+2. **Default fallback** — Claude Sonnet 4.6 pricing for unknown models
 
-```bash
-# With uv
-uv tool install 'reverse-api-engineer[pricing]'
-
-# With pip
-pip install 'reverse-api-engineer[pricing]'
-```
-
-This enables automatic pricing lookup via [LiteLLM](https://github.com/BerriAI/litellm) for models not in the built-in database. The pricing system uses a 3-tier fallback:
-1. **Local pricing** (highest priority) - Built-in pricing for common models
-2. **LiteLLM pricing** (if installed) - Extended coverage for 100+ models
-3. **Default pricing** (ultimate fallback) - Uses Claude Sonnet 4.6 pricing
-
-Cost tracking will always work, with or without the pricing extras installed.
+If `litellm` is independently installed in your environment, an extended pricing lookup is auto-detected for 100+ additional models. We no longer ship a `[pricing]` extra; install `litellm` directly if you need that coverage.
 
 ## 🚀 Quick Start
 
@@ -346,56 +334,6 @@ claude # Open REPL
 ```
 
 See [plugin documentation](plugins/reverse-api-engineer/README.md) for commands, agents, skills, and usage examples.
-
-## 🌐 Chrome Extension
-
-**⚠️ Work in Progress**
-
-A Chrome extension that provides browser-native integration with reverse-api-engineer. The extension allows you to capture browser traffic directly from Chrome and interact with the reverse engineering process through a side panel interface.
-
-**Features:**
-- **HAR Capture**: Record network traffic using Chrome's Debugger API
-- **Side Panel UI**: Interactive interface for managing captures and chatting with the AI agent
-- **Native Host Integration**: Communicates with the reverse-api-engineer CLI tool
-
-### Setup
-
-**Prerequisites:**
-- Node.js and npm
-- Chrome browser
-- reverse-api-engineer CLI installed (`uv tool install reverse-api-engineer`)
-- Claude Code CLI installed (`npm install -g @anthropic-ai/claude-code`)
-
-**Steps:**
-
-1. **Build the extension:**
-   ```bash
-   cd chrome-extension
-   npm install
-   npm run build
-   ```
-
-2. **Load in Chrome:**
-   - Go to `chrome://extensions/`
-   - Enable **Developer mode** (top-right toggle)
-   - Click **Load unpacked** and select the `chrome-extension/dist` directory
-   - **Copy the extension ID** (32-character string shown under the extension name)
-
-3. **Install the native host** (connects the extension to the CLI):
-   ```bash
-   reverse-api-engineer install-host --extension-id YOUR_EXTENSION_ID
-   ```
-
-4. **macOS only** — run this once to approve Claude Code through Gatekeeper:
-   ```bash
-   claude --version
-   ```
-   If macOS shows a security popup, go to **System Settings > Privacy & Security** and click **Allow Anyway**, then run the command again.
-
-**Development Workflow:**
-
-- `npm run dev` — watch mode (auto-rebuild on changes, then reload in `chrome://extensions/`)
-- `npm run build` — production build
 
 ## 💡 Examples
 

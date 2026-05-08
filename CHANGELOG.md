@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **Chrome extension and native messaging host**: The `chrome-extension/` workspace and the Python `native_host` module are removed. The `install-host`, `uninstall-host`, and `run-host` CLI subcommands no longer exist. The extension was an experimental/WIP capture surface that never reached parity with `manual` and `agent` modes; deleting it also eliminates a JS dev-tooling supply chain (vite, postcss, picomatch, rollup, prismjs) and the corresponding dependabot churn
+
+### Security
+- **Drop `[pricing]` extra (litellm)**: LiteLLM 1.83.7 patched 3 advisories (1 critical SQLi + 2 high RCE/SSTI) but hard-pins `click==8.1.8`, which would force a click downgrade for all users. The vulnerable code paths are all in the LiteLLM proxy server, which we do not run — we only used litellm as a library for cost lookups. Removed the optional dependency entirely; `pricing.py` keeps a graceful import-detect path so users who install `litellm` independently still get the extended model coverage
+- **cryptography** `>=46.0.7` (was `>=46.0.6`) — patches a buffer overflow on non-contiguous buffer inputs (medium)
+- **pytest** `>=9.0.3` (was `>=8.0.0`) — patches vulnerable `tmpdir` handling (medium, dev only)
+- **python-multipart** `>=0.0.27` (was 0.0.22 transitively via `mcp`) — patches DoS via large multipart preamble/epilogue (medium)
+
 ## [0.8.0] - 2026-05-06
 
 ### Added
