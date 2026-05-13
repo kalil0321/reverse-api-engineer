@@ -1,6 +1,6 @@
 [project]
 name = "reverse-api-engineer"
-version = "0.8.0"
+version = "0.9.0"
 description = "A tool to capture browser traffic for API reverse engineering"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -61,6 +61,9 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/reverse_api"]
+exclude = [
+    "src/reverse_api/cursor_bridge/node_modules/**",
+]
 
 [tool.hatch.build.targets.sdist]
 exclude = [
@@ -69,6 +72,7 @@ exclude = [
     ".claude/settings.local.json",
     ".claude/worktrees/**",
     ".claude/plans/**",
+    "src/reverse_api/cursor_bridge/node_modules/**",
 ]
 
 [dependency-groups]

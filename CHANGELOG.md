@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-05-14
+
+### Added
+- **Cursor SDK support**: Added `sdk=cursor` / `--sdk cursor` engineering support through a bundled Node bridge around the Cursor TypeScript SDK. Cursor runs use the configured Cursor model (default `composer-2`), accept MCP server configuration, resume Cursor agents across follow-up turns, and normalize streamed tool output plus token usage into the existing TUI/message-store flow
+- **Cursor bridge packaging**: Bundled the `src/reverse_api/cursor_bridge/` Node package so `@cursor/sdk` dependencies can be installed on demand when Cursor mode is first used
+
+### Fixed
+- **Manual REPL model resolution**: Follow-up engineering now resolves model settings from the selected SDK, including Cursor, OpenCode, and Copilot
+- **Cursor streaming**: Buffered Cursor model text before rendering so streamed deltas are shown as coherent blocks and no longer produce stray `..` lines or bridge hangs
+- **Sync test compatibility**: Restored the temporary-file helper used by the existing sync test surface
+
 ### Removed
 - **Chrome extension and native messaging host**: The `chrome-extension/` workspace and the Python `native_host` module are removed. The `install-host`, `uninstall-host`, and `run-host` CLI subcommands no longer exist. The extension was an experimental/WIP capture surface that never reached parity with `manual` and `agent` modes; deleting it also eliminates a JS dev-tooling supply chain (vite, postcss, picomatch, rollup, prismjs) and the corresponding dependabot churn
 
@@ -398,4 +409,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Interactive CLI with manual and engineer modes
 - Session history and cost tracking
 - Production-ready code generation with type hints and documentation
-

@@ -59,6 +59,10 @@ class SyncHandler(FileSystemEventHandler):
             relative = path
         return _should_skip_path(relative)
 
+    def _is_temporary_file(self, file_path: str) -> bool:
+        """Backward-compatible helper for temporary/ignored sync paths."""
+        return self._is_ignored_file(file_path)
+
     def on_created(self, event: FileSystemEvent):
         """Handle file creation."""
         if not event.is_directory and not self._is_ignored_file(event.src_path):
