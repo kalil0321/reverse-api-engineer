@@ -566,6 +566,25 @@ class TestAgentDryRun:
         assert payload["would_run"]["sdk"] == "copilot"
         assert payload["would_run"]["model"] == "gpt-5-custom"
 
+    def test_dry_run_cursor_model_resolution(self, tmp_path):
+        from reverse_api.cli import agent as agent_cmd
+
+        runner = CliRunner()
+        with patch("reverse_api.cli.config_manager") as cm:
+            cm.get.side_effect = lambda key, default=None: {
+                "agent_provider": "auto",
+                "sdk": "cursor",
+                "cursor_model": "composer-2-custom",
+                "claude_code_model": "claude-sonnet-4-6-irrelevant",
+                "output_dir": str(tmp_path),
+            }.get(key, default)
+            result = runner.invoke(agent_cmd, ["--dry-run", "-p", "x"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout.strip())
+        assert payload["would_run"]["sdk"] == "cursor"
+        assert payload["would_run"]["model"] == "composer-2-custom"
+
 
 class TestRootHelpMentionsScripted:
     """Item #6 partial: root --help should advertise scripted features."""

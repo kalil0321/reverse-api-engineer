@@ -1,0 +1,8 @@
+{
+  "name": "reverse-api-engineer-cursor-bridge",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@cursor/sdk": "^1.0.13"
+  }
+}

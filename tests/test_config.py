@@ -146,6 +146,7 @@ class TestDefaultConfig:
             "claude_code_model",
             "collector_model",
             "copilot_model",
+            "cursor_model",
             "opencode_model",
             "opencode_provider",
             "output_dir",
@@ -161,3 +162,4 @@ class TestDefaultConfig:
         assert DEFAULT_CONFIG["output_dir"] is None
         assert DEFAULT_CONFIG["output_language"] == "python"
         assert DEFAULT_CONFIG["real_time_sync"] is True
+        assert DEFAULT_CONFIG["cursor_model"] == "composer-2"

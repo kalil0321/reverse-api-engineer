@@ -8,13 +8,14 @@ DEFAULT_CONFIG = {
     "agent_provider": "auto",  # "auto" (Playwright MCP) or "chrome-mcp" (Chrome DevTools MCP)
     "claude_code_model": "claude-sonnet-4-6",
     "collector_model": "claude-sonnet-4-6",  # Model for collector mode
+    "cursor_model": "composer-2",  # Model id for Cursor SDK (see Cursor.models.list())
     "copilot_model": "gpt-5",  # Model for Copilot SDK sessions
     "opencode_model": "claude-opus-4-6",
     "opencode_provider": "anthropic",
     "output_dir": None,  # None means use ~/.reverse-api/runs
     "output_language": "python",  # "python", "javascript", or "typescript"
     "real_time_sync": True,  # Enable real-time file sync during engineering
-    "sdk": "claude",  # "claude", "opencode", or "copilot"
+    "sdk": "claude",  # "claude", "opencode", "copilot", or "cursor"
 }
 
 

@@ -234,12 +234,13 @@ def _build_dry_run_payload(
         "claude": "ANTHROPIC_API_KEY",
         "opencode": "OPENCODE_API_KEY",
         "copilot": "GITHUB_COPILOT_TOKEN",
+        "cursor": "CURSOR_API_KEY",
     }.get(sdk)
     if sdk_env_var is None:
         checks.append({
             "name": "sdk",
             "status": "error",
-            "message": f"unknown sdk {sdk!r}; expected 'claude', 'opencode', or 'copilot'",
+            "message": f"unknown sdk {sdk!r}; expected 'claude', 'opencode', 'copilot', or 'cursor'",
         })
     elif not os.environ.get(sdk_env_var):
         checks.append({
@@ -326,11 +327,13 @@ def _build_dry_run_payload(
         "claude": "claude_code_model",
         "opencode": "opencode_model",
         "copilot": "copilot_model",
+        "cursor": "cursor_model",
     }.get(sdk, "claude_code_model")
     sdk_default_model = {
         "claude": "claude-sonnet-4-6",
         "opencode": "claude-opus-4-6",
         "copilot": "gpt-5",
+        "cursor": "composer-2",
     }.get(sdk, "claude-sonnet-4-6")
     resolved_model = model or config_manager.get(sdk_model_key, sdk_default_model)
 
@@ -625,16 +628,35 @@ def prompt_interactive_options(
 
     # Engineer mode: prompt is the run_id
     if result_mode == "engineer":
+        _sdk = config_manager.get("sdk", "claude")
+        if model:
+            resolved = model
+        elif _sdk == "opencode":
+            resolved = config_manager.get("opencode_model", "claude-opus-4-6")
+        elif _sdk == "copilot":
+            resolved = config_manager.get("copilot_model", "gpt-5")
+        elif _sdk == "cursor":
+            resolved = config_manager.get("cursor_model", "composer-2")
+        else:
+            resolved = config_manager.get("claude_code_model", "claude-sonnet-4-6")
         return {
             "mode": result_mode,
             "run_id": prompt,
-            "model": model or config_manager.get("claude_code_model", "claude-sonnet-4-6"),
+            "model": resolved,
         }
 
     # Agent mode: autonomous browser, no URL needed (agent navigates on its own)
     if result_mode == "agent":
         if model is None:
-            model = config_manager.get("claude_code_model", "claude-sonnet-4-6")
+            _sdk = config_manager.get("sdk", "claude")
+            if _sdk == "opencode":
+                model = config_manager.get("opencode_model", "claude-opus-4-6")
+            elif _sdk == "copilot":
+                model = config_manager.get("copilot_model", "gpt-5")
+            elif _sdk == "cursor":
+                model = config_manager.get("cursor_model", "composer-2")
+            else:
+                model = config_manager.get("claude_code_model", "claude-sonnet-4-6")
 
         mode_color = MODE_COLORS.get("agent", THEME_PRIMARY)
         console = Console()
@@ -750,6 +772,8 @@ def repl_loop():
         model = config_manager.get("opencode_model", "claude-opus-4-6")
     elif sdk == "copilot":
         model = config_manager.get("copilot_model", "gpt-5")
+    elif sdk == "cursor":
+        model = config_manager.get("cursor_model", "composer-2")
     else:
         model = config_manager.get("claude_code_model", "claude-sonnet-4-6")
 
@@ -895,6 +919,7 @@ def handle_settings(mode_color=THEME_PRIMARY):
         Choice(title="Agent Provider", value="agent_provider"),
         Choice(title="Claude Code Model", value="claude_code_model"),
         Choice(title="Copilot Model", value="copilot_model"),
+        Choice(title="Cursor Model", value="cursor_model"),
         Choice(title="OpenCode Model", value="opencode_model"),
         Choice(title="OpenCode Provider", value="opencode_provider"),
         Choice(title="Output Directory", value="output_dir"),
@@ -945,6 +970,7 @@ def handle_settings(mode_color=THEME_PRIMARY):
         sdk_choices = [
             Choice(title="claude", value="claude"),
             Choice(title="copilot", value="copilot"),
+            Choice(title="cursor", value="cursor"),
             Choice(title="opencode", value="opencode"),
             Choice(title="back", value="back"),
         ]
@@ -1064,6 +1090,28 @@ def handle_settings(mode_color=THEME_PRIMARY):
             else:
                 config_manager.set("copilot_model", new_model)
                 console.print(f" [dim]updated[/dim] copilot model: {new_model}\n")
+
+    elif action == "cursor_model":
+        current = config_manager.get("cursor_model", "composer-2")
+        new_model = questionary.text(
+            " > cursor model",
+            default=current or "composer-2",
+            instruction="(e.g., 'composer-2', 'auto' — see Cursor SDK docs)",
+            qmark="",
+            style=questionary.Style(
+                [
+                    ("question", f"fg:{THEME_SECONDARY}"),
+                    ("instruction", f"fg:{THEME_DIM} italic"),
+                ]
+            ),
+        ).ask()
+        if new_model is not None:
+            new_model = new_model.strip()
+            if not new_model:
+                console.print(" [yellow]error:[/yellow] cursor model cannot be empty\n")
+            else:
+                config_manager.set("cursor_model", new_model)
+                console.print(f" [dim]updated[/dim] cursor model: {new_model}\n")
 
     elif action == "opencode_model":
         current = config_manager.get("opencode_model", "claude-opus-4-6")
@@ -1665,6 +1713,17 @@ def run_auto_capture(
         console.print(" [dim]auto-connect disabled — mcp will spawn its own headless chrome[/dim]")
         console.print()
 
+    sdk = config_manager.get("sdk", "claude")
+    if model is None:
+        if sdk == "opencode":
+            model = config_manager.get("opencode_model", "claude-opus-4-6")
+        elif sdk == "copilot":
+            model = config_manager.get("copilot_model", "gpt-5")
+        elif sdk == "cursor":
+            model = config_manager.get("cursor_model", "composer-2")
+        else:
+            model = config_manager.get("claude_code_model", "claude-sonnet-4-6")
+
     run_id = generate_run_id()
     timestamp = get_timestamp()
 
@@ -1678,8 +1737,6 @@ def run_auto_capture(
         mode=mode_label,
         paths={"har_dir": str(get_har_dir(run_id, output_dir))},
     )
-
-    sdk = config_manager.get("sdk", "claude")
 
     try:
         output_language = config_manager.get("output_language", "python")
@@ -1713,6 +1770,21 @@ def run_auto_capture(
                 output_language=output_language,
                 interactive=interactive,
                 headless=headless,
+            )
+        elif sdk == "cursor":
+            from .cursor_engineer import CursorAutoEngineer
+
+            engineer = CursorAutoEngineer(
+                run_id=run_id,
+                prompt=prompt,
+                output_dir=output_dir,
+                agent_provider=agent_provider,
+                enable_sync=config_manager.get("real_time_sync", False),
+                sdk=sdk,
+                output_language=output_language,
+                interactive=interactive,
+                headless=headless,
+                cursor_model=config_manager.get("cursor_model", "composer-2"),
             )
         else:
             from .auto_engineer import ClaudeAutoEngineer
@@ -1968,6 +2040,22 @@ def run_engineer(
             output_dir=output_dir,
             sdk=sdk,
             copilot_model=config_manager.get("copilot_model", "gpt-5"),
+            enable_sync=enable_sync,
+            additional_instructions=additional_instructions,
+            is_fresh=is_fresh,
+            output_language=output_language,
+            output_mode=output_mode,
+            interactive=interactive,
+        )
+    elif sdk == "cursor":
+        result = run_reverse_engineering(
+            run_id=run_id,
+            har_path=har_path,
+            prompt=prompt,
+            model=None,
+            output_dir=output_dir,
+            sdk=sdk,
+            cursor_model=config_manager.get("cursor_model", "composer-2"),
             enable_sync=enable_sync,
             additional_instructions=additional_instructions,
             is_fresh=is_fresh,
