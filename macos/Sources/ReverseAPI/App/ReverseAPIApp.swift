@@ -5,12 +5,13 @@ import SwiftUI
 struct ReverseAPIApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var session = AppSession.live()
+    @AppStorage("rae.sidebar.visible") private var isSidebarVisible = true
 
     var body: some Scene {
         Window("rae", id: "main") {
             switch session {
             case .ready(let state):
-                ContentView()
+                ContentView(isSidebarVisible: $isSidebarVisible)
                     .environment(state)
                     .onAppear {
                         AppLifecycle.shared.state = state
@@ -34,6 +35,12 @@ struct ReverseAPIApp: App {
         .windowToolbarStyle(.unifiedCompact)
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandGroup(after: .toolbar) {
+                Button(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar") {
+                    isSidebarVisible.toggle()
+                }
+                .keyboardShortcut("b", modifiers: .command)
+            }
         }
     }
 }
