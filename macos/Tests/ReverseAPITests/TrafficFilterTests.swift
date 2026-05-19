@@ -44,6 +44,22 @@ final class TrafficFilterTests: XCTestCase {
         XCTAssertTrue(filter.matches(make()))
     }
 
+    func testSearchMatchesStatusHostHeadersAndResourceKind() {
+        let flow = make(
+            host: "assets.example.com",
+            path: "/styles/app.css",
+            status: 304,
+            responseHeaders: [HTTPHeader("Cache-Control", "max-age=3600")]
+        )
+
+        var filter = TrafficFilter()
+        filter.search = "assets 304 cache css"
+        XCTAssertTrue(filter.matches(flow))
+
+        filter.search = "missing"
+        XCTAssertFalse(filter.matches(flow))
+    }
+
     func testHostFilter() {
         var filter = TrafficFilter()
         filter.hosts = ["api.example.com"]

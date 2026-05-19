@@ -49,9 +49,13 @@ struct TrafficFilter: Equatable {
                 return false
             }
         }
-        if !search.isEmpty {
-            let haystack = "\(flow.method) \(flow.url)".lowercased()
-            if !haystack.contains(search.lowercased()) { return false }
+        let terms = search
+            .lowercased()
+            .split(whereSeparator: \.isWhitespace)
+            .map(String.init)
+        if !terms.isEmpty {
+            let haystack = searchHaystack(for: flow)
+            if !terms.allSatisfy({ haystack.contains($0) }) { return false }
         }
         if !hosts.isEmpty, !hosts.contains(flow.host) { return false }
         if !methods.isEmpty, !methods.contains(flow.method) { return false }
@@ -61,6 +65,25 @@ struct TrafficFilter: Equatable {
             if !statusBuckets.contains(where: { $0.contains(status) }) { return false }
         }
         return true
+    }
+
+    private func searchHaystack(for flow: CapturedFlow) -> String {
+        var parts = [
+            flow.method,
+            flow.url,
+            flow.host,
+            flow.path,
+            Self.resourceKind(for: flow).rawValue,
+        ]
+        if let status = flow.responseStatus {
+            parts.append(String(status))
+        }
+        if let error = flow.error {
+            parts.append(error)
+        }
+        parts.append(contentsOf: flow.requestHeaders.flatMap { [$0.name, $0.value] })
+        parts.append(contentsOf: flow.responseHeaders.flatMap { [$0.name, $0.value] })
+        return parts.joined(separator: " ").lowercased()
     }
 
     static func resourceKind(for flow: CapturedFlow) -> ResourceKind {
