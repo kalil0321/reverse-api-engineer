@@ -26,6 +26,7 @@ final class AppState {
     let engine: ProxyEngine
     let installer: CertificateTrustInstaller
     let systemProxy: SystemProxyController
+    let agent: AgentSession
 
     let port: Int
     let caDER: Data
@@ -48,10 +49,14 @@ final class AppState {
         let databaseURL = caStore.directory.appendingPathComponent("flows.sqlite")
         let store = try FlowStore(databaseURL: databaseURL)
 
+        let agentWorkdir = caStore.directory.appendingPathComponent("agent-sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: agentWorkdir, withIntermediateDirectories: true)
+
         self.store = store
         self.engine = engine
         self.installer = CertificateTrustInstaller()
         self.systemProxy = SystemProxyController()
+        self.agent = AgentSession(workdir: agentWorkdir)
         self.port = port
         self.caDER = Data(try root.derBytes())
         self.caPEM = try root.pem()
