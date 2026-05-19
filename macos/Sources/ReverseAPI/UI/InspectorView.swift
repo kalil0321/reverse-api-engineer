@@ -30,11 +30,7 @@ struct InspectorView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(.separator.opacity(0.5), lineWidth: 1)
-            }
+            .background(Color(nsColor: .controlBackgroundColor))
         }
     }
 }
@@ -68,12 +64,7 @@ private struct FlowInspector: View {
                     .padding(14)
             }
         }
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(.separator.opacity(0.5), lineWidth: 1)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .background(Color(nsColor: .controlBackgroundColor))
     }
 
     private var header: some View {
@@ -185,6 +176,16 @@ private struct FlowInspector: View {
                 row("Started", flow.startedAt.formatted(date: .abbreviated, time: .standard))
                 row("Finished", flow.finishedAt?.formatted(date: .abbreviated, time: .standard) ?? "Pending")
             }
+
+            DetailPanel(title: "Response") {
+                row("Status", flow.responseStatus.map(String.init) ?? "Pending")
+                row("Type", TrafficFilter.resourceKind(for: flow).rawValue)
+                row("Content-Type", headerValue("content-type", in: flow.responseHeaders) ?? "None")
+                row("Content-Encoding", headerValue("content-encoding", in: flow.responseHeaders) ?? "None")
+                row("Body", byteString(flow.responseBody.count))
+            }
+
+            BodySection(title: "Response body", bodyData: flow.responseBody, headers: flow.responseHeaders)
         }
     }
 
@@ -276,7 +277,11 @@ private struct FlowInspector: View {
     }
 
     private func contentType(in headers: [HTTPHeader]) -> String? {
-        headers.first(where: { $0.name.lowercased() == "content-type" })?.value
+        headerValue("content-type", in: headers)
+    }
+
+    private func headerValue(_ name: String, in headers: [HTTPHeader]) -> String? {
+        headers.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame })?.value
     }
 
     private func looksLikeText(_ headers: [HTTPHeader]) -> Bool {
@@ -377,10 +382,14 @@ private struct BodySection: View {
                 CodeBlock(text: pretty)
             } else if let text = String(data: bodyData, encoding: .utf8), looksLikeText {
                 CodeBlock(text: text)
+            } else if let text = String(data: bodyData, encoding: .utf8), isMostlyPrintable(text) {
+                CodeBlock(text: text)
             } else {
-                Text("Binary content · \(bodyData.count) bytes")
-                    .foregroundStyle(.secondary)
-                    .font(.callout)
+                BinaryBodyNotice(
+                    byteCount: bodyData.count,
+                    contentType: contentType,
+                    contentEncoding: contentEncoding
+                )
             }
         }
     }
@@ -389,9 +398,81 @@ private struct BodySection: View {
         headers.first(where: { $0.name.lowercased() == "content-type" })?.value
     }
 
+    private var contentEncoding: String? {
+        headers.first(where: { $0.name.lowercased() == "content-encoding" })?.value
+    }
+
     private var looksLikeText: Bool {
         guard let ct = contentType?.lowercased() else { return false }
-        return ct.contains("text") || ct.contains("xml") || ct.contains("javascript") || ct.contains("html")
+        return ct.contains("text") ||
+            ct.contains("json") ||
+            ct.contains("xml") ||
+            ct.contains("javascript") ||
+            ct.contains("html") ||
+            ct.contains("event-stream") ||
+            ct.contains("x-www-form-urlencoded") ||
+            ct.contains("graphql") ||
+            ct.contains("csv")
+    }
+
+    private func isMostlyPrintable(_ text: String) -> Bool {
+        guard !text.isEmpty else { return false }
+        let scalars = text.unicodeScalars
+        let printable = scalars.filter { scalar in
+            scalar.value == 10 || scalar.value == 13 || scalar.value == 9 || scalar.value >= 32
+        }
+        return Double(printable.count) / Double(scalars.count) > 0.92
+    }
+}
+
+private struct BinaryBodyNotice: View {
+    let byteCount: Int
+    let contentType: String?
+    let contentEncoding: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Binary body · \(byteCount) bytes", systemImage: "cube.transparent")
+                .font(.callout.weight(.medium))
+            Text(reason)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let contentType {
+                Text("Content-Type: \(contentType)")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+            }
+            if let contentEncoding {
+                Text("Content-Encoding: \(contentEncoding)")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var reason: String {
+        if let contentEncoding, !contentEncoding.localizedCaseInsensitiveContains("identity") {
+            return "The server returned an encoded body. rae asks for identity encoding, but some servers still send compressed payloads."
+        }
+        if let contentType, isKnownBinary(contentType) {
+            return "This response is a binary asset or protocol payload, so there is no text preview to show."
+        }
+        return "rae could not decode this body as JSON or readable UTF-8 text."
+    }
+
+    private func isKnownBinary(_ contentType: String) -> Bool {
+        let lower = contentType.lowercased()
+        return lower.hasPrefix("image/") ||
+            lower.hasPrefix("audio/") ||
+            lower.hasPrefix("video/") ||
+            lower.contains("font") ||
+            lower.contains("octet-stream") ||
+            lower.contains("protobuf") ||
+            lower.contains("msgpack")
     }
 }
 

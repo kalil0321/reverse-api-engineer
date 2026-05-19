@@ -58,14 +58,35 @@ final class AppLifecycle {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var keyMonitor: Any?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let togglesSidebar = event.charactersIgnoringModifiers?.lowercased() == "b" &&
+                (modifiers.contains(.command) || modifiers.contains(.control))
+            guard togglesSidebar else { return event }
+            NotificationCenter.default.post(name: .toggleRaeSidebar, object: nil)
+            return nil
+        }
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
     }
 
     @MainActor
     func applicationWillTerminate(_ notification: Notification) {
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
+        }
         AppLifecycle.shared.restoreProxyBeforeExit()
     }
+}
+
+extension Notification.Name {
+    static let toggleRaeSidebar = Notification.Name("rae.toggleSidebar")
 }
 
 enum AppSession {
