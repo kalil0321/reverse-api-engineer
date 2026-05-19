@@ -7,7 +7,13 @@ struct TrafficListView: View {
     var body: some View {
         @Bindable var bindable = state
         VStack(spacing: 0) {
-            FilterBar(filter: $bindable.filter, hostOptions: hostOptions, methodOptions: methodOptions)
+            FilterBar(
+                filter: $bindable.filter,
+                hostOptions: hostOptions,
+                methodOptions: methodOptions,
+                totalCount: state.store.flows.count,
+                visibleCount: filteredFlows.count
+            )
             Divider()
             ZStack {
                 table
@@ -18,7 +24,12 @@ struct TrafficListView: View {
                 }
             }
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(.separator.opacity(0.5), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
     private var filteredFlows: [CapturedFlow] {
@@ -109,70 +120,95 @@ private struct FilterBar: View {
     @Binding var filter: TrafficFilter
     let hostOptions: [String]
     let methodOptions: [String]
+    let totalCount: Int
+    let visibleCount: Int
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                Text("Traffic")
-                    .font(.headline)
-
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Traffic")
+                        .font(.title3.weight(.semibold))
+                    Text(countLabel)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
-                    TextField("Filter by URL or method", text: $filter.search)
-                        .textFieldStyle(.plain)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-                .frame(maxWidth: 320)
-
-                Menu {
-                    Toggle("Errors only", isOn: $filter.onlyErrors)
-                    Divider()
-                    Section("Types") {
-                        ForEach(TrafficFilter.ResourceKind.allCases) { kind in
-                            toggleResource(kind)
-                        }
-                    }
-                    Section("Methods") {
-                        ForEach(methodOptions, id: \.self) { method in
-                            toggle(method, in: \.methods)
-                        }
-                    }
-                    Section("Hosts") {
-                        ForEach(hostOptions, id: \.self) { host in
-                            toggle(host, in: \.hosts)
-                        }
-                    }
-                    Section("Status") {
-                        ForEach(TrafficFilter.StatusBucket.allCases) { bucket in
-                            toggleBucket(bucket)
-                        }
-                    }
-                    Divider()
-                    Button("Reset") { filter = TrafficFilter() }
-                } label: {
-                    Label("Filters", systemImage: "line.3.horizontal.decrease")
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-
-                if activeFilterCount > 0 {
-                    Button("Reset \(activeFilterCount)", systemImage: "xmark.circle.fill") {
-                        filter = TrafficFilter()
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
+                        .monospacedDigit()
                 }
 
                 Spacer()
+
+                searchField
+                    .frame(width: 300)
+
+                filterMenu
+                if activeFilterCount > 0 {
+                    Button {
+                        filter = TrafficFilter()
+                    } label: {
+                        Label("Reset", systemImage: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Clear \(activeFilterCount) active filters")
+                }
             }
 
             ResourceKindBar(selectedKinds: $filter.resourceKinds)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Search URL, host, or method", text: $filter.search)
+                .textFieldStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 7))
+    }
+
+    private var filterMenu: some View {
+        Menu {
+            Toggle("Errors only", isOn: $filter.onlyErrors)
+            Divider()
+            Section("Types") {
+                ForEach(TrafficFilter.ResourceKind.allCases) { kind in
+                    toggleResource(kind)
+                }
+            }
+            Section("Methods") {
+                ForEach(methodOptions, id: \.self) { method in
+                    toggle(method, in: \.methods)
+                }
+            }
+            Section("Hosts") {
+                ForEach(hostOptions, id: \.self) { host in
+                    toggle(host, in: \.hosts)
+                }
+            }
+            Section("Status") {
+                ForEach(TrafficFilter.StatusBucket.allCases) { bucket in
+                    toggleBucket(bucket)
+                }
+            }
+            Divider()
+            Button("Reset") { filter = TrafficFilter() }
+        } label: {
+            Label("Filters", systemImage: "line.3.horizontal.decrease")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    private var countLabel: String {
+        if activeFilterCount > 0 {
+            return "\(visibleCount) of \(totalCount) shown"
+        }
+        return "\(totalCount) captured"
     }
 
     private var activeFilterCount: Int {
@@ -236,17 +272,19 @@ private struct ResourceKindBar: View {
     @Binding var selectedKinds: Set<TrafficFilter.ResourceKind>
 
     var body: some View {
-        HStack(spacing: 6) {
-            ResourceKindFilterButton(title: "All", isSelected: selectedKinds.isEmpty) {
-                selectedKinds.removeAll()
-            }
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ResourceKindFilterButton(title: "All", isSelected: selectedKinds.isEmpty) {
+                    selectedKinds.removeAll()
+                }
 
-            ForEach(TrafficFilter.ResourceKind.allCases) { kind in
-                ResourceKindFilterButton(title: kind.rawValue, isSelected: selectedKinds.contains(kind)) {
-                    if selectedKinds.contains(kind) {
-                        selectedKinds.remove(kind)
-                    } else {
-                        selectedKinds.insert(kind)
+                ForEach(TrafficFilter.ResourceKind.allCases) { kind in
+                    ResourceKindFilterButton(title: kind.rawValue, isSelected: selectedKinds.contains(kind)) {
+                        if selectedKinds.contains(kind) {
+                            selectedKinds.remove(kind)
+                        } else {
+                            selectedKinds.insert(kind)
+                        }
                     }
                 }
             }
@@ -264,13 +302,17 @@ private struct ResourceKindFilterButton: View {
         Button(action: action) {
             Text(title)
                 .font(.caption.weight(.medium))
-                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
                 .background(
-                    isSelected ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.08),
+                    isSelected ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.045),
                     in: RoundedRectangle(cornerRadius: 6)
                 )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(isSelected ? Color.accentColor.opacity(0.55) : .clear, lineWidth: 1)
+                }
         }
         .help(title == "All" ? "Show all resource types" : "Toggle \(title) resources")
     }
@@ -315,11 +357,11 @@ private struct ResourceKindBadge: View {
     private var color: Color {
         switch kind {
         case .document: return .primary
-        case .fetch: return .cyan
-        case .script: return .yellow
+        case .fetch: return .blue
+        case .script: return .orange
         case .stylesheet: return .blue
         case .image: return .green
-        case .media: return .pink
+        case .media: return .red
         case .font: return .indigo
         case .websocket: return .purple
         case .other: return .secondary
@@ -332,9 +374,14 @@ private struct EmptyTrafficState: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            Image(systemName: state.isCapturing ? "dot.radiowaves.left.and.right" : "waveform.path.ecg.rectangle")
-                .font(.system(size: 38))
-                .foregroundStyle(state.isCapturing ? Color.green : Color.secondary)
+            ZStack {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color.primary.opacity(0.055))
+                    .frame(width: 62, height: 62)
+                Image(systemName: state.isCapturing ? "dot.radiowaves.left.and.right" : "waveform.path.ecg.rectangle")
+                    .font(.system(size: 28, weight: .medium))
+                    .foregroundStyle(state.isCapturing ? Color.green : Color.secondary)
+            }
 
             VStack(spacing: 5) {
                 Text(title)
@@ -347,16 +394,14 @@ private struct EmptyTrafficState: View {
             }
 
             HStack(spacing: 8) {
-                Label(state.systemProxyEnabled ? "Device routed" : "Device not routed", systemImage: "network")
-                Label(state.caTrustInstalled ? "CA trusted" : "CA not trusted", systemImage: "seal")
-                Label("127.0.0.1:\(state.port)", systemImage: "number")
+                EmptyStatePill(title: state.systemProxyEnabled ? "Device routed" : "Device not routed", systemImage: "network")
+                EmptyStatePill(title: state.caTrustInstalled ? "CA trusted" : "CA not trusted", systemImage: "seal")
+                EmptyStatePill(title: "127.0.0.1:\(state.port)", systemImage: "number")
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
         }
         .padding(28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.regularMaterial)
+        .background(Color(nsColor: .controlBackgroundColor))
     }
 
     private var title: String {
@@ -382,9 +427,14 @@ private struct EmptyTrafficState: View {
 private struct EmptyFilterState: View {
     var body: some View {
         VStack(spacing: 10) {
-            Image(systemName: "line.3.horizontal.decrease.circle")
-                .font(.system(size: 32))
-                .foregroundStyle(.secondary)
+            ZStack {
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(Color.primary.opacity(0.055))
+                    .frame(width: 56, height: 56)
+                Image(systemName: "line.3.horizontal.decrease.circle")
+                    .font(.system(size: 26, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
             Text("No matching traffic")
                 .font(.headline)
             Text("Clear or loosen the current filters.")
@@ -393,7 +443,21 @@ private struct EmptyFilterState: View {
         }
         .padding(28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.regularMaterial)
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+}
+
+private struct EmptyStatePill: View {
+    let title: String
+    let systemImage: String
+
+    var body: some View {
+        Label(title, systemImage: systemImage)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 6))
     }
 }
 

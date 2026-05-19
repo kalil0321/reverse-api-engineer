@@ -8,20 +8,32 @@ struct InspectorView: View {
         if let id = state.selectedFlowID, let flow = state.store.flow(id: id) {
             FlowInspector(flow: flow)
         } else {
-            VStack(spacing: 12) {
-                Image(systemName: "sidebar.right")
-                    .font(.system(size: 36))
-                    .foregroundStyle(.secondary)
-                Text("Select a flow")
-                    .font(.title3.weight(.semibold))
-                Text("Request headers, response data, timing, and body previews appear here.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 340)
+            VStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 18)
+                        .fill(Color.primary.opacity(0.055))
+                        .frame(width: 70, height: 70)
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .font(.system(size: 30, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+
+                VStack(spacing: 6) {
+                    Text("No request selected")
+                        .font(.title3.weight(.semibold))
+                    Text("Pick a row from traffic to inspect headers, timing, and body data.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 330)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(.separator.opacity(0.5), lineWidth: 1)
+            }
         }
     }
 }
@@ -52,14 +64,19 @@ private struct FlowInspector: View {
             ScrollView {
                 content
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16)
+                    .padding(14)
             }
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(.separator.opacity(0.5), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Text(flow.method)
                     .font(.system(.callout, design: .monospaced).weight(.semibold))
@@ -72,6 +89,12 @@ private struct FlowInspector: View {
                         .font(.system(.callout, design: .monospaced).weight(.semibold))
                         .foregroundStyle(statusColor(status))
                 }
+                Text(TrafficFilter.resourceKind(for: flow).rawValue)
+                    .font(.system(.caption, design: .monospaced).weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 5))
                 Spacer()
                 if let finishedAt = flow.finishedAt {
                     Text(formatDuration(flow.startedAt, finishedAt))
@@ -79,11 +102,18 @@ private struct FlowInspector: View {
                         .font(.callout)
                 }
             }
-            Text(flow.url)
-                .font(.system(.body, design: .monospaced))
-                .textSelection(.enabled)
-                .lineLimit(2)
-                .truncationMode(.middle)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(flow.host)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(flow.url)
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+            }
             if let error = flow.error {
                 Label(error, systemImage: "exclamationmark.octagon.fill")
                     .foregroundStyle(.red)
@@ -101,25 +131,38 @@ private struct FlowInspector: View {
         case .overview:
             overview
         case .request:
-            HeadersSection(title: "Request headers", headers: flow.requestHeaders)
-            BodySection(title: "Request body", bodyData: flow.requestBody, headers: flow.requestHeaders)
+            VStack(alignment: .leading, spacing: 12) {
+                HeadersSection(title: "Request headers", headers: flow.requestHeaders)
+                BodySection(title: "Request body", bodyData: flow.requestBody, headers: flow.requestHeaders)
+            }
         case .response:
-            HeadersSection(title: "Response headers", headers: flow.responseHeaders)
-            BodySection(title: "Response body", bodyData: flow.responseBody, headers: flow.responseHeaders)
+            VStack(alignment: .leading, spacing: 12) {
+                HeadersSection(title: "Response headers", headers: flow.responseHeaders)
+                BodySection(title: "Response body", bodyData: flow.responseBody, headers: flow.responseHeaders)
+            }
         }
     }
 
     private var overview: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            row("Scheme", flow.scheme.rawValue)
-            row("Host", "\(flow.host):\(flow.port)")
-            row("Path", flow.path)
-            row("Method", flow.method)
-            row("Status", flow.responseStatus.map(String.init) ?? "—")
-            row("Started", flow.startedAt.formatted(date: .abbreviated, time: .standard))
-            row("Finished", flow.finishedAt?.formatted(date: .abbreviated, time: .standard) ?? "—")
-            row("Request size", "\(flow.requestBody.count) bytes")
-            row("Response size", "\(flow.responseBody.count) bytes")
+        VStack(alignment: .leading, spacing: 12) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 10)], spacing: 10) {
+                MetricCard(title: "Status", value: flow.responseStatus.map(String.init) ?? "Pending")
+                MetricCard(title: "Duration", value: durationValue)
+                MetricCard(title: "Request", value: byteString(flow.requestBody.count))
+                MetricCard(title: "Response", value: byteString(flow.responseBody.count))
+            }
+
+            DetailPanel(title: "Request") {
+                row("Scheme", flow.scheme.rawValue)
+                row("Host", "\(flow.host):\(flow.port)")
+                row("Path", flow.path)
+                row("Method", flow.method)
+            }
+
+            DetailPanel(title: "Timing") {
+                row("Started", flow.startedAt.formatted(date: .abbreviated, time: .standard))
+                row("Finished", flow.finishedAt?.formatted(date: .abbreviated, time: .standard) ?? "Pending")
+            }
         }
     }
 
@@ -130,7 +173,8 @@ private struct FlowInspector: View {
                 .foregroundStyle(.secondary)
             Text(value)
                 .textSelection(.enabled)
-                .font(.system(.body, design: .monospaced))
+                .font(.system(.callout, design: .monospaced))
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -159,6 +203,60 @@ private struct FlowInspector: View {
         default: return .secondary
         }
     }
+
+    private var durationValue: String {
+        guard let finishedAt = flow.finishedAt else { return "Pending" }
+        return formatDuration(flow.startedAt, finishedAt)
+    }
+
+    private func byteString(_ count: Int) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: Int64(count))
+    }
+}
+
+private struct MetricCard: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(.callout, design: .monospaced).weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct DetailPanel<Content: View>: View {
+    let title: String
+    let content: Content
+
+    init(title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.headline)
+            VStack(alignment: .leading, spacing: 8) {
+                content
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
 }
 
 private struct HeadersSection: View {
@@ -166,9 +264,7 @@ private struct HeadersSection: View {
     let headers: [HTTPHeader]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.headline)
+        DetailPanel(title: title) {
             if headers.isEmpty {
                 Text("No headers")
                     .foregroundStyle(.tertiary)
@@ -189,7 +285,6 @@ private struct HeadersSection: View {
                 }
             }
         }
-        .padding(.bottom, 16)
     }
 }
 
@@ -199,9 +294,7 @@ private struct BodySection: View {
     let headers: [HTTPHeader]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.headline)
+        DetailPanel(title: title) {
             if bodyData.isEmpty {
                 Text("Empty body")
                     .foregroundStyle(.tertiary)
