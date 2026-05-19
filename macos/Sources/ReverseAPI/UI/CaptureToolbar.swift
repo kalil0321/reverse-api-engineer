@@ -139,7 +139,7 @@ struct CaptureToolbar: View {
                 }.value
             } catch {
                 await MainActor.run {
-                    NSAlert(error: error).runModal()
+                    _ = NSAlert(error: error).runModal()
                 }
             }
         }

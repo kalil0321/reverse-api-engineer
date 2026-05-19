@@ -100,6 +100,7 @@ final class ProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @unche
         if isWebSocketUpgrade(inflight.head) {
             let flow = makeFlow(from: inflight)
             var failed = flow
+            failed.responseStatus = Int(HTTPResponseStatus.badGateway.code)
             failed.error = "WebSocket upgrades are not supported yet"
             failed.finishedAt = Date()
             Task {
