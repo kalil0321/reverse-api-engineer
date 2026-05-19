@@ -1,5 +1,6 @@
 import Foundation
 import ReverseAPIProxy
+import Darwin
 
 @main
 struct RAEProxyCLI {
@@ -12,9 +13,27 @@ struct RAEProxyCLI {
 
             let engine = try ProxyEngine(root: root, port: options.port)
             try await engine.start()
+            let systemProxy = options.systemProxy ? SystemProxyManager(port: options.port) : nil
+            try systemProxy?.apply()
+            if let systemProxy {
+                installTerminationHandlers {
+                    systemProxy.restore()
+                }
+            }
+            defer {
+                systemProxy?.restore()
+            }
 
             print("Proxy listening on 127.0.0.1:\(options.port)")
+            if options.systemProxy {
+                print("System HTTP/HTTPS proxy enabled. It will be restored on exit.")
+            } else {
+                print("System proxy disabled. Configure clients manually or omit --no-system-proxy.")
+            }
             print("CA stored at:", store.certificateURL.path)
+            if !options.trustCA {
+                print("HTTPS body capture requires trusting the CA. Use --trust-ca if you want full HTTPS interception.")
+            }
             print("Curl smoke test:", "curl -k -x http://127.0.0.1:\(options.port) https://example.com")
             print("Press Ctrl-C to stop.")
             fflush(stdout)
@@ -27,7 +46,7 @@ struct RAEProxyCLI {
             if options.launchChrome {
                 launchChrome(port: options.port, dataDirectory: store.directory)
             } else {
-                print("Chrome launch disabled. Pass --launch-chrome to open an isolated capture browser.")
+                print("Chrome launch disabled. Pass --launch-chrome to open an isolated capture profile.")
             }
 
             let bus = engine.bus
@@ -118,7 +137,6 @@ struct RAEProxyCLI {
         process.arguments = [
             "--user-data-dir=\(profileURL.path)",
             "--proxy-server=http://127.0.0.1:\(port)",
-            "--ignore-certificate-errors",
             "--no-first-run",
             "--no-default-browser-check",
             "https://example.com",
@@ -151,6 +169,7 @@ private struct CLIOptions {
     var port: Int
     var trustCA: Bool
     var launchChrome: Bool
+    var systemProxy: Bool
     var dataDirectoryOverride: URL?
 
     static func parse(
@@ -159,7 +178,8 @@ private struct CLIOptions {
     ) throws -> CLIOptions {
         var port = environment["RAE_PROXY_PORT"].flatMap(Int.init) ?? 8888
         var trustCA = environment["RAE_PROXY_TRUST_CA"].map(isTruthy) ?? false
-        var launchChrome = environment["RAE_PROXY_LAUNCH_CHROME"].map(isTruthy) ?? true
+        var launchChrome = environment["RAE_PROXY_LAUNCH_CHROME"].map(isTruthy) ?? false
+        var systemProxy = environment["RAE_PROXY_SYSTEM_PROXY"].map(isTruthy) ?? true
         var dataDirectory = environment["RAE_PROXY_DATA_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
 
         var iterator = arguments.makeIterator()
@@ -173,6 +193,10 @@ private struct CLIOptions {
                 launchChrome = true
             case "--no-launch-chrome":
                 launchChrome = false
+            case "--system-proxy":
+                systemProxy = true
+            case "--no-system-proxy":
+                systemProxy = false
             case "--port":
                 guard let value = iterator.next(), let parsed = Int(value), HostPort.validPortRange.contains(parsed) else {
                     throw CLIError.invalidOption("--port requires a value from 1 to 65535")
@@ -192,7 +216,13 @@ private struct CLIOptions {
             throw CLIError.invalidOption("port must be from 1 to 65535")
         }
 
-        return CLIOptions(port: port, trustCA: trustCA, launchChrome: launchChrome, dataDirectoryOverride: dataDirectory)
+        return CLIOptions(
+            port: port,
+            trustCA: trustCA,
+            launchChrome: launchChrome,
+            systemProxy: systemProxy,
+            dataDirectoryOverride: dataDirectory
+        )
     }
 
     func dataDirectory() throws -> URL {
@@ -215,5 +245,168 @@ private enum CLIError: Error, CustomStringConvertible {
         case .invalidOption(let message):
             return message
         }
+    }
+}
+
+private final class SystemProxyManager: @unchecked Sendable {
+    private struct Snapshot {
+        let service: String
+        let kind: ProxyKind
+        let enabled: Bool
+        let server: String
+        let port: Int
+    }
+
+    private enum ProxyKind: CaseIterable {
+        case web
+        case secureWeb
+
+        var getCommand: String {
+            switch self {
+            case .web: return "-getwebproxy"
+            case .secureWeb: return "-getsecurewebproxy"
+            }
+        }
+
+        var setCommand: String {
+            switch self {
+            case .web: return "-setwebproxy"
+            case .secureWeb: return "-setsecurewebproxy"
+            }
+        }
+
+        var setStateCommand: String {
+            switch self {
+            case .web: return "-setwebproxystate"
+            case .secureWeb: return "-setsecurewebproxystate"
+            }
+        }
+    }
+
+    private let port: Int
+    private let lock = NSLock()
+    private var snapshots: [Snapshot] = []
+    private var applied = false
+
+    init(port: Int) {
+        self.port = port
+    }
+
+    func apply() throws {
+        lock.lock()
+        guard !applied else {
+            lock.unlock()
+            return
+        }
+        applied = true
+        lock.unlock()
+
+        do {
+            let services = try activeNetworkServices()
+            for service in services {
+                for kind in ProxyKind.allCases {
+                    let currentSnapshot = try snapshot(service: service, kind: kind)
+                    lock.lock()
+                    snapshots.append(currentSnapshot)
+                    lock.unlock()
+                    try runNetworkSetup([kind.setCommand, service, "127.0.0.1", String(port)])
+                    try runNetworkSetup([kind.setStateCommand, service, "on"])
+                }
+            }
+        } catch {
+            restore()
+            throw error
+        }
+    }
+
+    func restore() {
+        lock.lock()
+        let currentSnapshots = snapshots
+        snapshots = []
+        let shouldRestore = applied
+        applied = false
+        lock.unlock()
+
+        guard shouldRestore else { return }
+        for snapshot in currentSnapshots.reversed() {
+            do {
+                if snapshot.enabled {
+                    try runNetworkSetup([snapshot.kind.setCommand, snapshot.service, snapshot.server, String(snapshot.port)])
+                    try runNetworkSetup([snapshot.kind.setStateCommand, snapshot.service, "on"])
+                } else {
+                    try runNetworkSetup([snapshot.kind.setStateCommand, snapshot.service, "off"])
+                }
+            } catch {
+                fputs("warning: failed to restore proxy for \(snapshot.service): \(error)\n", stderr)
+            }
+        }
+    }
+
+    private func activeNetworkServices() throws -> [String] {
+        let output = try runNetworkSetup(["-listallnetworkservices"])
+        return output
+            .split(separator: "\n")
+            .dropFirst()
+            .map(String.init)
+            .filter { !$0.hasPrefix("*") && !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    private func snapshot(service: String, kind: ProxyKind) throws -> Snapshot {
+        let output = try runNetworkSetup([kind.getCommand, service])
+        let fields = Dictionary(
+            uniqueKeysWithValues: output.split(separator: "\n").compactMap { line -> (String, String)? in
+                let parts = line.split(separator: ":", maxSplits: 1)
+                guard parts.count == 2 else { return nil }
+                return (
+                    String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines),
+                    String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            }
+        )
+        return Snapshot(
+            service: service,
+            kind: kind,
+            enabled: fields["Enabled"] == "Yes",
+            server: fields["Server"] ?? "",
+            port: Int(fields["Port"] ?? "") ?? 0
+        )
+    }
+
+    @discardableResult
+    private func runNetworkSetup(_ arguments: [String]) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/networksetup")
+        process.arguments = arguments
+
+        let output = Pipe()
+        let error = Pipe()
+        process.standardOutput = output
+        process.standardError = error
+
+        try process.run()
+        process.waitUntilExit()
+
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        let errorData = error.fileHandleForReading.readDataToEndOfFile()
+        if process.terminationStatus != 0 {
+            let message = String(data: errorData, encoding: .utf8) ?? "networksetup failed"
+            throw CLIError.invalidOption(message.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+}
+
+private var signalSources: [DispatchSourceSignal] = []
+
+private func installTerminationHandlers(_ cleanup: @escaping @Sendable () -> Void) {
+    for signalNumber in [SIGINT, SIGTERM] {
+        signal(signalNumber, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .main)
+        source.setEventHandler {
+            cleanup()
+            exit(0)
+        }
+        source.resume()
+        signalSources.append(source)
     }
 }
