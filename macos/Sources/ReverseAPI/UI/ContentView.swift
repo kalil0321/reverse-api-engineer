@@ -7,14 +7,26 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             CaptureToolbar()
-            Divider()
             HSplitView {
                 TrafficListView()
-                    .frame(minWidth: 520)
+                    .frame(minWidth: 600, maxHeight: .infinity)
                 InspectorView()
-                    .frame(minWidth: 420)
+                    .frame(minWidth: 460, maxHeight: .infinity)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 12)
         }
-        .background(.background)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(
+            LinearGradient(
+                colors: [
+                    Color(nsColor: .windowBackgroundColor),
+                    Color(nsColor: .underPageBackgroundColor).opacity(0.75),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
     }
 }
