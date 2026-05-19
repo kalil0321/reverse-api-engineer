@@ -150,4 +150,9 @@ final class TrafficFilterTests: XCTestCase {
             .websocket
         )
     }
+
+    func testResourceKindDoesNotTreatExtensionlessPathAsExtension() {
+        XCTAssertEqual(TrafficFilter.resourceKind(for: make(path: "/js")), .other)
+        XCTAssertEqual(TrafficFilter.resourceKind(for: make(path: "/css")), .other)
+    }
 }

@@ -189,11 +189,17 @@ final class AppState {
     }
 
     func clearFlows() {
-        do {
-            try store.clear()
-            selectedFlowID = nil
-        } catch {
-            lastError = "Failed to clear flows: \(error)"
+        guard !isWorking else { return }
+        isWorking = true
+        Task {
+            defer { isWorking = false }
+            do {
+                try await store.clear()
+                selectedFlowID = nil
+                lastError = nil
+            } catch {
+                lastError = "Failed to clear flows: \(error)"
+            }
         }
     }
 
@@ -224,10 +230,25 @@ final class AppState {
     func shutdownForWindowClose() async {
         restoreProxyBeforeExit()
         if isCapturing {
-            try? await engine.stop()
-            isCapturing = false
+            do {
+                try await engine.stop()
+                isCapturing = false
+            } catch {
+                lastError = "Could not stop capture cleanly: \(error)"
+            }
         }
         isWorking = false
+    }
+
+    func terminate() async {
+        restoreProxyBeforeExit()
+        do {
+            try await engine.terminate()
+            isCapturing = false
+            isWorking = false
+        } catch {
+            lastError = "Could not terminate proxy cleanly: \(error)"
+        }
     }
 
     private func applySystemProxy() async throws {

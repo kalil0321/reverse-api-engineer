@@ -286,7 +286,15 @@ private struct FlowInspector: View {
 
     private func looksLikeText(_ headers: [HTTPHeader]) -> Bool {
         guard let ct = contentType(in: headers)?.lowercased() else { return false }
-        return ct.contains("text") || ct.contains("xml") || ct.contains("javascript") || ct.contains("html")
+        return ct.contains("text") ||
+            ct.contains("json") ||
+            ct.contains("xml") ||
+            ct.contains("javascript") ||
+            ct.contains("html") ||
+            ct.contains("event-stream") ||
+            ct.contains("x-www-form-urlencoded") ||
+            ct.contains("graphql") ||
+            ct.contains("csv")
     }
 
     private func copyToPasteboard(_ text: String) {

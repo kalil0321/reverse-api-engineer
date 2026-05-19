@@ -81,4 +81,8 @@ public final class ProxyEngine: @unchecked Sendable {
         if let closeError { throw closeError }
         logger.info("proxy stopped")
     }
+
+    public func terminate() async throws {
+        try await stop()
+    }
 }

@@ -10,8 +10,8 @@ struct TrafficListView: View {
         VStack(spacing: 0) {
             FilterBar(
                 filter: $bindable.filter,
-                hostOptions: hostOptions,
-                methodOptions: methodOptions,
+                hostOptions: state.store.hostOptions,
+                methodOptions: state.store.methodOptions,
                 totalCount: state.store.flows.count,
                 visibleCount: filteredFlows.count
             )
@@ -30,14 +30,6 @@ struct TrafficListView: View {
 
     private var filteredFlows: [CapturedFlow] {
         state.store.flows.filter { state.filter.matches($0) }
-    }
-
-    private var hostOptions: [String] {
-        Array(Set(state.store.flows.map(\.host))).sorted()
-    }
-
-    private var methodOptions: [String] {
-        Array(Set(state.store.flows.map(\.method))).sorted()
     }
 
     private var table: some View {
@@ -97,10 +89,14 @@ struct TrafficListView: View {
     }
 
     private func byteString(_ count: Int) -> String {
+        Self.byteCountFormatter.string(fromByteCount: Int64(count))
+    }
+
+    private static let byteCountFormatter: ByteCountFormatter = {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
-        return formatter.string(fromByteCount: Int64(count))
-    }
+        return formatter
+    }()
 
     private func durationString(_ flow: CapturedFlow) -> String {
         guard let finished = flow.finishedAt else { return "…" }
