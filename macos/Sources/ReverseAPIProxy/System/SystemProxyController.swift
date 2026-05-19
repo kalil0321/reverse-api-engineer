@@ -43,6 +43,22 @@ public final class SystemProxyController: @unchecked Sendable {
         }
     }
 
+    public func disable(host: String, port: Int) throws {
+        try validate(host: host, port: port)
+        let services = try listNetworkServices()
+        guard !services.isEmpty else { return }
+        for service in services {
+            let http = try parseGetWebProxy(service: service, command: "-getwebproxy")
+            let https = try parseGetWebProxy(service: service, command: "-getsecurewebproxy")
+            if http.enabled, http.host == host, http.port == port {
+                try shell(networksetup, "-setwebproxystate", service, "off")
+            }
+            if https.enabled, https.host == host, https.port == port {
+                try shell(networksetup, "-setsecurewebproxystate", service, "off")
+            }
+        }
+    }
+
     public func restore(_ snapshots: [ProxyServiceSnapshot]) throws {
         for snapshot in snapshots {
             try shell(networksetup, "-setwebproxy", snapshot.service, snapshot.httpHost, String(snapshot.httpPort))

@@ -197,6 +197,30 @@ final class AppState {
         }
     }
 
+    func recoverStaleSystemProxyOnLaunch() async {
+        guard systemProxyEnabled, !isCapturing, proxySnapshot == nil, !isWorking else { return }
+        isWorking = true
+        defer { isWorking = false }
+
+        do {
+            try await disableCurrentRaeProxy()
+            lastError = "Recovered stale device proxy from a previous session."
+        } catch {
+            lastError = "Device proxy points at rae, but could not be repaired automatically: \(error)"
+        }
+    }
+
+    func restoreProxyBeforeExit() {
+        if let snapshot = proxySnapshot {
+            try? systemProxy.restore(snapshot)
+            proxySnapshot = nil
+            systemProxyEnabled = false
+        } else if systemProxyEnabled {
+            try? systemProxy.disable(host: "127.0.0.1", port: port)
+            systemProxyEnabled = false
+        }
+    }
+
     private func applySystemProxy() async throws {
         let systemProxy = self.systemProxy
         let port = self.port
@@ -216,13 +240,24 @@ final class AppState {
 
     private func restoreSystemProxy() async throws {
         let systemProxy = self.systemProxy
+        let port = self.port
         let snapshot = proxySnapshot
         try await Task.detached(priority: .userInitiated) {
             if let snapshot {
                 try systemProxy.restore(snapshot)
             } else {
-                try systemProxy.disable()
+                try systemProxy.disable(host: "127.0.0.1", port: port)
             }
+        }.value
+        proxySnapshot = nil
+        systemProxyEnabled = false
+    }
+
+    private func disableCurrentRaeProxy() async throws {
+        let systemProxy = self.systemProxy
+        let port = self.port
+        try await Task.detached(priority: .userInitiated) {
+            try systemProxy.disable(host: "127.0.0.1", port: port)
         }.value
         proxySnapshot = nil
         systemProxyEnabled = false

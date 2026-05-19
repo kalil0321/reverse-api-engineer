@@ -1,5 +1,6 @@
 import SwiftUI
 import ReverseAPIProxy
+import AppKit
 
 struct ContentView: View {
     @Environment(AppState.self) private var state
@@ -28,5 +29,11 @@ struct ContentView: View {
                 endPoint: .bottom
             )
         )
+        .task {
+            await state.recoverStaleSystemProxyOnLaunch()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+            state.restoreProxyBeforeExit()
+        }
     }
 }
