@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import ReverseAPIProxy
 
@@ -24,12 +25,7 @@ struct TrafficListView: View {
                 }
             }
         }
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(.separator.opacity(0.5), lineWidth: 1)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .background(Color(nsColor: .controlBackgroundColor))
     }
 
     private var filteredFlows: [CapturedFlow] {
@@ -137,7 +133,7 @@ private struct FilterBar: View {
 
                 Spacer()
 
-                searchField
+                SearchField(text: $filter.search, placeholder: "Search requests")
                     .frame(width: 300)
 
                 filterMenu
@@ -157,18 +153,6 @@ private struct FilterBar: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField("Search URL, host, or method", text: $filter.search)
-                .textFieldStyle(.plain)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 7))
     }
 
     private var filterMenu: some View {
@@ -264,6 +248,46 @@ private struct FilterBar: View {
                 Image(systemName: filter.resourceKinds.contains(kind) ? "checkmark.square.fill" : "square")
                 Text(kind.rawValue)
             }
+        }
+    }
+}
+
+private struct SearchField: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = placeholder
+        field.sendsSearchStringImmediately = true
+        field.delegate = context.coordinator
+        field.font = .systemFont(ofSize: NSFont.systemFontSize)
+        field.controlSize = .regular
+        return field
+    }
+
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        context.coordinator.text = $text
+        if field.stringValue != text {
+            field.stringValue = text
+        }
+        field.placeholderString = placeholder
+    }
+
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        var text: Binding<String>
+
+        init(text: Binding<String>) {
+            self.text = text
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSSearchField else { return }
+            text.wrappedValue = field.stringValue
         }
     }
 }
