@@ -88,10 +88,10 @@ private struct FlowInspector: View {
             overview
         case .request:
             HeadersSection(title: "Request headers", headers: flow.requestHeaders)
-            BodySection(title: "Request body", body: flow.requestBody, headers: flow.requestHeaders)
+            BodySection(title: "Request body", bodyData: flow.requestBody, headers: flow.requestHeaders)
         case .response:
             HeadersSection(title: "Response headers", headers: flow.responseHeaders)
-            BodySection(title: "Response body", body: flow.responseBody, headers: flow.responseHeaders)
+            BodySection(title: "Response body", bodyData: flow.responseBody, headers: flow.responseHeaders)
         }
     }
 
@@ -160,23 +160,23 @@ private struct HeadersSection: View {
 
 private struct BodySection: View {
     let title: String
-    let body: Data
+    let bodyData: Data
     let headers: [HTTPHeader]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.headline)
-            if body.isEmpty {
+            if bodyData.isEmpty {
                 Text("Empty body")
                     .foregroundStyle(.tertiary)
                     .font(.callout)
-            } else if let pretty = JSONFormatter.prettyPrintJSON(body, contentType: contentType) {
+            } else if let pretty = JSONFormatter.prettyPrintJSON(bodyData, contentType: contentType) {
                 CodeBlock(text: pretty)
-            } else if let text = String(data: body, encoding: .utf8), looksLikeText {
+            } else if let text = String(data: bodyData, encoding: .utf8), looksLikeText {
                 CodeBlock(text: text)
             } else {
-                Text("Binary content · \(body.count) bytes")
+                Text("Binary content · \(bodyData.count) bytes")
                     .foregroundStyle(.secondary)
                     .font(.callout)
             }

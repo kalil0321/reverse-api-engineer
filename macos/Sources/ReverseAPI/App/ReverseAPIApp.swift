@@ -49,7 +49,7 @@ struct BootFailureView: View {
             Text("ReverseAPI failed to start")
                 .font(.title2)
                 .bold()
-            Text("\(error)")
+            Text(String(describing: error))
                 .font(.system(.body, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
