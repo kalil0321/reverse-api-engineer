@@ -50,19 +50,32 @@ final class SystemProxyControllerTests: XCTestCase {
 
     func testEnableRejectsHostWithShellMetacharacters() {
         let controller = SystemProxyController()
-        XCTAssertThrowsError(try controller.enable(host: "127.0.0.1; rm -rf /", port: 8888))
-        XCTAssertThrowsError(try controller.enable(host: "$(whoami)", port: 8888))
-        XCTAssertThrowsError(try controller.enable(host: "a b", port: 8888))
+        for bad in ["127.0.0.1; rm -rf /", "$(whoami)", "a b"] {
+            XCTAssertThrowsError(try controller.enable(host: bad, port: 8888)) { error in
+                guard case SystemProxyError.invalidHost = error else {
+                    XCTFail("expected invalidHost, got \(error)"); return
+                }
+            }
+        }
     }
 
     func testEnableRejectsInvalidPort() {
         let controller = SystemProxyController()
-        XCTAssertThrowsError(try controller.enable(host: "127.0.0.1", port: 0))
-        XCTAssertThrowsError(try controller.enable(host: "127.0.0.1", port: 70000))
+        for bad in [0, 70000] {
+            XCTAssertThrowsError(try controller.enable(host: "127.0.0.1", port: bad)) { error in
+                guard case SystemProxyError.invalidPort = error else {
+                    XCTFail("expected invalidPort, got \(error)"); return
+                }
+            }
+        }
     }
 
     func testEnableRejectsEmptyHost() {
         let controller = SystemProxyController()
-        XCTAssertThrowsError(try controller.enable(host: "", port: 8888))
+        XCTAssertThrowsError(try controller.enable(host: "", port: 8888)) { error in
+            guard case SystemProxyError.invalidHost = error else {
+                XCTFail("expected invalidHost, got \(error)"); return
+            }
+        }
     }
 }
