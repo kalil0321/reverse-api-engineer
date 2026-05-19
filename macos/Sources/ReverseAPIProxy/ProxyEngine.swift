@@ -58,9 +58,13 @@ public final class ProxyEngine: @unchecked Sendable {
 
     public func stop() async throws {
         guard let channel = serverChannel else { return }
-        try? await channel.close().get()
-        serverChannel = nil
-        try? await group.shutdownGracefully()
+        defer { serverChannel = nil }
+        do {
+            try await channel.close().get()
+        } catch ChannelError.alreadyClosed {
+            logger.info("proxy channel already closed")
+        }
+        try await group.shutdownGracefully()
         logger.info("proxy stopped")
     }
 }

@@ -9,12 +9,18 @@ public enum FlowEvent: Sendable {
 public actor FlowBus {
     public typealias Stream = AsyncStream<FlowEvent>
 
+    public static let defaultBufferLimit = 1024
+
+    private let bufferLimit: Int
     private var subscribers: [UUID: Stream.Continuation] = [:]
 
-    public init() {}
+    public init(bufferLimit: Int = FlowBus.defaultBufferLimit) {
+        self.bufferLimit = max(1, bufferLimit)
+    }
 
     public func subscribe() -> Stream {
-        let (stream, continuation) = Stream.makeStream(bufferingPolicy: .unbounded)
+        let policy: Stream.Continuation.BufferingPolicy = .bufferingNewest(bufferLimit)
+        let (stream, continuation) = Stream.makeStream(bufferingPolicy: policy)
         let token = UUID()
         subscribers[token] = continuation
         continuation.onTermination = { [weak self] _ in
@@ -27,6 +33,10 @@ public actor FlowBus {
         for continuation in subscribers.values {
             continuation.yield(event)
         }
+    }
+
+    public func subscriberCount() -> Int {
+        subscribers.count
     }
 
     private func unsubscribe(_ token: UUID) {

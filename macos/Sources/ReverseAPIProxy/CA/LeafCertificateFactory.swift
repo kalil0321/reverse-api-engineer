@@ -11,24 +11,53 @@ public actor LeafCertificateFactory {
         public let rootCertificate: NIOSSLCertificate
     }
 
+    public static let defaultCacheLimit = 256
+
     private let root: RootCertificate
     private let rootSSL: NIOSSLCertificate
     private let rootKeyIdentifier: ArraySlice<UInt8>
+    private let cacheLimit: Int
     private var cache: [String: Materials] = [:]
+    private var order: [String] = []
 
-    public init(root: RootCertificate) throws {
+    public init(root: RootCertificate, cacheLimit: Int = LeafCertificateFactory.defaultCacheLimit) throws {
         self.root = root
         var serializer = DER.Serializer()
         try serializer.serialize(root.certificate)
         self.rootSSL = try NIOSSLCertificate(bytes: serializer.serializedBytes, format: .der)
         self.rootKeyIdentifier = SubjectKeyIdentifier(hash: root.privateKey.publicKey).keyIdentifier
+        self.cacheLimit = max(1, cacheLimit)
     }
 
     public func materials(for host: String) throws -> Materials {
-        if let cached = cache[host] { return cached }
+        if let cached = cache[host] {
+            touch(host)
+            return cached
+        }
         let minted = try mint(host: host)
-        cache[host] = minted
+        insert(host: host, materials: minted)
         return minted
+    }
+
+    public func cacheCount() -> Int {
+        cache.count
+    }
+
+    private func insert(host: String, materials: Materials) {
+        cache[host] = materials
+        order.removeAll(where: { $0 == host })
+        order.append(host)
+        while order.count > cacheLimit {
+            let evict = order.removeFirst()
+            cache.removeValue(forKey: evict)
+        }
+    }
+
+    private func touch(_ host: String) {
+        if let idx = order.firstIndex(of: host) {
+            order.remove(at: idx)
+            order.append(host)
+        }
     }
 
     private func mint(host: String) throws -> Materials {

@@ -5,5 +5,4 @@ DerivedData/
 *.xcodeproj
 *.xcworkspace
 xcuserdata/
-Package.resolved
 *.profraw

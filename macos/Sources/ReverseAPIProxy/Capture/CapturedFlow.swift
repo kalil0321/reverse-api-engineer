@@ -58,6 +58,7 @@ public struct CapturedFlow: Sendable, Identifiable {
     }
 
     public var url: String {
+        let bracketed = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
         let portSegment: String
         switch (scheme, port) {
         case (.http, 80), (.https, 443):
@@ -65,6 +66,6 @@ public struct CapturedFlow: Sendable, Identifiable {
         default:
             portSegment = ":\(port)"
         }
-        return "\(scheme.rawValue)://\(host)\(portSegment)\(path)"
+        return "\(scheme.rawValue)://\(bracketed)\(portSegment)\(path)"
     }
 }
