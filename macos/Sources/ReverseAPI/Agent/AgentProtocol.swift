@@ -18,6 +18,8 @@ enum AgentTargetLanguage: String, CaseIterable, Identifiable, Sendable {
 }
 
 struct AgentFlowPayload: Encodable {
+    static let defaultMaxBodyBytes = 64 * 1024
+
     let id: String
     let scheme: String
     let method: String
@@ -30,22 +32,30 @@ struct AgentFlowPayload: Encodable {
     let startedAt: Double
     let finishedAt: Double?
 
-    init(_ flow: CapturedFlow) {
+    init(_ flow: CapturedFlow, maxBodyBytes: Int = AgentFlowPayload.defaultMaxBodyBytes) {
         self.id = flow.id.uuidString
         self.scheme = flow.scheme.rawValue
         self.method = flow.method
         self.url = flow.url
         self.requestHeaders = flow.requestHeaders.map { [$0.name, $0.value] }
-        self.requestBody = AgentFlowPayload.encodedBody(flow.requestBody, headers: flow.requestHeaders)
+        self.requestBody = AgentFlowPayload.encodedBody(flow.requestBody, limit: maxBodyBytes)
         self.responseStatus = flow.responseStatus
         self.responseHeaders = flow.responseHeaders.map { [$0.name, $0.value] }
-        self.responseBody = AgentFlowPayload.encodedBody(flow.responseBody, headers: flow.responseHeaders)
+        self.responseBody = AgentFlowPayload.encodedBody(flow.responseBody, limit: maxBodyBytes)
         self.startedAt = flow.startedAt.timeIntervalSince1970
         self.finishedAt = flow.finishedAt?.timeIntervalSince1970
     }
 
-    private static func encodedBody(_ data: Data, headers: [HTTPHeader]) -> String? {
+    static func encodedBody(_ data: Data, limit: Int) -> String? {
         guard !data.isEmpty else { return nil }
+        if data.count > limit {
+            let head = data.prefix(limit)
+            let suffix = "\n…<truncated \(data.count - limit) bytes>"
+            if let text = String(data: head, encoding: .utf8) {
+                return text + suffix
+            }
+            return "<binary:\(data.count) bytes, truncated>"
+        }
         if let text = String(data: data, encoding: .utf8) { return text }
         return "<binary:\(data.count) bytes>"
     }

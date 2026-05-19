@@ -14,7 +14,8 @@ actor AgentClient {
     }
 
     func connect(port: Int) async throws {
-        if task != nil { return }
+        if let existing = task, isLive(existing) { return }
+        if task != nil { disconnect() }
         let url = URL(string: "ws://127.0.0.1:\(port)")!
         let webSocketTask = session.webSocketTask(with: url)
         webSocketTask.resume()
@@ -36,7 +37,7 @@ actor AgentClient {
     }
 
     func events() -> AsyncThrowingStream<AgentEvent, Error> {
-        let stream = AsyncThrowingStream<AgentEvent, Error> { continuation in
+        AsyncThrowingStream<AgentEvent, Error> { continuation in
             Task {
                 do {
                     while true {
@@ -62,6 +63,9 @@ actor AgentClient {
                 }
             }
         }
-        return stream
+    }
+
+    private nonisolated func isLive(_ task: URLSessionWebSocketTask) -> Bool {
+        task.state == .running
     }
 }

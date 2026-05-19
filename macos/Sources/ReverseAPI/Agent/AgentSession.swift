@@ -27,11 +27,11 @@ final class AgentSession {
     private let client = AgentClient()
     private var receiverTask: Task<Void, Never>?
     private let workdir: URL
-    private let pythonExecutable: String
+    private let launchSpec: AgentSidecar.LaunchSpec
 
-    init(workdir: URL, pythonExecutable: String = "/usr/bin/env python3") {
+    init(workdir: URL, launchSpec: AgentSidecar.LaunchSpec? = nil) {
         self.workdir = workdir
-        self.pythonExecutable = pythonExecutable
+        self.launchSpec = launchSpec ?? .python3(workdir: workdir)
     }
 
     func ensureRunning() async {
@@ -43,13 +43,14 @@ final class AgentSession {
         }
         status = .launching
         do {
-            let spec = AgentSidecar.LaunchSpec(pythonExecutable: pythonExecutable, workdir: workdir)
-            let port = try await sidecar.launch(spec)
+            let port = try await sidecar.launch(launchSpec)
             try await client.connect(port: port)
             startReceiver()
             status = .ready
             lastError = nil
         } catch {
+            await sidecar.terminate()
+            await client.disconnect()
             lastError = "Agent sidecar failed to start: \(error)"
             status = .failed
         }
@@ -84,7 +85,7 @@ final class AgentSession {
         generatedFiles = []
         lastWorkdir = nil
         lastError = nil
-        if status == .failed { status = .ready }
+        if status == .failed { status = .idle }
     }
 
     func shutdown() async {

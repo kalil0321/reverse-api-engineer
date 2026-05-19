@@ -4,6 +4,7 @@ from rae_agent.protocol import (
     FlowSummary,
     ProtocolError,
     TargetLanguage,
+    sanitize_session_id,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "FlowSummary",
     "ProtocolError",
     "TargetLanguage",
+    "sanitize_session_id",
 ]

@@ -40,6 +40,8 @@ async def _process(websocket, raw: str | bytes, base_dir: Path) -> None:
     try:
         async for event in run_chat(request, base_dir):
             await websocket.send(json.dumps(event.to_dict()))
+    except ValueError as exc:
+        await websocket.send(json.dumps(AgentEvent.error(request.id, str(exc)).to_dict()))
     except Exception as exc:
         logger.exception("agent run failed")
         await websocket.send(json.dumps(AgentEvent.error(request.id, str(exc)).to_dict()))
@@ -56,14 +58,19 @@ async def serve(host: str, port: int, base_dir: Path) -> None:
         await asyncio.Future()
 
 
+def resolve_base_dir() -> Path:
+    raw = os.environ.get("RAE_AGENT_WORKDIR")
+    if raw:
+        return Path(raw)
+    return Path(tempfile.gettempdir()) / "rae-agent-sessions"
+
+
 def main() -> None:
     logging.basicConfig(level=os.environ.get("RAE_AGENT_LOG", "INFO"))
 
     host = os.environ.get("RAE_AGENT_HOST", "127.0.0.1")
     port = int(os.environ.get("RAE_AGENT_PORT", "0"))
-    base_dir = Path(
-        os.environ.get("RAE_AGENT_WORKDIR", tempfile.gettempdir())
-    ) / "rae-agent-sessions"
+    base_dir = resolve_base_dir()
     base_dir.mkdir(parents=True, exist_ok=True)
 
     try:
