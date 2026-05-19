@@ -10,6 +10,7 @@ public final class FlowStore {
     public private(set) var isReady = false
 
     private let database: DatabaseQueue
+    private let generation = GenerationCounter()
     private var subscription: Task<Void, Never>?
 
     public init(databaseURL: URL) throws {
@@ -34,6 +35,7 @@ public final class FlowStore {
     }
 
     public func clear() throws {
+        _ = generation.bump()
         try database.write { db in
             _ = try PersistedFlow.deleteAll(db)
         }
@@ -65,14 +67,12 @@ public final class FlowStore {
     }
 
     private func persist(_ flow: CapturedFlow) {
-        let record: PersistedFlow
-        do {
-            record = try PersistedFlow(from: flow)
-        } catch {
-            return
-        }
+        guard let record = try? PersistedFlow(from: flow) else { return }
+        let snapshot = generation.value
+        let counter = generation
         Task.detached(priority: .utility) { [database] in
             try? await database.write { db in
+                guard counter.value == snapshot else { return }
                 try record.save(db)
             }
         }
@@ -111,5 +111,24 @@ public final class FlowStore {
             try db.create(index: "idx_flow_startedAt", on: "flow", columns: ["startedAt"])
         }
         try migrator.migrate(database)
+    }
+}
+
+final class GenerationCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current: Int = 0
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return current
+    }
+
+    @discardableResult
+    func bump() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        current += 1
+        return current
     }
 }
