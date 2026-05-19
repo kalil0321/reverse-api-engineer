@@ -48,6 +48,11 @@ struct TrafficListView: View {
             }
             .width(min: 60, ideal: 70)
 
+            TableColumn("Type") { flow in
+                ResourceKindBadge(kind: TrafficFilter.resourceKind(for: flow))
+            }
+            .width(min: 74, ideal: 86)
+
             TableColumn("Host") { flow in
                 Text(flow.host)
                     .lineLimit(1)
@@ -106,56 +111,65 @@ private struct FilterBar: View {
     let methodOptions: [String]
 
     var body: some View {
-        HStack(spacing: 12) {
-            Text("Traffic")
-                .font(.headline)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Text("Traffic")
+                    .font(.headline)
 
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("Filter by URL or method", text: $filter.search)
+                        .textFieldStyle(.plain)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                .frame(maxWidth: 320)
+
+                Menu {
+                    Toggle("Errors only", isOn: $filter.onlyErrors)
+                    Divider()
+                    Section("Types") {
+                        ForEach(TrafficFilter.ResourceKind.allCases) { kind in
+                            toggleResource(kind)
+                        }
+                    }
+                    Section("Methods") {
+                        ForEach(methodOptions, id: \.self) { method in
+                            toggle(method, in: \.methods)
+                        }
+                    }
+                    Section("Hosts") {
+                        ForEach(hostOptions, id: \.self) { host in
+                            toggle(host, in: \.hosts)
+                        }
+                    }
+                    Section("Status") {
+                        ForEach(TrafficFilter.StatusBucket.allCases) { bucket in
+                            toggleBucket(bucket)
+                        }
+                    }
+                    Divider()
+                    Button("Reset") { filter = TrafficFilter() }
+                } label: {
+                    Label("Filters", systemImage: "line.3.horizontal.decrease")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+
+                if activeFilterCount > 0 {
+                    Button("Reset \(activeFilterCount)", systemImage: "xmark.circle.fill") {
+                        filter = TrafficFilter()
+                    }
+                    .buttonStyle(.borderless)
                     .foregroundStyle(.secondary)
-                TextField("Filter by URL or method", text: $filter.search)
-                    .textFieldStyle(.plain)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-            .frame(maxWidth: 320)
+                }
 
-            Menu {
-                Toggle("Errors only", isOn: $filter.onlyErrors)
-                Divider()
-                Section("Methods") {
-                    ForEach(methodOptions, id: \.self) { method in
-                        toggle(method, in: \.methods)
-                    }
-                }
-                Section("Hosts") {
-                    ForEach(hostOptions, id: \.self) { host in
-                        toggle(host, in: \.hosts)
-                    }
-                }
-                Section("Status") {
-                    ForEach(TrafficFilter.StatusBucket.allCases) { bucket in
-                        toggleBucket(bucket)
-                    }
-                }
-                Divider()
-                Button("Reset") { filter = TrafficFilter() }
-            } label: {
-                Label("Filters", systemImage: "line.3.horizontal.decrease")
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-
-            if activeFilterCount > 0 {
-                Button("Reset \(activeFilterCount)", systemImage: "xmark.circle.fill") {
-                    filter = TrafficFilter()
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
+                Spacer()
             }
 
-            Spacer()
+            ResourceKindBar(selectedKinds: $filter.resourceKinds)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -168,6 +182,7 @@ private struct FilterBar: View {
         count += filter.hosts.count
         count += filter.methods.count
         count += filter.statusBuckets.count
+        count += filter.resourceKinds.count
         return count
     }
 
@@ -200,6 +215,65 @@ private struct FilterBar: View {
             }
         }
     }
+
+    private func toggleResource(_ kind: TrafficFilter.ResourceKind) -> some View {
+        Button {
+            if filter.resourceKinds.contains(kind) {
+                filter.resourceKinds.remove(kind)
+            } else {
+                filter.resourceKinds.insert(kind)
+            }
+        } label: {
+            HStack {
+                Image(systemName: filter.resourceKinds.contains(kind) ? "checkmark.square.fill" : "square")
+                Text(kind.rawValue)
+            }
+        }
+    }
+}
+
+private struct ResourceKindBar: View {
+    @Binding var selectedKinds: Set<TrafficFilter.ResourceKind>
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ResourceKindFilterButton(title: "All", isSelected: selectedKinds.isEmpty) {
+                selectedKinds.removeAll()
+            }
+
+            ForEach(TrafficFilter.ResourceKind.allCases) { kind in
+                ResourceKindFilterButton(title: kind.rawValue, isSelected: selectedKinds.contains(kind)) {
+                    if selectedKinds.contains(kind) {
+                        selectedKinds.remove(kind)
+                    } else {
+                        selectedKinds.insert(kind)
+                    }
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct ResourceKindFilterButton: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    isSelected ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.08),
+                    in: RoundedRectangle(cornerRadius: 6)
+                )
+        }
+        .help(title == "All" ? "Show all resource types" : "Toggle \(title) resources")
+    }
 }
 
 private struct MethodBadge: View {
@@ -222,6 +296,33 @@ private struct MethodBadge: View {
         case "DELETE": return .red
         case "CONNECT": return .purple
         default: return .secondary
+        }
+    }
+}
+
+private struct ResourceKindBadge: View {
+    let kind: TrafficFilter.ResourceKind
+
+    var body: some View {
+        Text(kind.rawValue)
+            .font(.system(.caption, design: .monospaced).weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.13), in: RoundedRectangle(cornerRadius: 4))
+    }
+
+    private var color: Color {
+        switch kind {
+        case .document: return .primary
+        case .fetch: return .cyan
+        case .script: return .yellow
+        case .stylesheet: return .blue
+        case .image: return .green
+        case .media: return .pink
+        case .font: return .indigo
+        case .websocket: return .purple
+        case .other: return .secondary
         }
     }
 }
