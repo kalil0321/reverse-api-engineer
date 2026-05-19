@@ -21,7 +21,7 @@ from claude_agent_sdk import (
 )
 
 from rae_agent.prompts import SYSTEM_PROMPT, build_user_prompt
-from rae_agent.protocol import AgentEvent, ChatRequest
+from rae_agent.protocol import AgentEvent, ChatRequest, sanitize_session_id
 
 
 @dataclass
@@ -32,7 +32,10 @@ class SessionDirs:
 
     @classmethod
     def make(cls, chat_id: str, base: Path) -> "SessionDirs":
-        root = base / chat_id
+        base_resolved = base.resolve()
+        root = (base_resolved / chat_id).resolve()
+        if base_resolved not in root.parents and root != base_resolved:
+            raise ValueError(f"session id escapes base directory: {chat_id!r}")
         flows_dir = root / "flows"
         output_dir = root / "out"
         for directory in (root, flows_dir, output_dir):
@@ -57,7 +60,8 @@ def _serialize_flow(flow) -> dict[str, Any]:
 
 
 async def run_chat(request: ChatRequest, base_dir: Path) -> AsyncIterator[AgentEvent]:
-    chat_id = request.id or str(uuid.uuid4())
+    fallback_id = uuid.uuid4().hex
+    chat_id = sanitize_session_id(request.id, fallback_id)
     dirs = SessionDirs.make(chat_id, base_dir)
     flows_path = dirs.flows_dir / "flows.json"
     flows_payload = [_serialize_flow(flow) for flow in request.flows]
@@ -73,9 +77,11 @@ async def run_chat(request: ChatRequest, base_dir: Path) -> AsyncIterator[AgentE
         permission_mode="acceptEdits",
     )
 
+    pending_writes: dict[str, str] = {}
+
     try:
         async for sdk_message in query(prompt=prompt, options=options):
-            async for event in _translate(chat_id, sdk_message):
+            async for event in _translate(chat_id, sdk_message, pending_writes):
                 yield event
     except asyncio.CancelledError:
         raise
@@ -91,27 +97,36 @@ async def run_chat(request: ChatRequest, base_dir: Path) -> AsyncIterator[AgentE
     yield AgentEvent.complete(chat_id, str(dirs.output_dir), files)
 
 
-async def _translate(chat_id: str, message: Any) -> AsyncIterator[AgentEvent]:
+async def _translate(
+    chat_id: str,
+    message: Any,
+    pending_writes: dict[str, str],
+) -> AsyncIterator[AgentEvent]:
     if isinstance(message, AssistantMessage):
         for block in message.content:
             if isinstance(block, TextBlock):
                 if block.text:
                     yield AgentEvent.assistant_text(chat_id, block.text)
             elif isinstance(block, ToolUseBlock):
-                yield AgentEvent.tool_use(chat_id, block.name, dict(block.input or {}))
-                if block.name == "Write" and isinstance(block.input, dict):
-                    path = block.input.get("file_path") or block.input.get("path")
+                tool_input = dict(block.input or {})
+                yield AgentEvent.tool_use(chat_id, block.name, tool_input)
+                if block.name == "Write":
+                    path = tool_input.get("file_path") or tool_input.get("path")
                     if isinstance(path, str):
-                        yield AgentEvent.file_written(chat_id, path)
+                        pending_writes[block.id] = path
     elif isinstance(message, UserMessage):
         for block in message.content:
             if isinstance(block, ToolResultBlock):
                 output = block.content if isinstance(block.content, str) else json.dumps(block.content)
+                is_error = bool(block.is_error)
                 yield AgentEvent.tool_result(
                     chat_id,
                     name="",
                     output=output[:4000],
-                    is_error=bool(block.is_error),
+                    is_error=is_error,
                 )
+                pending_path = pending_writes.pop(block.tool_use_id, None)
+                if pending_path is not None and not is_error:
+                    yield AgentEvent.file_written(chat_id, pending_path)
     elif isinstance(message, ResultMessage):
         return

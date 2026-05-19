@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -13,6 +14,31 @@ class TargetLanguage(str, Enum):
 
 class ProtocolError(Exception):
     pass
+
+
+_SAFE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._\-]+$")
+
+
+def sanitize_session_id(raw: str, fallback: str) -> str:
+    if not raw:
+        return fallback
+    candidate = raw.strip()
+    if not candidate or candidate in {".", ".."}:
+        return fallback
+    if "/" in candidate or "\\" in candidate or "\x00" in candidate:
+        return fallback
+    if not _SAFE_ID_PATTERN.fullmatch(candidate):
+        return fallback
+    return candidate[:128]
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ProtocolError(f"expected float, got {value!r}") from exc
 
 
 @dataclass
@@ -37,13 +63,13 @@ class FlowSummary:
                 scheme=str(payload["scheme"]),
                 method=str(payload["method"]),
                 url=str(payload["url"]),
-                request_headers=[(k, v) for k, v in payload.get("requestHeaders", [])],
+                request_headers=[(str(k), str(v)) for k, v in payload.get("requestHeaders", [])],
                 request_body=payload.get("requestBody"),
                 response_status=payload.get("responseStatus"),
-                response_headers=[(k, v) for k, v in payload.get("responseHeaders", [])],
+                response_headers=[(str(k), str(v)) for k, v in payload.get("responseHeaders", [])],
                 response_body=payload.get("responseBody"),
                 started_at=float(payload.get("startedAt", 0.0)),
-                finished_at=payload.get("finishedAt"),
+                finished_at=_optional_float(payload.get("finishedAt")),
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise ProtocolError(f"invalid flow payload: {exc}") from exc
