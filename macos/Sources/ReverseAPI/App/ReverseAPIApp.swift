@@ -5,7 +5,7 @@ struct ReverseAPIApp: App {
     @State private var session = AppSession.live()
 
     var body: some Scene {
-        Window("ReverseAPI", id: "main") {
+        Window("rae", id: "main") {
             switch session {
             case .ready(let state):
                 ContentView()
@@ -52,7 +52,7 @@ struct BootFailureView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 48))
                 .foregroundStyle(.red)
-            Text("ReverseAPI failed to start")
+            Text("rae failed to start")
                 .font(.title2)
                 .bold()
             Text(String(describing: error))

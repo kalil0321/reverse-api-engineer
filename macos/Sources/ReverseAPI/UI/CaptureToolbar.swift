@@ -9,7 +9,7 @@ struct CaptureToolbar: View {
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 16) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("ReverseAPI")
+                    Text("rae")
                         .font(.system(.title2, design: .rounded).weight(.semibold))
                     Text(statusLine)
                         .font(.callout)
@@ -105,8 +105,8 @@ struct CaptureToolbar: View {
         .buttonStyle(.bordered)
         .disabled(state.isWorking)
         .help(state.caTrustInstalled
-              ? "Remove the ReverseAPI root certificate from the current user's trust store"
-              : "Trust the ReverseAPI root certificate so HTTPS requests can be inspected")
+              ? "Remove the rae root certificate from the current user's trust store"
+              : "Trust the rae root certificate so HTTPS requests can be inspected")
     }
 
     private var systemProxyButton: some View {

@@ -7,7 +7,7 @@ let package = Package(
     products: [
         .library(name: "ReverseAPIProxy", targets: ["ReverseAPIProxy"]),
         .executable(name: "rae-proxy", targets: ["rae-proxy"]),
-        .executable(name: "ReverseAPI", targets: ["ReverseAPI"]),
+        .executable(name: "rae", targets: ["ReverseAPI"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.65.0"),
