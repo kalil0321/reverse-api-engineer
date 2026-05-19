@@ -1,4 +1,7 @@
 import SwiftUI
+import AppKit
+import ReverseAPIProxy
+import UniformTypeIdentifiers
 
 struct CaptureToolbar: View {
     @Environment(AppState.self) private var state
@@ -43,6 +46,7 @@ struct CaptureToolbar: View {
                 SidebarSectionLabel("Actions")
                 trustButton
                 systemProxyButton
+                exportButton
                 clearButton
             }
 
@@ -117,6 +121,32 @@ struct CaptureToolbar: View {
             .foregroundStyle(.secondary)
             .help("Hide sidebar")
         }
+    }
+
+    private func exportHAR() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "har") ?? .json, .json]
+        panel.nameFieldStringValue = "rae-\(Self.exportTimestamp()).har"
+        panel.canCreateDirectories = true
+        let response = panel.runModal()
+        guard response == .OK, let url = panel.url else { return }
+        let flows = state.store.flows
+        Task {
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    let data = try HARExporter.export(flows)
+                    try data.write(to: url, options: .atomic)
+                }.value
+            } catch {
+                NSAlert(error: error).runModal()
+            }
+        }
+    }
+
+    private static func exportTimestamp() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter.string(from: Date())
     }
 
     private var captureButton: some View {
@@ -203,6 +233,17 @@ struct CaptureToolbar: View {
         .buttonStyle(.plain)
         .disabled(state.isWorking || (state.isCapturing && state.captureMode == .device))
         .help("Toggle macOS HTTP/HTTPS proxy for active network services")
+    }
+
+    private var exportButton: some View {
+        Button {
+            exportHAR()
+        } label: {
+            SidebarActionLabel(title: "Export HAR", systemImage: "square.and.arrow.up")
+        }
+        .buttonStyle(.plain)
+        .disabled(state.store.flows.isEmpty || state.isWorking)
+        .help("Export all captured flows to a .har file")
     }
 
     private var clearButton: some View {
