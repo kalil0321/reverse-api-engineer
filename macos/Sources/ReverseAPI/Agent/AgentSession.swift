@@ -26,6 +26,7 @@ final class AgentSession {
     private let sidecar = AgentSidecar()
     private let client = AgentClient()
     private var receiverTask: Task<Void, Never>?
+    private var sessionID = UUID().uuidString
     private let workdir: URL
     private let launchSpec: AgentSidecar.LaunchSpec
 
@@ -61,14 +62,16 @@ final class AgentSession {
         guard !trimmed.isEmpty else { return }
         await ensureRunning()
         guard status == .ready || status == .streaming else { return }
-        history.append(.init(role: "user", content: trimmed))
+        let previousHistory = history
+        let userHistoryItem = AgentHistoryItem(role: "user", content: trimmed)
         let request = AgentChatRequest(
-            id: UUID().uuidString,
+            id: sessionID,
             message: trimmed,
             target: target.rawValue,
-            flows: flows.map(AgentFlowPayload.init),
-            history: history
+            flows: flows.map { AgentFlowPayload($0) },
+            history: previousHistory
         )
+        history.append(userHistoryItem)
         do {
             input = ""
             status = .streaming
@@ -85,6 +88,7 @@ final class AgentSession {
         generatedFiles = []
         lastWorkdir = nil
         lastError = nil
+        sessionID = UUID().uuidString
         if status == .failed { status = .idle }
     }
 
@@ -106,6 +110,8 @@ final class AgentSession {
                     self.handle(event)
                 }
             } catch {
+                await self.client.disconnect()
+                await self.sidecar.terminate()
                 self.lastError = "Agent stream error: \(error)"
                 self.status = .failed
             }
