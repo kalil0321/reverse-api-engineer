@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rae-agent"
+version = "0.1.0"
+description = "ReverseAPI agent sidecar"
+requires-python = ">=3.11"
+dependencies = [
+    "websockets>=13.0",
+    "claude-agent-sdk>=0.1.48",
+]
+
+[project.scripts]
+rae-agent = "rae_agent.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["rae_agent"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

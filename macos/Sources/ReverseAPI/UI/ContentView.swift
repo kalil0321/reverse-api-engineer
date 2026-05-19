@@ -19,9 +19,11 @@ struct ContentView: View {
 
             HSplitView {
                 TrafficListView()
-                    .frame(minWidth: 600, maxHeight: .infinity)
-                InspectorView()
                     .frame(minWidth: 460, maxHeight: .infinity)
+                InspectorView()
+                    .frame(minWidth: 420, maxHeight: .infinity)
+                AgentPanel()
+                    .frame(minWidth: 340, maxHeight: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
