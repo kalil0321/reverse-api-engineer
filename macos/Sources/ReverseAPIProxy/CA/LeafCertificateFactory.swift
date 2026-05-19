@@ -75,7 +75,7 @@ public actor LeafCertificateFactory {
         let extensions = try Certificate.Extensions {
             Critical(BasicConstraints.notCertificateAuthority)
             Critical(KeyUsage(digitalSignature: true, keyEncipherment: true))
-            ExtendedKeyUsage([.serverAuth, .clientAuth])
+            try ExtendedKeyUsage([.serverAuth, .clientAuth])
             subjectAlternativeNames(for: host)
             SubjectKeyIdentifier(hash: leafPrivateKey.publicKey)
             AuthorityKeyIdentifier(keyIdentifier: rootKeyIdentifier)
@@ -107,10 +107,10 @@ public actor LeafCertificateFactory {
 
     private func subjectAlternativeNames(for host: String) -> SubjectAlternativeNames {
         if let bytes = ipv4Bytes(host) {
-            return SubjectAlternativeNames([.ipAddress(ArraySlice(bytes))])
+            return SubjectAlternativeNames([.ipAddress(ASN1OctetString(contentBytes: ArraySlice(bytes)))])
         }
         if let bytes = ipv6Bytes(host) {
-            return SubjectAlternativeNames([.ipAddress(ArraySlice(bytes))])
+            return SubjectAlternativeNames([.ipAddress(ASN1OctetString(contentBytes: ArraySlice(bytes)))])
         }
         return SubjectAlternativeNames([.dnsName(host)])
     }

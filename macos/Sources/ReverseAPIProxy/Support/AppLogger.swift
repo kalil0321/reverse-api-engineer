@@ -9,18 +9,22 @@ public struct AppLogger: Sendable {
     }
 
     public func debug(_ message: @autoclosure () -> String) {
-        logger.debug("\(message(), privacy: .public)")
+        let text = message()
+        logger.debug("\(text, privacy: .public)")
     }
 
     public func info(_ message: @autoclosure () -> String) {
-        logger.info("\(message(), privacy: .public)")
+        let text = message()
+        logger.info("\(text, privacy: .public)")
     }
 
     public func warn(_ message: @autoclosure () -> String) {
-        logger.warning("\(message(), privacy: .public)")
+        let text = message()
+        logger.warning("\(text, privacy: .public)")
     }
 
     public func error(_ message: @autoclosure () -> String) {
-        logger.error("\(message(), privacy: .public)")
+        let text = message()
+        logger.error("\(text, privacy: .public)")
     }
 }

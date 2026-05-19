@@ -1,4 +1,5 @@
 import Foundation
+import NIOConcurrencyHelpers
 import NIOCore
 import NIOPosix
 import NIOHTTP1
@@ -52,11 +53,13 @@ actor UpstreamPump {
 
         do {
             if scheme == .https {
-                var clientConfig = TLSConfiguration.makeClientConfiguration()
-                clientConfig.applicationProtocols = ["http/1.1"]
-                let sslContext = try NIOSSLContext(configuration: clientConfig)
-                let sslHandler = try NIOSSLClientHandler(context: sslContext, serverHostname: host)
-                try await channel.pipeline.addHandler(sslHandler, position: .first).get()
+                try await channel.eventLoop.submit {
+                    var clientConfig = TLSConfiguration.makeClientConfiguration()
+                    clientConfig.applicationProtocols = ["http/1.1"]
+                    let sslContext = try NIOSSLContext(configuration: clientConfig)
+                    let sslHandler = try NIOSSLClientHandler(context: sslContext, serverHostname: host)
+                    try channel.pipeline.syncOperations.addHandler(sslHandler, position: .first)
+                }.get()
             }
 
             try await channel.pipeline.addHTTPClientHandlers().get()
