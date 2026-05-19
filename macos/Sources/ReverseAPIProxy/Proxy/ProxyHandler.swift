@@ -17,15 +17,20 @@ final class ProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @unche
         case idle
         case buffering(InflightRequest)
         case bumping
+        case rejected
     }
+
+    static let defaultMaxBodyBytes = 32 * 1024 * 1024
 
     private let context: ProxyContext
     private let mode: Mode
+    private let maxBodyBytes: Int
     private var phase: Phase = .idle
 
-    init(context: ProxyContext, mode: Mode) {
+    init(context: ProxyContext, mode: Mode, maxBodyBytes: Int = ProxyHandler.defaultMaxBodyBytes) {
         self.context = context
         self.mode = mode
+        self.maxBodyBytes = max(1024, maxBodyBytes)
     }
 
     func channelRead(context channelContext: ChannelHandlerContext, data: NIOAny) {
@@ -66,10 +71,19 @@ final class ProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @unche
     private func onBody(_ buffer: ByteBuffer) {
         guard case .buffering(var inflight) = phase else { return }
         inflight.appendBody(buffer)
+        if inflight.body.readableBytes > maxBodyBytes {
+            phase = .rejected
+            return
+        }
         phase = .buffering(inflight)
     }
 
     private func onEnd(channelContext: ChannelHandlerContext, trailers: HTTPHeaders?) {
+        if case .rejected = phase {
+            phase = .idle
+            respondError(channelContext: channelContext, status: .payloadTooLarge)
+            return
+        }
         guard case .buffering(var inflight) = phase else { return }
         inflight.appendTrailers(trailers)
         phase = .idle
