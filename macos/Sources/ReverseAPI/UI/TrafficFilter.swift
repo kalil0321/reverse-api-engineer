@@ -6,7 +6,22 @@ struct TrafficFilter: Equatable {
     var hosts: Set<String> = []
     var methods: Set<String> = []
     var statusBuckets: Set<StatusBucket> = []
+    var resourceKinds: Set<ResourceKind> = []
     var onlyErrors: Bool = false
+
+    enum ResourceKind: String, CaseIterable, Identifiable, Hashable {
+        case document = "Doc"
+        case fetch = "Fetch/XHR"
+        case script = "JS"
+        case stylesheet = "CSS"
+        case image = "Img"
+        case media = "Media"
+        case font = "Font"
+        case websocket = "WS"
+        case other = "Other"
+
+        var id: String { rawValue }
+    }
 
     enum StatusBucket: String, CaseIterable, Identifiable, Hashable {
         case informational = "1xx"
@@ -40,10 +55,68 @@ struct TrafficFilter: Equatable {
         }
         if !hosts.isEmpty, !hosts.contains(flow.host) { return false }
         if !methods.isEmpty, !methods.contains(flow.method) { return false }
+        if !resourceKinds.isEmpty, !resourceKinds.contains(Self.resourceKind(for: flow)) { return false }
         if !statusBuckets.isEmpty {
             guard let status = flow.responseStatus else { return false }
             if !statusBuckets.contains(where: { $0.contains(status) }) { return false }
         }
         return true
+    }
+
+    static func resourceKind(for flow: CapturedFlow) -> ResourceKind {
+        if isWebSocket(flow) { return .websocket }
+
+        let contentType = headerValue("content-type", in: flow.responseHeaders)?.lowercased() ?? ""
+        let accept = headerValue("accept", in: flow.requestHeaders)?.lowercased() ?? ""
+        let path = flow.path.lowercased()
+        let ext = path
+            .split(separator: "?")
+            .first?
+            .split(separator: "/")
+            .last?
+            .split(separator: ".")
+            .last
+            .map { String($0).lowercased() } ?? ""
+
+        if contentType.contains("text/html") || accept.contains("text/html") || ["html", "htm"].contains(ext) {
+            return .document
+        }
+        if contentType.contains("text/css") || ext == "css" {
+            return .stylesheet
+        }
+        if contentType.contains("javascript") ||
+            contentType.contains("ecmascript") ||
+            ["js", "mjs", "cjs"].contains(ext) {
+            return .script
+        }
+        if contentType.hasPrefix("image/") || ["png", "jpg", "jpeg", "gif", "webp", "avif", "svg", "ico"].contains(ext) {
+            return .image
+        }
+        if contentType.hasPrefix("video/") ||
+            contentType.hasPrefix("audio/") ||
+            ["mp4", "webm", "mov", "m4v", "mp3", "wav", "ogg", "m3u8"].contains(ext) {
+            return .media
+        }
+        if contentType.contains("font") || ["woff", "woff2", "ttf", "otf", "eot"].contains(ext) {
+            return .font
+        }
+        if contentType.contains("json") ||
+            contentType.contains("xml") ||
+            accept.contains("application/json") ||
+            path.contains("/api/") ||
+            flow.method != "GET" {
+            return .fetch
+        }
+        return .other
+    }
+
+    private static func isWebSocket(_ flow: CapturedFlow) -> Bool {
+        let upgrade = headerValue("upgrade", in: flow.requestHeaders)?.lowercased()
+            ?? headerValue("upgrade", in: flow.responseHeaders)?.lowercased()
+        return upgrade == "websocket" || flow.responseStatus == 101
+    }
+
+    private static func headerValue(_ name: String, in headers: [HTTPHeader]) -> String? {
+        headers.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value
     }
 }
