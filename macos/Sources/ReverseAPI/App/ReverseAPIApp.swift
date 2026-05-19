@@ -1,7 +1,9 @@
+import AppKit
 import SwiftUI
 
 @main
 struct ReverseAPIApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var session = AppSession.live()
 
     var body: some Scene {
@@ -10,6 +12,12 @@ struct ReverseAPIApp: App {
             case .ready(let state):
                 ContentView()
                     .environment(state)
+                    .onAppear {
+                        AppLifecycle.shared.state = state
+                    }
+                    .onDisappear {
+                        Task { await state.shutdownForWindowClose() }
+                    }
                     .frame(
                         minWidth: 1100,
                         maxWidth: .infinity,
@@ -27,6 +35,29 @@ struct ReverseAPIApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {}
         }
+    }
+}
+
+@MainActor
+final class AppLifecycle {
+    static let shared = AppLifecycle()
+    weak var state: AppState?
+
+    private init() {}
+
+    func restoreProxyBeforeExit() {
+        state?.restoreProxyBeforeExit()
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
+    }
+
+    @MainActor
+    func applicationWillTerminate(_ notification: Notification) {
+        AppLifecycle.shared.restoreProxyBeforeExit()
     }
 }
 
