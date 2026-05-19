@@ -68,8 +68,6 @@ final class CertificateAuthorityTests: XCTestCase {
         var roots: [RootCertificate?] = Array(repeating: nil, count: count)
         let lock = NSLock()
         DispatchQueue.concurrentPerform(iterations: count) { idx in
-            // Concurrent racers — the lock inside loadOrCreate must
-            // serialise them so all callers see the same on-disk pair.
             let r = try? store.loadOrCreate()
             lock.lock()
             roots[idx] = r
@@ -80,6 +78,37 @@ final class CertificateAuthorityTests: XCTestCase {
             let r = try XCTUnwrap(root)
             XCTAssertEqual(try r.derBytes(), try firstDER)
         }
+    }
+
+    func testCAStorePersistsPrivateKeyOnDiskWithUserOnlyPermissions() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = try CAStore(applicationSupportURL: directory)
+        let first = try store.loadOrCreate()
+        let second = try store.loadOrCreate()
+        let attributes = try FileManager.default.attributesOfItem(atPath: store.privateKeyURL.path)
+        let permissions = attributes[.posixPermissions] as? NSNumber
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.certificateURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.privateKeyURL.path))
+        XCTAssertEqual(permissions?.intValue, 0o600)
+        XCTAssertEqual(try first.derBytes(), try second.derBytes())
+        XCTAssertEqual(first.privateKey.publicKey, second.privateKey.publicKey)
+    }
+
+    func testCAStoreRegeneratesWhenCertificateExistsWithoutPrivateKeyFile() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = try CAStore(applicationSupportURL: directory)
+        let stale = try CertificateAuthority.generateRoot()
+        try Data(try stale.derBytes()).write(to: store.certificateURL, options: .atomic)
+
+        let regenerated = try store.loadOrCreate()
+
+        XCTAssertNotEqual(try stale.derBytes(), try regenerated.derBytes())
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.privateKeyURL.path))
     }
 
     func testLeafCertificateFactoryProducesLeafForHost() async throws {
