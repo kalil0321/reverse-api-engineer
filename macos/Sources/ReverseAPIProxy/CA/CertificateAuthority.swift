@@ -17,6 +17,10 @@ public struct RootCertificate: Sendable {
         let pemDoc = PEMDocument(type: "CERTIFICATE", derBytes: try derBytes())
         return pemDoc.pemString
     }
+
+    public func privateKeyPEM() throws -> String {
+        try privateKey.serializeAsPEM().pemString
+    }
 }
 
 public enum CertificateAuthority {
@@ -51,6 +55,12 @@ public enum CertificateAuthority {
             issuerPrivateKey: privateKey
         )
 
+        return RootCertificate(certificate: certificate, privateKey: privateKey)
+    }
+
+    public static func loadRoot(certificatePEM: String, privateKeyPEM: String) throws -> RootCertificate {
+        let certificate = try Certificate(pemEncoded: certificatePEM)
+        let privateKey = try Certificate.PrivateKey(pemEncoded: privateKeyPEM)
         return RootCertificate(certificate: certificate, privateKey: privateKey)
     }
 }
