@@ -130,15 +130,17 @@ struct CaptureToolbar: View {
         panel.canCreateDirectories = true
         let response = panel.runModal()
         guard response == .OK, let url = panel.url else { return }
-        let flows = state.store.flows
+        let snapshot = state.store.flows
         Task {
             do {
                 try await Task.detached(priority: .userInitiated) {
-                    let data = try HARExporter.export(flows)
+                    let data = try HARExporter.export(snapshot)
                     try data.write(to: url, options: .atomic)
                 }.value
             } catch {
-                NSAlert(error: error).runModal()
+                await MainActor.run {
+                    NSAlert(error: error).runModal()
+                }
             }
         }
     }
@@ -191,6 +193,7 @@ struct CaptureToolbar: View {
         .help(state.captureMode == .device
               ? "Start proxy capture and route macOS HTTP/HTTPS traffic through it"
               : "Start proxy capture without changing macOS network settings")
+        .keyboardShortcut("r", modifiers: [.command])
     }
 
     private var trustButton: some View {
@@ -244,6 +247,7 @@ struct CaptureToolbar: View {
         .buttonStyle(.plain)
         .disabled(state.store.flows.isEmpty || state.isWorking)
         .help("Export all captured flows to a .har file")
+        .keyboardShortcut("e", modifiers: [.command, .shift])
     }
 
     private var clearButton: some View {
@@ -255,6 +259,7 @@ struct CaptureToolbar: View {
         .buttonStyle(.plain)
         .disabled(state.store.flows.isEmpty || state.isWorking)
         .help("Remove captured flows from the list and local database")
+        .keyboardShortcut("k", modifiers: [.command])
     }
 
     private var captureTitle: String {
