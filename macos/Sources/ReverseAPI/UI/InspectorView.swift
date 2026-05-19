@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import ReverseAPIProxy
 
@@ -101,6 +102,7 @@ private struct FlowInspector: View {
                         .foregroundStyle(.secondary)
                         .font(.callout)
                 }
+                copyMenu
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(flow.host)
@@ -123,6 +125,26 @@ private struct FlowInspector: View {
         .padding(.horizontal, 14)
         .padding(.top, 12)
         .padding(.bottom, 10)
+    }
+
+    private var copyMenu: some View {
+        Menu {
+            Button("Copy request", systemImage: "arrow.up.doc") {
+                copyToPasteboard(requestCopyText)
+            }
+            Button("Copy response", systemImage: "arrow.down.doc") {
+                copyToPasteboard(responseCopyText)
+            }
+            Divider()
+            Button("Copy URL", systemImage: "link") {
+                copyToPasteboard(flow.url)
+            }
+        } label: {
+            Label("Copy", systemImage: "doc.on.doc")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Copy this request or response")
     }
 
     @ViewBuilder
@@ -213,6 +235,58 @@ private struct FlowInspector: View {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         return formatter.string(fromByteCount: Int64(count))
+    }
+
+    private var requestCopyText: String {
+        var lines = ["\(flow.method) \(flow.path) HTTP/1.1"]
+        lines.append(contentsOf: headerLines(flow.requestHeaders))
+        return copyText(headLines: lines, body: flow.requestBody, headers: flow.requestHeaders)
+    }
+
+    private var responseCopyText: String {
+        var lines = ["HTTP/1.1 \(flow.responseStatus.map(String.init) ?? "pending")"]
+        lines.append(contentsOf: headerLines(flow.responseHeaders))
+        return copyText(headLines: lines, body: flow.responseBody, headers: flow.responseHeaders)
+    }
+
+    private func headerLines(_ headers: [HTTPHeader]) -> [String] {
+        headers.map { "\($0.name): \($0.value)" }
+    }
+
+    private func copyText(headLines: [String], body: Data, headers: [HTTPHeader]) -> String {
+        guard !body.isEmpty else {
+            return headLines.joined(separator: "\n") + "\n\n"
+        }
+        let bodyText = copyableBody(body, headers: headers)
+        return headLines.joined(separator: "\n") + "\n\n" + bodyText
+    }
+
+    private func copyableBody(_ data: Data, headers: [HTTPHeader]) -> String {
+        if let pretty = JSONFormatter.prettyPrintJSON(data, contentType: contentType(in: headers)) {
+            return pretty
+        }
+        if let text = String(data: data, encoding: .utf8), looksLikeText(headers) {
+            return text
+        }
+        return """
+        Binary body: \(data.count) bytes
+        Base64:
+        \(data.base64EncodedString())
+        """
+    }
+
+    private func contentType(in headers: [HTTPHeader]) -> String? {
+        headers.first(where: { $0.name.lowercased() == "content-type" })?.value
+    }
+
+    private func looksLikeText(_ headers: [HTTPHeader]) -> Bool {
+        guard let ct = contentType(in: headers)?.lowercased() else { return false }
+        return ct.contains("text") || ct.contains("xml") || ct.contains("javascript") || ct.contains("html")
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 }
 
