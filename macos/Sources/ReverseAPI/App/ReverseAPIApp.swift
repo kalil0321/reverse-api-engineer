@@ -10,7 +10,13 @@ struct ReverseAPIApp: App {
             case .ready(let state):
                 ContentView()
                     .environment(state)
-                    .frame(minWidth: 1100, minHeight: 700)
+                    .frame(
+                        minWidth: 1100,
+                        maxWidth: .infinity,
+                        minHeight: 700,
+                        maxHeight: .infinity,
+                        alignment: .topLeading
+                    )
             case .failed(let error):
                 BootFailureView(error: error)
                     .frame(minWidth: 500, minHeight: 300)

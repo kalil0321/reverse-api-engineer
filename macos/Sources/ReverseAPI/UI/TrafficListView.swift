@@ -9,8 +9,16 @@ struct TrafficListView: View {
         VStack(spacing: 0) {
             FilterBar(filter: $bindable.filter, hostOptions: hostOptions, methodOptions: methodOptions)
             Divider()
-            table
+            ZStack {
+                table
+                if state.store.flows.isEmpty {
+                    EmptyTrafficState()
+                } else if filteredFlows.isEmpty {
+                    EmptyFilterState()
+                }
+            }
         }
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var filteredFlows: [CapturedFlow] {
@@ -99,6 +107,9 @@ private struct FilterBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
+            Text("Traffic")
+                .font(.headline)
+
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
@@ -136,10 +147,28 @@ private struct FilterBar: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
 
+            if activeFilterCount > 0 {
+                Button("Reset \(activeFilterCount)", systemImage: "xmark.circle.fill") {
+                    filter = TrafficFilter()
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+            }
+
             Spacer()
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
+    }
+
+    private var activeFilterCount: Int {
+        var count = 0
+        if !filter.search.isEmpty { count += 1 }
+        if filter.onlyErrors { count += 1 }
+        count += filter.hosts.count
+        count += filter.methods.count
+        count += filter.statusBuckets.count
+        return count
     }
 
     private func toggle(_ value: String, in keyPath: WritableKeyPath<TrafficFilter, Set<String>>) -> some View {
@@ -194,6 +223,76 @@ private struct MethodBadge: View {
         case "CONNECT": return .purple
         default: return .secondary
         }
+    }
+}
+
+private struct EmptyTrafficState: View {
+    @Environment(AppState.self) private var state
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: state.isCapturing ? "dot.radiowaves.left.and.right" : "waveform.path.ecg.rectangle")
+                .font(.system(size: 38))
+                .foregroundStyle(state.isCapturing ? Color.green : Color.secondary)
+
+            VStack(spacing: 5) {
+                Text(title)
+                    .font(.title3.weight(.semibold))
+                Text(message)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 430)
+            }
+
+            HStack(spacing: 8) {
+                Label(state.systemProxyEnabled ? "Device routed" : "Device not routed", systemImage: "network")
+                Label(state.caTrustInstalled ? "CA trusted" : "CA not trusted", systemImage: "seal")
+                Label("127.0.0.1:\(state.port)", systemImage: "number")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .padding(28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.regularMaterial)
+    }
+
+    private var title: String {
+        if state.isCapturing, !state.systemProxyEnabled { return "Manual capture is running" }
+        if state.isCapturing { return "Waiting for traffic" }
+        return "No traffic captured"
+    }
+
+    private var message: String {
+        if state.isCapturing, !state.systemProxyEnabled {
+            return "Only clients configured to use the proxy will appear here. Switch to Device mode to route this Mac automatically."
+        }
+        if state.isCapturing, !state.caTrustInstalled {
+            return "HTTP traffic should appear immediately. Trust the CA to inspect HTTPS traffic without certificate errors."
+        }
+        if state.isCapturing {
+            return "Open an app or browser and make a request. New flows will appear as they start."
+        }
+        return "Start device capture to run the proxy and route this Mac through it."
+    }
+}
+
+private struct EmptyFilterState: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "line.3.horizontal.decrease.circle")
+                .font(.system(size: 32))
+                .foregroundStyle(.secondary)
+            Text("No matching traffic")
+                .font(.headline)
+            Text("Clear or loosen the current filters.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .padding(28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.regularMaterial)
     }
 }
 

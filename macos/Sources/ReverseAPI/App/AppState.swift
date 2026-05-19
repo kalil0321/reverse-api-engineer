@@ -5,13 +5,22 @@ import ReverseAPIProxy
 @MainActor
 @Observable
 final class AppState {
+    enum CaptureMode: String, CaseIterable, Identifiable {
+        case device = "Device"
+        case manual = "Manual"
+
+        var id: String { rawValue }
+    }
+
     private(set) var isCapturing = false
     private(set) var systemProxyEnabled = false
     private(set) var caTrustInstalled = false
+    private(set) var isWorking = false
     private(set) var lastError: String?
 
     var selectedFlowID: UUID?
     var filter = TrafficFilter()
+    var captureMode: CaptureMode = .device
 
     let store: FlowStore
     let engine: ProxyEngine
@@ -22,6 +31,8 @@ final class AppState {
     let caDER: Data
     let caPEM: String
     let caPath: String
+
+    private var proxySnapshot: [ProxyServiceSnapshot]?
 
     init(port: Int = 8888) throws {
         let appSupport = try FileManager.default.url(
@@ -46,7 +57,7 @@ final class AppState {
         self.caPEM = try root.pem()
         self.caPath = caStore.certificateURL.path
         self.caTrustInstalled = installer.isInstalled(derBytes: self.caDER)
-        self.systemProxyEnabled = (try? systemProxy.isEnabled()) ?? false
+        self.systemProxyEnabled = (try? systemProxy.isEnabled(host: "127.0.0.1", port: port)) ?? false
 
         store.subscribe(to: engine.bus)
     }
@@ -55,32 +66,71 @@ final class AppState {
         if isCapturing {
             await stopCapture()
         } else {
-            await startCapture()
+            await startCapture(mode: captureMode)
         }
     }
 
-    func startCapture() async {
-        guard !isCapturing else { return }
+    func startCapture(mode: CaptureMode) async {
+        guard !isCapturing, !isWorking else { return }
+        isWorking = true
+        defer { isWorking = false }
+
         do {
             try await engine.start()
+
+            if mode == .device {
+                do {
+                    try await applySystemProxy()
+                } catch {
+                    try? await engine.stop()
+                    throw error
+                }
+            }
+
             isCapturing = true
             lastError = nil
         } catch {
-            lastError = "Failed to start proxy: \(error)"
+            isCapturing = false
+            lastError = "Could not start capture: \(error)"
         }
     }
 
     func stopCapture() async {
-        guard isCapturing else { return }
+        guard isCapturing, !isWorking else { return }
+        isWorking = true
+        defer { isWorking = false }
+
+        var stopError: Error?
+        if proxySnapshot != nil {
+            do {
+                try await restoreSystemProxy()
+            } catch {
+                stopError = error
+            }
+        }
+
         do {
             try await engine.stop()
             isCapturing = false
         } catch {
-            lastError = "Failed to stop proxy: \(error)"
+            stopError = error
+        }
+
+        if let stopError {
+            if proxySnapshot != nil {
+                systemProxyEnabled = (try? systemProxy.isEnabled(host: "127.0.0.1", port: port)) ?? false
+            }
+            lastError = "Could not stop capture cleanly: \(stopError)"
+        } else {
+            lastError = nil
         }
     }
 
     func installCATrust() async {
+        guard !isWorking else { return }
+        isWorking = true
+        defer { isWorking = false }
+
         do {
             let installer = self.installer
             let der = self.caDER
@@ -88,12 +138,17 @@ final class AppState {
                 try installer.install(derBytes: der)
             }.value
             caTrustInstalled = true
+            lastError = nil
         } catch {
             lastError = "Failed to install CA trust: \(error)"
         }
     }
 
     func uninstallCATrust() async {
+        guard !isWorking else { return }
+        isWorking = true
+        defer { isWorking = false }
+
         do {
             let installer = self.installer
             let der = self.caDER
@@ -101,31 +156,33 @@ final class AppState {
                 try installer.uninstall(derBytes: der)
             }.value
             caTrustInstalled = false
+            lastError = nil
         } catch {
             lastError = "Failed to uninstall CA trust: \(error)"
         }
     }
 
     func enableSystemProxy() async {
+        guard !isWorking else { return }
+        isWorking = true
+        defer { isWorking = false }
+
         do {
-            let systemProxy = self.systemProxy
-            let port = self.port
-            try await Task.detached(priority: .userInitiated) {
-                try systemProxy.enable(host: "127.0.0.1", port: port)
-            }.value
-            systemProxyEnabled = true
+            try await applySystemProxy()
+            lastError = nil
         } catch {
             lastError = "Failed to enable system proxy: \(error)"
         }
     }
 
     func disableSystemProxy() async {
+        guard !isWorking else { return }
+        isWorking = true
+        defer { isWorking = false }
+
         do {
-            let systemProxy = self.systemProxy
-            try await Task.detached(priority: .userInitiated) {
-                try systemProxy.disable()
-            }.value
-            systemProxyEnabled = false
+            try await restoreSystemProxy()
+            lastError = nil
         } catch {
             lastError = "Failed to disable system proxy: \(error)"
         }
@@ -138,5 +195,36 @@ final class AppState {
         } catch {
             lastError = "Failed to clear flows: \(error)"
         }
+    }
+
+    private func applySystemProxy() async throws {
+        let systemProxy = self.systemProxy
+        let port = self.port
+        let snapshot = try await Task.detached(priority: .userInitiated) {
+            let snapshot = try systemProxy.snapshot()
+            do {
+                try systemProxy.enable(host: "127.0.0.1", port: port)
+                return snapshot
+            } catch {
+                try? systemProxy.restore(snapshot)
+                throw error
+            }
+        }.value
+        proxySnapshot = snapshot
+        systemProxyEnabled = true
+    }
+
+    private func restoreSystemProxy() async throws {
+        let systemProxy = self.systemProxy
+        let snapshot = proxySnapshot
+        try await Task.detached(priority: .userInitiated) {
+            if let snapshot {
+                try systemProxy.restore(snapshot)
+            } else {
+                try systemProxy.disable()
+            }
+        }.value
+        proxySnapshot = nil
+        systemProxyEnabled = false
     }
 }
