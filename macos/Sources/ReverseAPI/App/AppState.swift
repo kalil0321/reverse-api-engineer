@@ -221,6 +221,15 @@ final class AppState {
         }
     }
 
+    func shutdownForWindowClose() async {
+        restoreProxyBeforeExit()
+        if isCapturing {
+            try? await engine.stop()
+            isCapturing = false
+        }
+        isWorking = false
+    }
+
     private func applySystemProxy() async throws {
         let systemProxy = self.systemProxy
         let port = self.port
