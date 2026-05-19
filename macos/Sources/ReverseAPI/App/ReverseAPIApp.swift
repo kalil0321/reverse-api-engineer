@@ -59,12 +59,13 @@ final class AppLifecycle {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var keyMonitor: Any?
+    private var isTerminating = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             let togglesSidebar = event.charactersIgnoringModifiers?.lowercased() == "b" &&
-                (modifiers.contains(.command) || modifiers.contains(.control))
+                modifiers == .command
             guard togglesSidebar else { return event }
             NotificationCenter.default.post(name: .toggleRaeSidebar, object: nil)
             return nil
@@ -76,12 +77,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !isTerminating else { return .terminateNow }
+        guard let state = AppLifecycle.shared.state else { return .terminateNow }
+
+        isTerminating = true
+        Task {
+            await state.terminate()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
+    @MainActor
     func applicationWillTerminate(_ notification: Notification) {
         if let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
             self.keyMonitor = nil
         }
-        AppLifecycle.shared.restoreProxyBeforeExit()
+        if !isTerminating {
+            AppLifecycle.shared.restoreProxyBeforeExit()
+        }
     }
 }
 

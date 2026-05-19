@@ -175,7 +175,7 @@ private final class StreamingResponseForwarder: ChannelInboundHandler, @unchecke
             }
 
             downstream.eventLoop.execute {
-                self.downstream.write(HTTPServerResponsePart.body(.byteBuffer(buffer)), promise: nil)
+                self.downstream.writeAndFlush(HTTPServerResponsePart.body(.byteBuffer(buffer)), promise: nil)
             }
 
         case .end:

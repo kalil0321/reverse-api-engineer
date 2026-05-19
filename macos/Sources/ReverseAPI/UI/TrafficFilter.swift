@@ -92,14 +92,19 @@ struct TrafficFilter: Equatable {
         let contentType = headerValue("content-type", in: flow.responseHeaders)?.lowercased() ?? ""
         let accept = headerValue("accept", in: flow.requestHeaders)?.lowercased() ?? ""
         let path = flow.path.lowercased()
-        let ext = path
-            .split(separator: "?")
-            .first?
-            .split(separator: "/")
-            .last?
-            .split(separator: ".")
-            .last
-            .map { String($0).lowercased() } ?? ""
+        let ext: String = {
+            let lastComponent = path
+                .split(separator: "?")
+                .first?
+                .split(separator: "/")
+                .last
+                .map(String.init) ?? ""
+            guard lastComponent.contains("."),
+                  let suffix = lastComponent.split(separator: ".").last else {
+                return ""
+            }
+            return String(suffix).lowercased()
+        }()
 
         if contentType.contains("text/html") || accept.contains("text/html") || ["html", "htm"].contains(ext) {
             return .document
