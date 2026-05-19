@@ -162,9 +162,9 @@ final class ProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @unche
                     channel.writeAndFlush(HTTPServerResponsePart.end(nil), promise: nil)
 
                     let pipeline = channel.pipeline.syncOperations
-                    try pipeline.removeHandler(self)
-                    try pipeline.removeHandler(name: PipelineNames.encoder)
-                    try pipeline.removeHandler(name: PipelineNames.decoder)
+                    _ = pipeline.removeHandler(self)
+                    _ = pipeline.removeHandler(name: PipelineNames.encoder)
+                    _ = pipeline.removeHandler(name: PipelineNames.decoder)
 
                     let sslHandler = NIOSSLServerHandler(context: tlsContext)
                     try pipeline.addHandler(sslHandler, name: PipelineNames.tls, position: .first)

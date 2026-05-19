@@ -33,7 +33,8 @@ final class FlowBusTests: XCTestCase {
     func testUnsubscribeOnStreamTermination() async {
         let bus = FlowBus(bufferLimit: 16)
         var stream: AsyncStream<FlowEvent>? = await bus.subscribe()
-        XCTAssertEqual(await bus.subscriberCount(), 1)
+        let initialCount = await bus.subscriberCount()
+        XCTAssertEqual(initialCount, 1)
         stream = nil
         _ = stream
         try? await Task.sleep(for: .milliseconds(100))
