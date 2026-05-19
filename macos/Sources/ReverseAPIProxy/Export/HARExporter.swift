@@ -19,23 +19,32 @@ public enum HARExporter {
         return try JSONSerialization.data(withJSONObject: har, options: [.prettyPrinted, .sortedKeys])
     }
 
-    private static func entry(for flow: CapturedFlow) -> [String: Any] {
+    static func entry(for flow: CapturedFlow) -> [String: Any] {
         let started = Self.dateFormatter.string(from: flow.startedAt)
         let duration = ((flow.finishedAt ?? flow.startedAt).timeIntervalSince(flow.startedAt)) * 1000
 
         let requestContentType = header(flow.requestHeaders, "content-type")
         let responseContentType = header(flow.responseHeaders, "content-type")
 
-        var postData: [String: Any] = [
-            "mimeType": requestContentType ?? "",
+        var request: [String: Any] = [
+            "method": flow.method,
+            "url": flow.url,
+            "httpVersion": "HTTP/1.1",
+            "cookies": [],
+            "headers": flow.requestHeaders.map { ["name": $0.name, "value": $0.value] },
+            "queryString": queryString(from: flow.path),
+            "headersSize": -1,
+            "bodySize": flow.requestBody.count,
         ]
         if !flow.requestBody.isEmpty {
+            var postData: [String: Any] = ["mimeType": requestContentType ?? ""]
             if let text = String(data: flow.requestBody, encoding: .utf8) {
                 postData["text"] = text
             } else {
                 postData["encoding"] = "base64"
                 postData["text"] = flow.requestBody.base64EncodedString()
             }
+            request["postData"] = postData
         }
 
         var responseContent: [String: Any] = [
@@ -54,17 +63,7 @@ public enum HARExporter {
         var record: [String: Any] = [
             "startedDateTime": started,
             "time": duration,
-            "request": [
-                "method": flow.method,
-                "url": flow.url,
-                "httpVersion": "HTTP/1.1",
-                "cookies": [],
-                "headers": flow.requestHeaders.map { ["name": $0.name, "value": $0.value] },
-                "queryString": queryString(from: flow.path),
-                "headersSize": -1,
-                "bodySize": flow.requestBody.count,
-                "postData": postData,
-            ],
+            "request": request,
             "response": [
                 "status": flow.responseStatus ?? 0,
                 "statusText": "",
@@ -94,7 +93,7 @@ public enum HARExporter {
         return headers.first(where: { $0.name.lowercased() == lower })?.value
     }
 
-    private static func queryString(from path: String) -> [[String: String]] {
+    static func queryString(from path: String) -> [[String: String]] {
         guard let queryIndex = path.firstIndex(of: "?") else { return [] }
         let rawQuery = path[path.index(after: queryIndex)...]
         let query = rawQuery.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
@@ -103,13 +102,14 @@ public enum HARExporter {
             guard let name = parts.first else { return nil }
             let value = parts.count > 1 ? String(parts[1]) : ""
             return [
-                "name": decodeQueryComponent(String(name)),
-                "value": decodeQueryComponent(value),
+                "name": decodeFormComponent(String(name)),
+                "value": decodeFormComponent(value),
             ]
         }
     }
 
-    private static func decodeQueryComponent(_ value: String) -> String {
-        value.replacingOccurrences(of: "+", with: " ").removingPercentEncoding ?? value
+    static func decodeFormComponent(_ value: String) -> String {
+        let withSpaces = value.replacingOccurrences(of: "+", with: " ")
+        return withSpaces.removingPercentEncoding ?? withSpaces
     }
 }

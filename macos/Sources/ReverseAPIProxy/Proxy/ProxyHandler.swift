@@ -202,9 +202,15 @@ final class ProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @unche
         headers.replaceOrAdd(name: "Accept-Encoding", value: "identity")
     }
 
+    static func isWebSocketUpgrade(_ head: HTTPRequestHead) -> Bool {
+        let tokens = head.headers["Upgrade"]
+            .flatMap { $0.split(separator: ",") }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        return tokens.contains("websocket")
+    }
+
     private func isWebSocketUpgrade(_ head: HTTPRequestHead) -> Bool {
-        let upgrade = head.headers["Upgrade"].first?.lowercased() ?? ""
-        return upgrade == "websocket"
+        Self.isWebSocketUpgrade(head)
     }
 
     private func makeFlow(from inflight: InflightRequest) -> CapturedFlow {
