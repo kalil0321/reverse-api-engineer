@@ -47,5 +47,9 @@ let package = Package(
             name: "ReverseAPIProxyTests",
             dependencies: ["ReverseAPIProxy"]
         ),
+        .testTarget(
+            name: "ReverseAPITests",
+            dependencies: ["ReverseAPI"]
+        ),
     ]
 )
