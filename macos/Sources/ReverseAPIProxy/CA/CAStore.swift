@@ -6,9 +6,12 @@ import Security
 
 public enum CAStoreError: Error {
     case missingCertificateOnDisk
+    case missingPrivateKeyInKeychain
     case keychainWriteFailed(OSStatus)
     case keychainReadFailed(OSStatus)
+    case keychainDeleteFailed(OSStatus)
     case invalidStoredPrivateKey
+    case certificateDeleteFailed(any Error)
 }
 
 public final class CAStore: @unchecked Sendable {
@@ -26,11 +29,16 @@ public final class CAStore: @unchecked Sendable {
     }
 
     public func loadOrCreate() throws -> RootCertificate {
-        if let existing = try? load() { return existing }
+        if exists() {
+            return try load()
+        }
         return try createAndStore()
     }
 
     public func load() throws -> RootCertificate {
+        guard FileManager.default.fileExists(atPath: certificateURL.path) else {
+            throw CAStoreError.missingCertificateOnDisk
+        }
         let derBytes = try Data(contentsOf: certificateURL)
         let certificate = try Certificate(derEncoded: Array(derBytes))
         let pemData = try loadPrivateKeyPEM()
@@ -50,13 +58,20 @@ public final class CAStore: @unchecked Sendable {
     }
 
     public func reset() throws {
-        try? FileManager.default.removeItem(at: certificateURL)
+        let manager = FileManager.default
+        if manager.fileExists(atPath: certificateURL.path) {
+            do {
+                try manager.removeItem(at: certificateURL)
+            } catch {
+                throw CAStoreError.certificateDeleteFailed(error)
+            }
+        }
         try deletePrivateKey()
     }
 
     public func exists() -> Bool {
         guard FileManager.default.fileExists(atPath: certificateURL.path) else { return false }
-        return (try? loadPrivateKeyPEM()) != nil
+        return privateKeyExists()
     }
 
     private func storePrivateKeyPEM(_ data: Data) throws {
@@ -65,7 +80,10 @@ public final class CAStore: @unchecked Sendable {
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: keychainAccount,
         ]
-        SecItemDelete(query as CFDictionary)
+        let deleteStatus = SecItemDelete(query as CFDictionary)
+        if deleteStatus != errSecSuccess && deleteStatus != errSecItemNotFound {
+            throw CAStoreError.keychainDeleteFailed(deleteStatus)
+        }
 
         var addQuery = query
         addQuery[kSecValueData as String] = data
@@ -84,10 +102,25 @@ public final class CAStore: @unchecked Sendable {
         ]
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound {
+            throw CAStoreError.missingPrivateKeyInKeychain
+        }
         guard status == errSecSuccess, let data = result as? Data else {
             throw CAStoreError.keychainReadFailed(status)
         }
         return data
+    }
+
+    private func privateKeyExists() -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount,
+            kSecReturnData as String: false,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        let status = SecItemCopyMatching(query as CFDictionary, nil)
+        return status == errSecSuccess
     }
 
     private func deletePrivateKey() throws {
@@ -98,7 +131,7 @@ public final class CAStore: @unchecked Sendable {
         ]
         let status = SecItemDelete(query as CFDictionary)
         if status != errSecSuccess && status != errSecItemNotFound {
-            throw CAStoreError.keychainWriteFailed(status)
+            throw CAStoreError.keychainDeleteFailed(status)
         }
     }
 }
