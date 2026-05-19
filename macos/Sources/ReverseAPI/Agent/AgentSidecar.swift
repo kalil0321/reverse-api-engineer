@@ -36,7 +36,10 @@ actor AgentSidecar {
     private(set) var port: Int?
 
     func launch(_ spec: LaunchSpec, timeout: Duration = .seconds(15)) async throws -> Int {
-        if let port { return port }
+        if let port, let process, process.isRunning { return port }
+        if port != nil || process != nil {
+            terminate()
+        }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: spec.executablePath)
@@ -65,6 +68,7 @@ actor AgentSidecar {
                 process.terminate()
             }
             self.process = nil
+            self.port = nil
             throw error
         }
     }
@@ -91,15 +95,15 @@ actor AgentSidecar {
 
         let deadlineDate = ContinuousClock.now.advanced(by: deadline)
         while ContinuousClock.now < deadlineDate {
-            if !process.isRunning {
-                throw SidecarError.processDied(process.terminationStatus)
-            }
             if let line = buffer.takeLine(prefix: "RAE_AGENT_LISTENING:") {
                 let portString = line.dropFirst("RAE_AGENT_LISTENING:".count)
                 guard let port = Int(portString) else {
                     throw SidecarError.failedToStart("unexpected line: \(line)")
                 }
                 return port
+            }
+            if !process.isRunning {
+                throw SidecarError.processDied(process.terminationStatus)
             }
             try await Task.sleep(for: .milliseconds(50))
         }

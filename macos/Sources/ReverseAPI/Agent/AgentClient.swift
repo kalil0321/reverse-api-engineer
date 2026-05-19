@@ -38,10 +38,11 @@ actor AgentClient {
 
     func events() -> AsyncThrowingStream<AgentEvent, Error> {
         AsyncThrowingStream<AgentEvent, Error> { continuation in
-            Task {
+            let receiveTask = Task {
                 do {
                     while true {
-                        guard let task = await self.task else {
+                        try Task.checkCancellation()
+                        guard let task = self.task else {
                             continuation.finish()
                             return
                         }
@@ -58,9 +59,14 @@ actor AgentClient {
                         let event = try AgentEventDecoder.decode(data)
                         continuation.yield(event)
                     }
+                } catch is CancellationError {
+                    continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
                 }
+            }
+            continuation.onTermination = { _ in
+                receiveTask.cancel()
             }
         }
     }
