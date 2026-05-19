@@ -7,12 +7,14 @@ let package = Package(
     products: [
         .library(name: "ReverseAPIProxy", targets: ["ReverseAPIProxy"]),
         .executable(name: "rae-proxy", targets: ["rae-proxy"]),
+        .executable(name: "ReverseAPI", targets: ["ReverseAPI"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.65.0"),
         .package(url: "https://github.com/apple/swift-nio-ssl.git", from: "2.27.0"),
         .package(url: "https://github.com/apple/swift-certificates.git", from: "1.5.0"),
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.7.0"),
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.29.0"),
     ],
     targets: [
         .target(
@@ -33,6 +35,13 @@ let package = Package(
         .executableTarget(
             name: "rae-proxy",
             dependencies: ["ReverseAPIProxy"]
+        ),
+        .executableTarget(
+            name: "ReverseAPI",
+            dependencies: [
+                "ReverseAPIProxy",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ]
         ),
         .testTarget(
             name: "ReverseAPIProxyTests",
