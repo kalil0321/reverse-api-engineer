@@ -157,7 +157,8 @@ final class ProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @unche
             do {
                 let tlsContext = try await proxyContext.tlsContexts.serverContext(for: target.host)
                 try await eventLoop.submit {
-                    let okHead = HTTPResponseHead(version: .http1_1, status: .ok)
+                    var okHead = HTTPResponseHead(version: .http1_1, status: .ok)
+                    okHead.headers.add(name: "Content-Length", value: "0")
                     channel.write(HTTPServerResponsePart.head(okHead), promise: nil)
                     channel.writeAndFlush(HTTPServerResponsePart.end(nil), promise: nil)
 

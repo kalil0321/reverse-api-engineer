@@ -25,6 +25,27 @@ final class CertificateAuthorityTests: XCTestCase {
         XCTAssertTrue(pem.contains("-----END CERTIFICATE-----"))
     }
 
+    func testLoadRootFromPEM() throws {
+        let root = try CertificateAuthority.generateRoot()
+        let loaded = try CertificateAuthority.loadRoot(certificatePEM: try root.pem(), privateKeyPEM: try root.privateKeyPEM())
+        XCTAssertEqual(try root.derBytes(), try loaded.derBytes())
+        XCTAssertEqual(root.privateKey.publicKey, loaded.privateKey.publicKey)
+    }
+
+    func testRootCertificateStorePersistsAndReloadsRoot() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = RootCertificateStore(directory: directory)
+        let first = try store.loadOrCreate()
+        let second = try store.loadOrCreate()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.certificateURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.privateKeyURL.path))
+        XCTAssertEqual(try first.derBytes(), try second.derBytes())
+        XCTAssertEqual(first.privateKey.publicKey, second.privateKey.publicKey)
+    }
+
     func testLeafCertificateFactoryProducesLeafForHost() async throws {
         let root = try CertificateAuthority.generateRoot()
         let factory = try LeafCertificateFactory(root: root)
