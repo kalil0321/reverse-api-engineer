@@ -45,7 +45,16 @@ public final class CertificateTrustInstaller: Sendable {
         guard let cert = try? secCertificate(from: derBytes) else { return false }
         var settings: CFArray?
         let status = SecTrustSettingsCopyTrustSettings(cert, .user, &settings)
-        return status == errSecSuccess
+        guard status == errSecSuccess, let array = settings as? [[String: Any]] else {
+            return false
+        }
+        for entry in array {
+            if let raw = entry[kSecTrustSettingsResult as String] as? Int,
+               raw == Int(SecTrustSettingsResult.trustRoot.rawValue) {
+                return true
+            }
+        }
+        return false
     }
 
     private func secCertificate(from derBytes: Data) throws -> SecCertificate {
