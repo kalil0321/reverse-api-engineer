@@ -5,7 +5,6 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Environment(AppState.self) private var state
-    @Binding var isAgentVisible: Bool
     @State private var isPaletteVisible: Bool = false
 
     var body: some View {
@@ -13,23 +12,25 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 ActionBar(onOpenPalette: { isPaletteVisible = true })
                 ThinDivider()
-                HStack(spacing: 0) {
-                    HSplitView {
-                        TrafficListView()
-                            .frame(minWidth: 420, maxHeight: .infinity)
-
-                        if state.selectedFlowID != nil {
-                            InspectorView()
-                                .frame(minWidth: 360, idealWidth: 520, maxHeight: .infinity)
+                HSplitView {
+                    Card {
+                        HSplitView {
+                            TrafficListView()
+                                .frame(minWidth: 360, maxHeight: .infinity)
+                            if state.selectedFlowID != nil {
+                                InspectorView()
+                                    .frame(minWidth: 320, idealWidth: 480, maxHeight: .infinity)
+                            }
                         }
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(minWidth: 420)
 
-                    if isAgentVisible {
+                    Card {
                         AgentPanel()
-                            .frame(width: 380)
                     }
+                    .frame(minWidth: 320, idealWidth: 380)
                 }
+                .padding(10)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
@@ -79,17 +80,28 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
-            Button {
-                isAgentVisible.toggle()
-            } label: {
-                Image(systemName: isAgentVisible ? "sparkles.rectangle.stack.fill" : "sparkles.rectangle.stack")
-            }
-            .help(isAgentVisible ? "Hide agent" : "Show agent")
-
             ActionsMenu()
-
             CaptureButton()
         }
+    }
+}
+
+// MARK: - Card
+
+/// Inset card with rounded corners + subtle border. Used for the traffic
+/// and agent containers so they read as discrete panels against the app
+/// background rather than blending into a single wall of UI.
+struct Card<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        content()
+            .background(Theme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Theme.border, lineWidth: 1)
+            }
     }
 }
 

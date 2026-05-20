@@ -5,13 +5,12 @@ import SwiftUI
 struct ReverseAPIApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var session = AppSession.live()
-    @AppStorage("rae.agent.visible") private var isAgentVisible = false
 
     var body: some Scene {
         Window("rae", id: "main") {
             switch session {
             case .ready(let state):
-                ContentView(isAgentVisible: $isAgentVisible)
+                ContentView()
                     .environment(state)
                     .onAppear {
                         AppLifecycle.shared.state = state
