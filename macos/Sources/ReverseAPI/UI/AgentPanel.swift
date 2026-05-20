@@ -8,7 +8,13 @@ struct AgentPanel: View {
     var body: some View {
         @Bindable var agent = state.agent
         VStack(spacing: 0) {
-            AgentHeader(target: $agent.target, status: agent.status, onClear: { agent.clear() })
+            AgentHeader(
+                target: $agent.target,
+                status: agent.status,
+                flowCount: flowsToSend.count,
+                isExplicitSelection: !state.agentSelection.isEmpty,
+                onClear: { agent.clear() }
+            )
             AgentTimeline(
                 events: agent.events,
                 flowCount: flowsToSend.count,
@@ -23,7 +29,13 @@ struct AgentPanel: View {
     }
 
     private var flowsToSend: [CapturedFlow] {
-        Array(state.store.flows.filter { state.filter.matches($0) }.prefix(100))
+        // If the user has explicitly checked rows, share those; otherwise
+        // fall back to the filtered view so a fresh session still has
+        // something to chew on.
+        if !state.agentSelection.isEmpty {
+            return state.store.flows.filter { state.agentSelection.contains($0.id) }
+        }
+        return Array(state.store.flows.filter { state.filter.matches($0) }.prefix(100))
     }
 
     private func send() {
@@ -37,6 +49,8 @@ struct AgentPanel: View {
 private struct AgentHeader: View {
     @Binding var target: AgentTargetLanguage
     let status: AgentSession.Status
+    let flowCount: Int
+    let isExplicitSelection: Bool
     let onClear: () -> Void
 
     var body: some View {
@@ -48,7 +62,7 @@ private struct AgentHeader: View {
                 Text("Agent")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Theme.textPrimary)
-                Text(statusLabel)
+                Text(subtitle)
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.textTertiary)
             }
@@ -67,6 +81,21 @@ private struct AgentHeader: View {
         .padding(.vertical, 10)
     }
 
+    private var subtitle: String {
+        let suffix: String
+        switch status {
+        case .idle: suffix = "Idle"
+        case .launching: suffix = "Starting…"
+        case .ready: suffix = "Ready"
+        case .streaming: suffix = "Thinking…"
+        case .failed: suffix = "Error"
+        }
+        let source = isExplicitSelection
+            ? "\(flowCount) selected"
+            : "\(flowCount) filtered"
+        return "\(suffix) · \(source)"
+    }
+
     private var statusColor: Color {
         switch status {
         case .idle: return Theme.textTertiary
@@ -77,15 +106,6 @@ private struct AgentHeader: View {
         }
     }
 
-    private var statusLabel: String {
-        switch status {
-        case .idle: return "Idle"
-        case .launching: return "Starting…"
-        case .ready: return "Ready"
-        case .streaming: return "Thinking…"
-        case .failed: return "Error"
-        }
-    }
 }
 
 private struct LanguageMenu: View {
