@@ -241,116 +241,27 @@ private struct ActionsMenu: View {
     }
 }
 
-// MARK: - Action bar (mode + chips + search)
+// MARK: - Action bar (status + search)
 
 private struct ActionBar: View {
     @Environment(AppState.self) private var state
     let onOpenPalette: () -> Void
 
     var body: some View {
-        @Bindable var bindable = state
         VStack(spacing: 0) {
             if let error = state.lastError {
                 ErrorBanner(message: error)
             }
             HStack(spacing: 14) {
-                ModeToggle(selection: $bindable.captureMode)
-                    .disabled(state.isCapturing || state.isWorking)
-
-                ResourceKindStrip(selectedKinds: $bindable.filter.resourceKinds)
-
-                if activeFilterCount > 0 {
-                    Button {
-                        bindable.filter = TrafficFilter()
-                    } label: {
-                        Label("\(activeFilterCount)", systemImage: "xmark.circle.fill")
-                            .labelStyle(.titleAndIcon)
-                            .foregroundStyle(Theme.textSecondary)
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Clear \(activeFilterCount) active filter(s)")
-                }
-
                 CaptureStateChip()
                 CATrustChip()
+                Spacer()
                 SearchButton(action: onOpenPalette)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
         }
         .background(Theme.appBackground)
-    }
-
-    private var activeFilterCount: Int {
-        var count = 0
-        if !state.filter.search.isEmpty { count += 1 }
-        if state.filter.onlyErrors { count += 1 }
-        count += state.filter.hosts.count
-        count += state.filter.methods.count
-        count += state.filter.statusBuckets.count
-        count += state.filter.resourceKinds.count
-        return count
-    }
-}
-
-private struct ModeToggle: View {
-    @Binding var selection: AppState.CaptureMode
-
-    var body: some View {
-        NSSegmented(
-            labels: AppState.CaptureMode.allCases.map { $0.rawValue },
-            selection: Binding(
-                get: { AppState.CaptureMode.allCases.firstIndex(of: selection) ?? 0 },
-                set: { selection = AppState.CaptureMode.allCases[$0] }
-            )
-        )
-        .fixedSize()
-        .help("Capture mode")
-    }
-}
-
-
-private struct ResourceKindStrip: View {
-    @Binding var selectedKinds: Set<TrafficFilter.ResourceKind>
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-                Chip(title: "All", isSelected: selectedKinds.isEmpty) {
-                    selectedKinds.removeAll()
-                }
-                ForEach(TrafficFilter.ResourceKind.allCases) { kind in
-                    Chip(title: kind.rawValue, isSelected: selectedKinds.contains(kind)) {
-                        if selectedKinds.contains(kind) {
-                            selectedKinds.remove(kind)
-                        } else {
-                            selectedKinds.insert(kind)
-                        }
-                    }
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct Chip: View {
-    let title: String
-    let isSelected: Bool
-    let action: () -> Void
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 3)
-                .pillBackground(isActive: isSelected, isHovering: isHovering)
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
     }
 }
 
