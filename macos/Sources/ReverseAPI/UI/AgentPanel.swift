@@ -496,9 +496,26 @@ private struct NativeMultilineTextField: NSViewRepresentable {
         textView.isEditable = true
         textView.isSelectable = true
         textView.allowsUndo = true
-        textView.font = .systemFont(ofSize: 13)
-        textView.textColor = NSColor(Theme.textPrimary)
-        textView.insertionPointColor = NSColor(Theme.textPrimary)
+
+        // Force every color path explicitly. NSTextView renders typed
+        // characters using `typingAttributes`, NOT `textColor` alone, and
+        // when `textColor` resolves through `.labelColor` against an
+        // unflushed appearance the result is sometimes the same near-black
+        // as the composer background — invisible text. Hard-code white
+        // so the text is always legible against `Theme.input`.
+        let font = NSFont.systemFont(ofSize: 13)
+        let typingColor = NSColor.white
+        textView.font = font
+        textView.textColor = typingColor
+        textView.insertionPointColor = typingColor
+        textView.typingAttributes = [
+            .foregroundColor: typingColor,
+            .font: font,
+        ]
+        textView.selectedTextAttributes = [
+            .backgroundColor: NSColor.selectedTextBackgroundColor,
+            .foregroundColor: typingColor,
+        ]
         textView.drawsBackground = false
         textView.backgroundColor = .clear
         textView.textContainerInset = NSSize(width: 1, height: 4)
@@ -527,6 +544,16 @@ private struct NativeMultilineTextField: NSViewRepresentable {
         context.coordinator.parent = self
         if textView.string != text {
             textView.string = text
+            // Setting `.string` strips attributes; re-apply our font/color
+            // to the whole range so the existing text stays visible too.
+            let attributes: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor.white,
+                .font: NSFont.systemFont(ofSize: 13),
+            ]
+            textView.textStorage?.setAttributes(
+                attributes,
+                range: NSRange(location: 0, length: textView.string.utf16.count)
+            )
         }
     }
 

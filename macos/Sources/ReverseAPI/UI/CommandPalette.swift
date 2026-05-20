@@ -511,12 +511,15 @@ private struct NativeSearchField: NSViewRepresentable {
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = .systemFont(ofSize: 18, weight: .regular)
-        field.textColor = NSColor(Theme.textPrimary)
+        // Hard-code white instead of semantic colors. The .labelColor /
+        // .tertiaryLabelColor resolution against a partially-loaded dark
+        // appearance can land on values that match the panel background.
+        field.textColor = .white
         field.placeholderAttributedString = NSAttributedString(
             string: placeholder,
             attributes: [
                 .font: NSFont.systemFont(ofSize: 18, weight: .regular),
-                .foregroundColor: NSColor(Theme.textTertiary),
+                .foregroundColor: NSColor.white.withAlphaComponent(0.35),
             ]
         )
         field.stringValue = text
@@ -525,11 +528,20 @@ private struct NativeSearchField: NSViewRepresentable {
         field.cell?.wraps = false
         field.cell?.isScrollable = true
 
-        // Take first responder once the view has a window.
+        // Take first responder once the view has a window, and configure the
+        // shared field editor so the caret and selection are visible too.
         DispatchQueue.main.async {
             field.window?.makeFirstResponder(field)
             if let editor = field.currentEditor() as? NSTextView {
-                editor.insertionPointColor = NSColor(Theme.textPrimary)
+                editor.insertionPointColor = .white
+                editor.typingAttributes = [
+                    .foregroundColor: NSColor.white,
+                    .font: NSFont.systemFont(ofSize: 18, weight: .regular),
+                ]
+                editor.selectedTextAttributes = [
+                    .backgroundColor: NSColor.selectedTextBackgroundColor,
+                    .foregroundColor: NSColor.white,
+                ]
             }
         }
 
