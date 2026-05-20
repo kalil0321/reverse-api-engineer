@@ -25,26 +25,16 @@ struct ContentView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    AgentPanel()
-                        .frame(width: 380)
-                        .offset(x: isAgentVisible ? 0 : 380)
-                        .frame(width: isAgentVisible ? 380 : 0)
-                        .clipped()
-                        .allowsHitTesting(isAgentVisible)
+                    if isAgentVisible {
+                        AgentPanel()
+                            .frame(width: 380)
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 ThinDivider()
                 StatusBar()
             }
-
-            // Hidden button to capture ⌘K globally
-            Button("Search") {
-                isPaletteVisible.toggle()
-            }
-            .keyboardShortcut("k", modifiers: [.command])
-            .opacity(0)
-            .frame(width: 0, height: 0)
 
             // Dim layer (fades alone)
             if isPaletteVisible {
@@ -68,16 +58,12 @@ struct ContentView: View {
             }
         }
         .animation(.spring(response: 0.32, dampingFraction: 0.84), value: isPaletteVisible)
-        .animation(.spring(response: 0.42, dampingFraction: 0.86), value: isAgentVisible)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Theme.appBackground)
         .preferredColorScheme(.dark)
         .toolbar { toolbarContent }
         .task {
             await state.recoverStaleSystemProxyOnLaunch()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleRaeAgent)) { _ in
-            isAgentVisible.toggle()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
             state.restoreProxyBeforeExit()
@@ -93,7 +79,6 @@ struct ContentView: View {
                 Image(systemName: isAgentVisible ? "sparkles.rectangle.stack.fill" : "sparkles.rectangle.stack")
             }
             .help(isAgentVisible ? "Hide agent" : "Show agent")
-            .keyboardShortcut("j", modifiers: [.command])
 
             ActionsMenu()
 
@@ -127,9 +112,8 @@ private struct CaptureButton: View {
                 .frame(width: 22, height: 22)
         }
         .buttonStyle(.borderless)
-        .help(state.isCapturing ? "Stop capture (⌘R)" : "Start capture (⌘R)")
+        .help(state.isCapturing ? "Stop capture" : "Start capture")
         .disabled(state.isWorking)
-        .keyboardShortcut("r", modifiers: [.command])
     }
 
     private var icon: String {
@@ -187,12 +171,10 @@ private struct ActionsMenu: View {
 
             Section {
                 Button("Export HAR…") { exportHAR() }
-                    .keyboardShortcut("e", modifiers: [.command, .shift])
                     .disabled(state.store.flows.isEmpty)
                 Button("Clear traffic") {
                     state.clearFlows()
                 }
-                .keyboardShortcut("k", modifiers: [.command])
                 .disabled(state.store.flows.isEmpty)
             }
         } label: {
@@ -427,20 +409,15 @@ private struct SearchButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Theme.textSecondary)
-                Text("⌘K")
-                    .font(.system(.caption2, design: .monospaced).weight(.semibold))
-                    .foregroundStyle(Theme.textTertiary)
-            }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 5)
-            .background(isHovering ? PillStyle.activeBackground : PillStyle.hoverBackground, in: Capsule())
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Theme.textSecondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(isHovering ? PillStyle.activeBackground : PillStyle.hoverBackground, in: Capsule())
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
-        .help("Search captured traffic (⌘K)")
+        .help("Search captured traffic")
     }
 }
