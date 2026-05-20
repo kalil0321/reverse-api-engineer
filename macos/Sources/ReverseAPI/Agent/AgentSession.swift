@@ -72,6 +72,10 @@ final class AgentSession {
             history: previousHistory
         )
         history.append(userHistoryItem)
+        // Surface the user's prompt in the timeline immediately so they see
+        // their own message right next to the assistant's reply, before the
+        // agent has had a chance to respond.
+        events.append(.userText(eventID: UUID(), text: trimmed))
         do {
             input = ""
             status = .streaming
@@ -119,19 +123,50 @@ final class AgentSession {
     }
 
     private func handle(_ event: AgentEvent) {
-        events.append(event)
         switch event {
+        case .assistantTextChunk(let chatID, _, let chunk):
+            // Stream the chunk into the active assistant message instead of
+            // creating a new event per delta. If the previous event isn't an
+            // assistantText, start a fresh one with this chunk as the seed.
+            if let lastIndex = events.indices.last,
+               case .assistantText(let c, let id, let existing) = events[lastIndex],
+               c == chatID {
+                events[lastIndex] = .assistantText(chatID: c, eventID: id, text: existing + chunk)
+            } else {
+                events.append(.assistantText(chatID: chatID, eventID: UUID(), text: chunk))
+            }
         case .assistantText(_, _, let text):
+            events.append(event)
             history.append(.init(role: "assistant", content: text))
         case .complete(_, _, let workdir, let files):
+            events.append(event)
             lastWorkdir = workdir
             generatedFiles = files
             status = .ready
+            recordStreamedAssistantTextIntoHistory()
         case .error(_, _, let message):
+            events.append(event)
             lastError = message
             status = .failed
-        case .toolUse, .toolResult, .fileWritten:
-            break
+        case .userText, .toolUse, .toolResult, .fileWritten:
+            events.append(event)
+        }
+    }
+
+    /// When the assistant streams its reply via chunks we only know the full
+    /// text once the turn completes. Walk the timeline backwards to find the
+    /// last assistantText and commit it into history (unless it's already the
+    /// latest entry, which is the legacy non-streaming path).
+    private func recordStreamedAssistantTextIntoHistory() {
+        for event in events.reversed() {
+            if case .assistantText(_, _, let text) = event, !text.isEmpty {
+                let alreadyRecorded = history.last?.role == "assistant"
+                    && history.last?.content == text
+                if !alreadyRecorded {
+                    history.append(.init(role: "assistant", content: text))
+                }
+                return
+            }
         }
     }
 }

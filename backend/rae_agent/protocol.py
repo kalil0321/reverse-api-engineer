@@ -119,6 +119,10 @@ class AgentEvent:
         return cls(type="assistant_text", payload={"id": chat_id, "text": text})
 
     @classmethod
+    def assistant_text_chunk(cls, chat_id: str, text: str) -> "AgentEvent":
+        return cls(type="assistant_text_chunk", payload={"id": chat_id, "text": text})
+
+    @classmethod
     def tool_use(cls, chat_id: str, name: str, tool_input: dict[str, Any]) -> "AgentEvent":
         return cls(type="tool_use", payload={"id": chat_id, "name": name, "input": tool_input})
 

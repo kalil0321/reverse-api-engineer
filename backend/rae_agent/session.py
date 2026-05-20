@@ -13,6 +13,7 @@ from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
     ResultMessage,
+    StreamEvent,
     TextBlock,
     ToolResultBlock,
     ToolUseBlock,
@@ -75,6 +76,7 @@ async def run_chat(request: ChatRequest, base_dir: Path) -> AsyncIterator[AgentE
         cwd=str(dirs.output_dir),
         allowed_tools=["Read", "Write", "Edit"],
         permission_mode="acceptEdits",
+        include_partial_messages=True,
     )
 
     pending_writes: dict[str, str] = {}
@@ -102,11 +104,26 @@ async def _translate(
     message: Any,
     pending_writes: dict[str, str],
 ) -> AsyncIterator[AgentEvent]:
+    # With include_partial_messages=True the SDK emits a StreamEvent for each
+    # raw Anthropic API stream chunk. We forward `text_delta` chunks as
+    # assistant_text_chunk events so the macOS UI can render the response
+    # incrementally instead of waiting for the final AssistantMessage.
+    if isinstance(message, StreamEvent):
+        raw = message.event or {}
+        if raw.get("type") == "content_block_delta":
+            delta = raw.get("delta") or {}
+            if delta.get("type") == "text_delta":
+                text = delta.get("text") or ""
+                if text:
+                    yield AgentEvent.assistant_text_chunk(chat_id, text)
+        return
+
     if isinstance(message, AssistantMessage):
         for block in message.content:
             if isinstance(block, TextBlock):
-                if block.text:
-                    yield AgentEvent.assistant_text(chat_id, block.text)
+                # Text already streamed via StreamEvent chunks above — skip
+                # to avoid emitting the same body twice.
+                continue
             elif isinstance(block, ToolUseBlock):
                 tool_input = dict(block.input or {})
                 yield AgentEvent.tool_use(chat_id, block.name, tool_input)
