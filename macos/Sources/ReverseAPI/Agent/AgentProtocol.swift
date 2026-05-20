@@ -76,7 +76,9 @@ struct AgentChatRequest: Encodable {
 }
 
 enum AgentEvent: Sendable, Identifiable {
+    case userText(eventID: UUID, text: String)
     case assistantText(chatID: String, eventID: UUID, text: String)
+    case assistantTextChunk(chatID: String, eventID: UUID, text: String)
     case toolUse(chatID: String, eventID: UUID, name: String, inputJSON: String)
     case toolResult(chatID: String, eventID: UUID, output: String, isError: Bool)
     case fileWritten(chatID: String, eventID: UUID, path: String)
@@ -85,7 +87,9 @@ enum AgentEvent: Sendable, Identifiable {
 
     var id: UUID {
         switch self {
+        case .userText(let id, _): return id
         case .assistantText(_, let id, _): return id
+        case .assistantTextChunk(_, let id, _): return id
         case .toolUse(_, let id, _, _): return id
         case .toolResult(_, let id, _, _): return id
         case .fileWritten(_, let id, _): return id
@@ -106,6 +110,12 @@ enum AgentEventDecoder {
         switch type {
         case "assistant_text":
             return .assistantText(
+                chatID: chatID ?? "",
+                eventID: eventID,
+                text: object["text"] as? String ?? ""
+            )
+        case "assistant_text_chunk":
+            return .assistantTextChunk(
                 chatID: chatID ?? "",
                 eventID: eventID,
                 text: object["text"] as? String ?? ""
