@@ -5,13 +5,13 @@ import SwiftUI
 struct ReverseAPIApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var session = AppSession.live()
-    @AppStorage("rae.sidebar.visible") private var isSidebarVisible = true
+    @AppStorage("rae.agent.visible") private var isAgentVisible = false
 
     var body: some Scene {
         Window("rae", id: "main") {
             switch session {
             case .ready(let state):
-                ContentView(isSidebarVisible: $isSidebarVisible)
+                ContentView(isAgentVisible: $isAgentVisible)
                     .environment(state)
                     .onAppear {
                         AppLifecycle.shared.state = state
@@ -19,10 +19,17 @@ struct ReverseAPIApp: App {
                     .onDisappear {
                         Task { await state.shutdownForWindowClose() }
                     }
+                    .background(WindowAccessor { window in
+                        window.title = ""
+                        window.titleVisibility = .hidden
+                        window.titlebarAppearsTransparent = true
+                        window.isOpaque = true
+                        window.backgroundColor = NSColor(Theme.appBackground)
+                    })
                     .frame(
-                        minWidth: 1100,
+                        minWidth: 980,
                         maxWidth: .infinity,
-                        minHeight: 700,
+                        minHeight: 640,
                         maxHeight: .infinity,
                         alignment: .topLeading
                     )
@@ -36,10 +43,10 @@ struct ReverseAPIApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {}
             CommandGroup(after: .toolbar) {
-                Button(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar") {
-                    isSidebarVisible.toggle()
+                Button(isAgentVisible ? "Hide Agent" : "Show Agent") {
+                    isAgentVisible.toggle()
                 }
-                .keyboardShortcut("b", modifiers: .command)
+                .keyboardShortcut("j", modifiers: .command)
             }
         }
     }
@@ -62,12 +69,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isTerminating = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.appearance = NSAppearance(named: .darkAqua)
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            let togglesSidebar = event.charactersIgnoringModifiers?.lowercased() == "b" &&
+            let togglesAgent = event.charactersIgnoringModifiers?.lowercased() == "j" &&
                 modifiers == .command
-            guard togglesSidebar else { return event }
-            NotificationCenter.default.post(name: .toggleRaeSidebar, object: nil)
+            guard togglesAgent else { return event }
+            NotificationCenter.default.post(name: .toggleRaeAgent, object: nil)
             return nil
         }
     }
@@ -102,7 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension Notification.Name {
-    static let toggleRaeSidebar = Notification.Name("rae.toggleSidebar")
+    static let toggleRaeAgent = Notification.Name("rae.toggleAgent")
 }
 
 enum AppSession {
@@ -115,6 +123,43 @@ enum AppSession {
             return .ready(try AppState())
         } catch {
             return .failed(error)
+        }
+    }
+}
+
+/// Grabs the hosting NSWindow once it's attached so we can tweak title visibility,
+/// titlebar transparency, and the window background — none of which SwiftUI's
+/// Scene API exposes. Uses `viewDidMoveToWindow` so the window is guaranteed
+/// to exist when `configure` runs (unlike DispatchQueue.main.async hacks).
+private struct WindowAccessor: NSViewRepresentable {
+    let configure: (NSWindow) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = WindowReadingView()
+        view.onWindow = configure
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if let view = nsView as? WindowReadingView {
+            view.onWindow = configure
+        }
+    }
+
+    final class WindowReadingView: NSView {
+        var onWindow: ((NSWindow) -> Void)?
+        private var configured = false
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window, !configured else { return }
+            configured = true
+            // Defer to next runloop tick — running AppKit window mutations during
+            // the SwiftUI hosting view's first layout can throw inside Core
+            // Animation's commit phase on macOS 14+.
+            DispatchQueue.main.async { [weak self] in
+                self?.onWindow?(window)
+            }
         }
     }
 }
