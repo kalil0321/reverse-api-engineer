@@ -141,6 +141,19 @@ actor AgentSidecar {
                 guard let port = Int(portString) else {
                     throw SidecarError.failedToStart("unexpected line: \(line)")
                 }
+                // The sidecar can announce its port and crash one tick later
+                // (e.g. an exception fires while `serve()` enters its first
+                // accept loop). Give the runloop a beat, then re-check
+                // liveness before returning the port — otherwise the caller
+                // happily tries to connect a websocket to a dead process.
+                try await Task.sleep(for: .milliseconds(20))
+                if !process.isRunning {
+                    let stderrDump = errBuffer.snapshot().trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !stderrDump.isEmpty {
+                        throw SidecarError.stderrSnapshot(stderrDump)
+                    }
+                    throw SidecarError.processDied(process.terminationStatus)
+                }
                 return port
             }
             if !process.isRunning {
@@ -166,12 +179,24 @@ private final class AsyncStreamBuffer: @unchecked Sendable {
         data.append(chunk)
     }
 
+    /// Only matches lines that are *complete*, i.e. terminated by a newline.
+    /// Without this guard a fragmented stdout read can hand back a partial
+    /// `RAE_AGENT_LISTENING:5` and we'd connect to port 5 instead of the
+    /// real port once it finishes arriving.
     func takeLine(prefix: String) -> String? {
         lock.lock()
         defer { lock.unlock() }
         guard let text = String(data: data, encoding: .utf8) else { return nil }
-        for line in text.split(separator: "\n") {
-            if line.hasPrefix(prefix) { return String(line) }
+        let endsWithNewline = text.hasSuffix("\n")
+        let segments = text.split(separator: "\n", omittingEmptySubsequences: false)
+        for (index, substring) in segments.enumerated() {
+            let line = String(substring)
+            guard line.hasPrefix(prefix) else { continue }
+            // The final segment may be a partial line (the reader has bytes
+            // but the trailing \n hasn't arrived yet). Treat it as complete
+            // only when `text` itself ends with \n.
+            let isComplete = (index != segments.count - 1) || endsWithNewline
+            if isComplete { return line }
         }
         return nil
     }
