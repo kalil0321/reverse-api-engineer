@@ -15,6 +15,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-certificates.git", from: "1.5.0"),
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.7.0"),
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.29.0"),
+        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui.git", from: "2.4.0"),
     ],
     targets: [
         .target(
@@ -41,6 +42,7 @@ let package = Package(
             dependencies: [
                 "ReverseAPIProxy",
                 .product(name: "GRDB", package: "GRDB.swift"),
+                .product(name: "MarkdownUI", package: "swift-markdown-ui"),
             ]
         ),
         .testTarget(
