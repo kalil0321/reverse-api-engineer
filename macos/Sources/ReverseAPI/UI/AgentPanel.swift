@@ -183,18 +183,49 @@ private struct AgentEventRow: View {
 
     var body: some View {
         switch event {
+        case .userText(_, let text):
+            UserMessageRow(text: text)
         case .assistantText(_, _, let text):
             AssistantRow(text: text)
+        case .assistantTextChunk:
+            // Chunks are folded into the active assistantText event by
+            // AgentSession; we never render them as standalone rows.
+            EmptyView()
         case .toolUse(_, _, let name, let inputJSON):
             ToolUseRow(name: name, inputJSON: inputJSON)
         case .toolResult(_, _, let output, let isError):
             ToolResultRow(output: output, isError: isError)
         case .fileWritten(_, _, let path):
             FileWrittenRow(path: path)
-        case .complete(_, _, let workdir, let files):
-            CompleteRow(workdir: workdir, fileCount: files.count)
+        case .complete(_, _, _, let files):
+            // Only surface a completion badge when the agent actually wrote
+            // files. For plain Q&A the "Finished · 0 files" pill was noise.
+            if !files.isEmpty {
+                CompleteRow(fileCount: files.count)
+            } else {
+                EmptyView()
+            }
         case .error(_, _, let message):
             ErrorRow(message: message)
+        }
+    }
+}
+
+private struct UserMessageRow: View {
+    let text: String
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 40)
+            Text(text)
+                .font(.body)
+                .foregroundStyle(Theme.textPrimary)
+                .textSelection(.enabled)
+                .multilineTextAlignment(.leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Theme.elevated, in: RoundedRectangle(cornerRadius: 10))
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -325,7 +356,6 @@ private struct FileWrittenRow: View {
 }
 
 private struct CompleteRow: View {
-    let workdir: String
     let fileCount: Int
 
     var body: some View {
@@ -333,12 +363,9 @@ private struct CompleteRow: View {
             Image(systemName: "checkmark.seal.fill")
                 .foregroundStyle(Theme.success)
                 .font(.callout)
-            Text("Finished · \(fileCount) file\(fileCount == 1 ? "" : "s")")
+            Text("Wrote \(fileCount) file\(fileCount == 1 ? "" : "s")")
                 .font(.callout)
                 .foregroundStyle(Theme.textPrimary)
-            Text(URL(fileURLWithPath: workdir).lastPathComponent)
-                .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(Theme.textTertiary)
             Spacer()
         }
     }
