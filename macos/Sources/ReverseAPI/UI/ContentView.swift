@@ -15,18 +15,22 @@ struct ContentView: View {
                     Card {
                         HSplitView {
                             TrafficListView()
-                                .frame(minWidth: 300, maxHeight: .infinity)
+                                .frame(minWidth: 320, maxHeight: .infinity)
                             if state.selectedFlowID != nil {
                                 InspectorView()
-                                    .frame(minWidth: 320, idealWidth: 480, maxHeight: .infinity)
+                                    .frame(minWidth: 340, idealWidth: 480, maxHeight: .infinity)
                             }
                         }
                     }
-                    // Roughly half the minimum window (980pt) so the user
-                    // can never compress the traffic card into the layout
-                    // glitch zone we hit earlier — host/path collisions,
-                    // header label overflow, inspector tabs scrolling.
-                    .frame(minWidth: 540)
+                    // Conditional minWidth so the user can still compress the
+                    // traffic card down when no inspector is showing, but the
+                    // card auto-grows to fit table+inspector the moment a
+                    // flow gets selected. Below 700pt with the inspector
+                    // open, SwiftUI rendered the inner HSplitView wider
+                    // than the Card frame, leaking past the rounded
+                    // clipShape — borders disappeared, rows got clipped
+                    // past the right edge, scroll + hit testing broke.
+                    .frame(minWidth: state.selectedFlowID == nil ? 380 : 700)
                     // Right padding on the trailing edge of the traffic card
                     // gives the visible gap between cards. HSplitView itself
                     // owns a 1pt system divider; the padding pushes it off
