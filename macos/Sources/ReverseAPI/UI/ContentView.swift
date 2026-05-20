@@ -15,14 +15,18 @@ struct ContentView: View {
                     Card {
                         HSplitView {
                             TrafficListView()
-                                .frame(minWidth: 280, maxHeight: .infinity)
+                                .frame(minWidth: 300, maxHeight: .infinity)
                             if state.selectedFlowID != nil {
                                 InspectorView()
                                     .frame(minWidth: 320, idealWidth: 480, maxHeight: .infinity)
                             }
                         }
                     }
-                    .frame(minWidth: 320)
+                    // Roughly half the minimum window (980pt) so the user
+                    // can never compress the traffic card into the layout
+                    // glitch zone we hit earlier — host/path collisions,
+                    // header label overflow, inspector tabs scrolling.
+                    .frame(minWidth: 540)
                     // Right padding on the trailing edge of the traffic card
                     // gives the visible gap between cards. HSplitView itself
                     // owns a 1pt system divider; the padding pushes it off

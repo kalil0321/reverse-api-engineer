@@ -53,8 +53,10 @@ private struct TrafficListHeader: View {
                 .background(Theme.elevated, in: Capsule())
             Spacer()
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        // Same horizontal padding as TrafficRow so the header select-all
+        // checkbox sits in the same column as the per-row checkboxes.
+        .padding(.horizontal, 12)
+        .frame(height: 44)
     }
 }
 

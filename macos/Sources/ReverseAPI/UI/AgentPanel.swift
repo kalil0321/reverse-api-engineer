@@ -6,13 +6,16 @@ struct AgentPanel: View {
     @Environment(AppState.self) private var state
 
     var body: some View {
+        // No explicit background — both modes inherit Theme.surface from
+        // the enclosing Card, which keeps the agent and traffic cards
+        // visually matched. Previous `.background(Theme.appBackground)`
+        // override made the agent card read darker than the traffic
+        // card.
         switch state.agent.mode {
         case .list:
             SessionsListView()
-                .background(Theme.appBackground)
         case .session:
             ActiveSessionView()
-                .background(Theme.appBackground)
         }
     }
 }
@@ -63,9 +66,9 @@ private struct SessionHeader: View {
                 state.agent.backToList()
             } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Theme.textSecondary)
-                    .frame(width: 26, height: 26)
+                    .frame(width: 22, height: 22)
                     .background(Theme.elevated, in: Circle())
             }
             .buttonStyle(.plain)
@@ -74,7 +77,7 @@ private struct SessionHeader: View {
             LanguageMenu(target: $target)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .frame(height: 44)
     }
 }
 
@@ -122,7 +125,7 @@ private struct AgentTimeline: View {
         if events.isEmpty && error == nil && generatedFiles.isEmpty && status != .streaming {
             EmptyAgentState()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Theme.appBackground)
+                .background(Theme.surface)
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
@@ -145,7 +148,7 @@ private struct AgentTimeline: View {
                     .padding(.vertical, 18)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .background(Theme.appBackground)
+                .background(Theme.surface)
                 .onChange(of: events.count) { _, _ in
                     if let last = events.last {
                         withAnimation(.easeOut(duration: 0.15)) {
@@ -566,7 +569,7 @@ private struct AgentComposer: View {
         .padding(10)
         .background(Theme.input, in: RoundedRectangle(cornerRadius: 12))
         .padding(12)
-        .background(Theme.appBackground)
+        .background(Theme.surface)
     }
 
     private var canSend: Bool {
