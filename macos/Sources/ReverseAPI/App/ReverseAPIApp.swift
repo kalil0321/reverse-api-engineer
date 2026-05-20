@@ -26,7 +26,12 @@ struct ReverseAPIApp: App {
                         window.backgroundColor = NSColor(Theme.appBackground)
                     })
                     .frame(
-                        minWidth: 980,
+                        // Bumped so the traffic card can always fit
+                        // table+inspector side by side (its inner HSplitView
+                        // needs ~700pt) without compressing past its
+                        // rounded border into a glitchy state. Old 980pt
+                        // window minimum was below that threshold.
+                        minWidth: 1100,
                         maxWidth: .infinity,
                         minHeight: 640,
                         maxHeight: .infinity,
