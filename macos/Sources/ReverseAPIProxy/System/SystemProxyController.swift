@@ -7,7 +7,7 @@ public enum SystemProxyError: Error {
     case invalidPort(Int)
 }
 
-public struct ProxyServiceSnapshot: Sendable, Equatable {
+public struct ProxyServiceSnapshot: Sendable, Equatable, Codable {
     public let service: String
     public let httpEnabled: Bool
     public let httpHost: String
@@ -15,6 +15,24 @@ public struct ProxyServiceSnapshot: Sendable, Equatable {
     public let httpsEnabled: Bool
     public let httpsHost: String
     public let httpsPort: Int
+
+    public init(
+        service: String,
+        httpEnabled: Bool,
+        httpHost: String,
+        httpPort: Int,
+        httpsEnabled: Bool,
+        httpsHost: String,
+        httpsPort: Int
+    ) {
+        self.service = service
+        self.httpEnabled = httpEnabled
+        self.httpHost = httpHost
+        self.httpPort = httpPort
+        self.httpsEnabled = httpsEnabled
+        self.httpsHost = httpsHost
+        self.httpsPort = httpsPort
+    }
 }
 
 public final class SystemProxyController: @unchecked Sendable {

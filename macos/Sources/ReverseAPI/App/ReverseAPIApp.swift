@@ -64,6 +64,7 @@ final class AppLifecycle {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isTerminating = false
+    private var signalSources: [DispatchSourceSignal] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // `swift run` launches a bare SwiftPM executable with no .app bundle
@@ -77,6 +78,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         NSApp.appearance = NSAppearance(named: .darkAqua)
+        installSignalHandlers()
+    }
+
+    /// Restore the system proxy before exiting on SIGINT / SIGTERM / SIGHUP.
+    /// Activity Monitor's "Quit" / "Force Quit", `kill <pid>`, terminal Ctrl-C
+    /// from `swift run` and shutdown all hit this path. AppKit's normal
+    /// applicationShouldTerminate doesn't fire for these, so without this
+    /// the system proxy stays pointing at 127.0.0.1:<port> with nothing
+    /// listening — exactly the "Safari can't connect" symptom users see.
+    private func installSignalHandlers() {
+        for sig in [SIGINT, SIGTERM, SIGHUP] {
+            // Ignore the default signal action FIRST so the dispatch source
+            // gets a chance to run before the process gets killed by the
+            // kernel's default handler.
+            signal(sig, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+            source.setEventHandler { [weak self] in
+                guard let self else { exit(0) }
+                // Queue is .main — we're already on the main actor, just
+                // assert it so we can call @MainActor methods without
+                // hopping through an async Task.
+                MainActor.assumeIsolated { self.handleSignal(sig) }
+            }
+            source.resume()
+            signalSources.append(source)
+        }
+    }
+
+    @MainActor
+    private func handleSignal(_ sig: Int32) {
+        guard !isTerminating else { return }
+        isTerminating = true
+        // Synchronous restore — we have no async budget once the OS has
+        // decided to kill us. The proxy state is the priority; the engine
+        // + agent sidecar would normally clean up too but they'd race the
+        // process exit anyway.
+        AppLifecycle.shared.restoreProxyBeforeExit()
+        // Re-raise the signal with the default handler so the process
+        // actually exits with the right termination status.
+        signal(sig, SIG_DFL)
+        raise(sig)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
