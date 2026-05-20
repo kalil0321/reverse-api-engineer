@@ -18,31 +18,25 @@ struct SessionsListView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 10) {
             Text("Sessions")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Theme.textPrimary)
-            Text("\(state.agent.store.sessions.count)")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(Theme.textTertiary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 1)
-                .background(Theme.elevated, in: Capsule())
             Spacer()
             Button {
                 state.agent.startNewSession()
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Theme.textPrimary)
-                    .frame(width: 26, height: 26)
+                    .frame(width: 22, height: 22)
                     .background(Theme.elevated, in: Circle())
             }
             .buttonStyle(.plain)
             .help("Start a new session")
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .frame(height: 44)
     }
 
     // MARK: - List body
