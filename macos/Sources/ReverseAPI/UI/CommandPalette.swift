@@ -162,27 +162,6 @@ struct CommandPalette: View {
         .frame(maxWidth: .infinity, minHeight: 240)
     }
 
-    private var footer: some View {
-        HStack(spacing: 14) {
-            FooterHint(symbols: ["↑", "↓"], label: "navigate")
-            FooterHint(symbols: ["↵"], label: "open")
-            FooterHint(symbols: ["esc"], label: "close")
-            Spacer()
-            if let flow = highlightedFlow {
-                Text(flow.host)
-                    .font(.caption)
-                    .foregroundStyle(Theme.textTertiary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(alignment: .top) {
-            Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1)
-        }
-    }
-
     // MARK: - Data
 
     private var results: [CapturedFlow] {
@@ -301,26 +280,8 @@ private struct ResultRow: View {
         }
     }
 
-    private var methodColor: Color {
-        switch flow.method {
-        case "GET": return Theme.methodGet
-        case "POST": return Theme.methodPost
-        case "PUT", "PATCH": return Theme.methodPut
-        case "DELETE": return Theme.methodDelete
-        case "CONNECT": return Theme.methodConnect
-        default: return Theme.textSecondary
-        }
-    }
-
-    private func statusColor(_ status: Int) -> Color {
-        switch status {
-        case 200..<300: return Theme.success
-        case 300..<400: return Theme.methodGet
-        case 400..<500: return Theme.methodPut
-        case 500..<600: return Theme.danger
-        default: return Theme.textSecondary
-        }
-    }
+    private var methodColor: Color { PaletteColors.method(flow.method) }
+    private func statusColor(_ status: Int) -> Color { PaletteColors.status(status) }
 }
 
 // MARK: - Preview pane
@@ -427,8 +388,15 @@ private struct PreviewPane: View {
         flow.responseHeaders.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame })?.value
     }
 
-    private var methodColor: Color {
-        switch flow.method {
+    private var methodColor: Color { PaletteColors.method(flow.method) }
+    private func statusColor(_ status: Int) -> Color { PaletteColors.status(status) }
+}
+
+// MARK: - Shared HTTP color helpers (avoid drift between palette views)
+
+private enum PaletteColors {
+    static func method(_ method: String) -> Color {
+        switch method {
         case "GET": return Theme.methodGet
         case "POST": return Theme.methodPost
         case "PUT", "PATCH": return Theme.methodPut
@@ -438,7 +406,7 @@ private struct PreviewPane: View {
         }
     }
 
-    private func statusColor(_ status: Int) -> Color {
+    static func status(_ status: Int) -> Color {
         switch status {
         case 200..<300: return Theme.success
         case 300..<400: return Theme.methodGet
@@ -449,30 +417,7 @@ private struct PreviewPane: View {
     }
 }
 
-// MARK: - Footer hint & count chip
-
-private struct FooterHint: View {
-    let symbols: [String]
-    let label: String
-
-    var body: some View {
-        HStack(spacing: 6) {
-            HStack(spacing: 2) {
-                ForEach(symbols, id: \.self) { sym in
-                    Text(sym)
-                        .font(.system(.caption2, design: .monospaced).weight(.semibold))
-                        .foregroundStyle(Theme.textSecondary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 4))
-                }
-            }
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(Theme.textTertiary)
-        }
-    }
-}
+// MARK: - Count chip
 
 private struct CountChip: View {
     let count: Int
