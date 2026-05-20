@@ -36,6 +36,7 @@ struct TrafficListView: View {
 // MARK: - Header
 
 private struct TrafficListHeader: View {
+    @Environment(AppState.self) private var state
     let visibleCount: Int
     let visibleIDs: [UUID]
 
@@ -52,11 +53,128 @@ private struct TrafficListHeader: View {
                 .padding(.vertical, 1)
                 .background(Theme.elevated, in: Capsule())
             Spacer()
+            FilterButton()
+            DeleteAllButton()
         }
         // Same horizontal padding as TrafficRow so the header select-all
         // checkbox sits in the same column as the per-row checkboxes.
         .padding(.horizontal, 12)
         .frame(height: 44)
+    }
+}
+
+// MARK: - Filter + delete-all actions
+
+private struct FilterButton: View {
+    @Environment(AppState.self) private var state
+
+    var body: some View {
+        @Bindable var bindable = state
+        Menu {
+            Toggle(isOn: $bindable.filter.onlyErrors) {
+                Label("Errors only", systemImage: "exclamationmark.octagon")
+            }
+            Section("Type") {
+                ForEach(TrafficFilter.ResourceKind.allCases) { kind in
+                    Toggle(isOn: bindingForResource(kind)) { Text(kind.rawValue) }
+                }
+            }
+            Section("Method") {
+                ForEach(state.store.methodOptions, id: \.self) { method in
+                    Toggle(isOn: bindingForMethod(method)) { Text(method) }
+                }
+            }
+            Section("Status") {
+                ForEach(TrafficFilter.StatusBucket.allCases) { bucket in
+                    Toggle(isOn: bindingForBucket(bucket)) { Text(bucket.rawValue) }
+                }
+            }
+            if activeFilterCount > 0 {
+                Divider()
+                Button("Reset filters", role: .destructive) {
+                    bindable.filter = TrafficFilter()
+                }
+            }
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "line.3.horizontal.decrease")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.textPrimary)
+                    .frame(width: 22, height: 22)
+                    .background(Theme.elevated, in: Circle())
+                if activeFilterCount > 0 {
+                    Circle()
+                        .fill(Theme.success)
+                        .frame(width: 6, height: 6)
+                        .offset(x: 1, y: -1)
+                }
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(activeFilterCount > 0
+              ? "Filter traffic · \(activeFilterCount) active"
+              : "Filter traffic")
+    }
+
+    private var activeFilterCount: Int {
+        var count = 0
+        if state.filter.onlyErrors { count += 1 }
+        count += state.filter.resourceKinds.count
+        count += state.filter.methods.count
+        count += state.filter.statusBuckets.count
+        count += state.filter.hosts.count
+        return count
+    }
+
+    private func bindingForResource(_ kind: TrafficFilter.ResourceKind) -> Binding<Bool> {
+        Binding(
+            get: { state.filter.resourceKinds.contains(kind) },
+            set: { isOn in
+                if isOn { state.filter.resourceKinds.insert(kind) }
+                else { state.filter.resourceKinds.remove(kind) }
+            }
+        )
+    }
+
+    private func bindingForMethod(_ method: String) -> Binding<Bool> {
+        Binding(
+            get: { state.filter.methods.contains(method) },
+            set: { isOn in
+                if isOn { state.filter.methods.insert(method) }
+                else { state.filter.methods.remove(method) }
+            }
+        )
+    }
+
+    private func bindingForBucket(_ bucket: TrafficFilter.StatusBucket) -> Binding<Bool> {
+        Binding(
+            get: { state.filter.statusBuckets.contains(bucket) },
+            set: { isOn in
+                if isOn { state.filter.statusBuckets.insert(bucket) }
+                else { state.filter.statusBuckets.remove(bucket) }
+            }
+        )
+    }
+}
+
+private struct DeleteAllButton: View {
+    @Environment(AppState.self) private var state
+
+    var body: some View {
+        Button {
+            state.clearFlows()
+        } label: {
+            Image(systemName: "trash")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(state.store.flows.isEmpty ? Theme.textTertiary : Theme.textPrimary)
+                .frame(width: 22, height: 22)
+                .background(Theme.elevated, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(state.store.flows.isEmpty)
+        .help("Delete all captured traffic")
     }
 }
 
