@@ -6,44 +6,68 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @Environment(AppState.self) private var state
     @State private var isPaletteVisible: Bool = false
+    @State private var trafficWidth: CGFloat = 720
+    @State private var dragStartWidth: CGFloat?
 
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
                 ActionBar(onOpenPalette: { isPaletteVisible = true })
-                HSplitView {
-                    Card {
-                        HSplitView {
-                            TrafficListView()
-                                .frame(minWidth: 320, maxHeight: .infinity)
-                            if state.selectedFlowID != nil {
-                                InspectorView()
-                                    .frame(minWidth: 340, idealWidth: 480, maxHeight: .infinity)
+                GeometryReader { geo in
+                    let layout = SplitLayout(
+                        totalWidth: geo.size.width,
+                        trafficWidth: trafficWidth,
+                        hasInspector: state.selectedFlowID != nil
+                    )
+                    HStack(spacing: 0) {
+                        Card {
+                            HSplitView {
+                                TrafficListView()
+                                    .frame(minWidth: 320, maxHeight: .infinity)
+                                if state.selectedFlowID != nil {
+                                    InspectorView()
+                                        .frame(minWidth: 340, idealWidth: 480, maxHeight: .infinity)
+                                }
+                            }
+                        }
+                        .frame(width: layout.trafficWidth)
+                        DragHandle(width: SplitLayout.handleWidth) { delta in
+                            // First gesture tick: snapshot the current width so
+                            // we don't accumulate the same offset every frame.
+                            if dragStartWidth == nil {
+                                dragStartWidth = layout.trafficWidth
+                            }
+                            trafficWidth = (dragStartWidth ?? 0) + delta
+                        } onEnded: {
+                            dragStartWidth = nil
+                            // Pin to the clamped value so the next gesture
+                            // starts from where the user actually let go.
+                            trafficWidth = layout.trafficWidth
+                        }
+                        Card {
+                            AgentPanel()
+                        }
+                        .frame(width: layout.agentWidth)
+                    }
+                    .padding(12)
+                    .onChange(of: state.selectedFlowID) { _, newID in
+                        // When the inspector opens, the traffic card's
+                        // effective minimum jumps from 380 → 720. Re-clamp
+                        // the user's last manual width through SplitLayout
+                        // so the card auto-grows instead of clipping past
+                        // its rounded border.
+                        let next = SplitLayout(
+                            totalWidth: geo.size.width,
+                            trafficWidth: trafficWidth,
+                            hasInspector: newID != nil
+                        )
+                        if trafficWidth != next.trafficWidth {
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                trafficWidth = next.trafficWidth
                             }
                         }
                     }
-                    // Conditional minWidth so the user can still compress the
-                    // traffic card down when no inspector is showing, but the
-                    // card auto-grows to fit table+inspector the moment a
-                    // flow gets selected. Below 700pt with the inspector
-                    // open, SwiftUI rendered the inner HSplitView wider
-                    // than the Card frame, leaking past the rounded
-                    // clipShape — borders disappeared, rows got clipped
-                    // past the right edge, scroll + hit testing broke.
-                    .frame(minWidth: state.selectedFlowID == nil ? 380 : 700)
-                    // Right padding on the trailing edge of the traffic card
-                    // gives the visible gap between cards. HSplitView itself
-                    // owns a 1pt system divider; the padding pushes it off
-                    // the card outline so the two cards read as separate.
-                    .padding(.trailing, 6)
-
-                    Card {
-                        AgentPanel()
-                    }
-                    .frame(minWidth: 340, idealWidth: 380)
-                    .padding(.leading, 6)
                 }
-                .padding(12)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
@@ -115,6 +139,65 @@ struct Card<Content: View>: View {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(Theme.border, lineWidth: 1)
             }
+    }
+}
+
+// MARK: - Outer split between traffic + agent cards
+
+/// Resolves the actual widths of the two cards from the current geometry,
+/// the user-driven trafficWidth state, and whether the inspector is open.
+/// Pulls the math out of ContentView.body so layout decisions live next to
+/// the constants they depend on.
+private struct SplitLayout {
+    static let handleWidth: CGFloat = 12
+    static let outerPadding: CGFloat = 12
+    static let trafficMinNoInspector: CGFloat = 380
+    static let trafficMinWithInspector: CGFloat = 720
+    static let agentMin: CGFloat = 340
+
+    let trafficWidth: CGFloat
+    let agentWidth: CGFloat
+
+    init(totalWidth: CGFloat, trafficWidth proposed: CGFloat, hasInspector: Bool) {
+        let usable = max(0, totalWidth - 2 * Self.outerPadding - Self.handleWidth)
+        let trafficMin = hasInspector ? Self.trafficMinWithInspector : Self.trafficMinNoInspector
+        // Ceiling so the agent card never gets squashed below its own
+        // minimum, even when the user drags the handle hard against the
+        // right edge of the window.
+        let trafficMax = max(trafficMin, usable - Self.agentMin)
+        let clamped = min(max(proposed, trafficMin), trafficMax)
+        self.trafficWidth = clamped
+        self.agentWidth = max(Self.agentMin, usable - clamped)
+    }
+}
+
+/// Transparent vertical strip between the two cards. The body itself is
+/// invisible — we just need a hit-target for the drag gesture. NSCursor
+/// flips to resizeLeftRight when the pointer hovers, so the affordance is
+/// the cursor rather than a visible bar.
+private struct DragHandle: View {
+    let width: CGFloat
+    let onDrag: (CGFloat) -> Void
+    let onEnded: () -> Void
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(width: width)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.resizeLeftRight.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+            .gesture(
+                DragGesture()
+                    .onChanged { value in onDrag(value.translation.width) }
+                    .onEnded { _ in onEnded() }
+            )
     }
 }
 
