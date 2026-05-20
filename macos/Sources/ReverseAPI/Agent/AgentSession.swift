@@ -237,8 +237,21 @@ final class AgentSession {
         Task { await persist() }
     }
 
+    /// Walk back from the timeline tail only as far as the most recent
+    /// `userText` event — that's where the current turn started. If the
+    /// turn ended without an assistant reply (tool-only turn, error, etc.)
+    /// we do nothing instead of re-committing a previous turn's reply, which
+    /// was the bug in the un-scoped version.
     private func recordStreamedAssistantTextIntoHistory() {
-        for event in events.reversed() {
+        var turnStart = events.startIndex
+        for (index, event) in events.enumerated().reversed() {
+            if case .userText = event {
+                turnStart = index + 1
+                break
+            }
+        }
+        guard turnStart <= events.endIndex else { return }
+        for event in events[turnStart...].reversed() {
             if case .assistantText(_, _, let text) = event, !text.isEmpty {
                 let alreadyRecorded = history.last?.role == "assistant"
                     && history.last?.content == text
