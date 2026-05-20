@@ -13,13 +13,24 @@ from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
     ResultMessage,
-    StreamEvent,
     TextBlock,
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
     query,
 )
+
+# `StreamEvent` is defined in claude_agent_sdk.types but not re-exported from
+# the package's public namespace (at least up to 0.1.48). Import it directly
+# from the submodule, and degrade gracefully to an unmatchable sentinel class
+# if the SDK ever drops it — we just lose streaming, not the whole sidecar.
+try:
+    from claude_agent_sdk.types import StreamEvent
+except ImportError:  # pragma: no cover - SDK shape changed
+    class StreamEvent:  # type: ignore[no-redef]
+        """Stub used only for isinstance checks when the SDK doesn't expose
+        StreamEvent. Nothing will match it, so streaming silently degrades."""
+        pass
 
 from rae_agent.prompts import SYSTEM_PROMPT, build_user_prompt
 from rae_agent.protocol import AgentEvent, ChatRequest, sanitize_session_id
