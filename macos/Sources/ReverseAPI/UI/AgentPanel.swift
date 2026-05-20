@@ -264,42 +264,85 @@ private struct ToolUseRow: View {
     @State private var isExpanded: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 0) {
             Button {
-                if !inputJSON.isEmpty {
-                    isExpanded.toggle()
-                }
+                if !inputJSON.isEmpty { isExpanded.toggle() }
             } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "wrench.adjustable")
-                        .font(.caption)
-                        .foregroundStyle(Theme.textTertiary)
-                    Text(name)
-                        .font(.system(.caption, design: .monospaced).weight(.medium))
+                HStack(spacing: 8) {
+                    Image(systemName: iconName)
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Theme.textSecondary)
-                    if !inputJSON.isEmpty {
-                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(Theme.textTertiary)
+                        .frame(width: 16)
+                    Text(name)
+                        .font(.system(.caption, design: .monospaced).weight(.semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                    if let summary = inlineSummary {
+                        Text(summary)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(Theme.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
-                    Spacer()
+                    Spacer(minLength: 4)
+                    if !inputJSON.isEmpty {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Theme.textTertiary)
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    }
                 }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
             if isExpanded, !inputJSON.isEmpty {
+                Divider().overlay(Theme.border)
                 Text(inputJSON)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(Theme.textSecondary)
                     .textSelection(.enabled)
-                    .padding(8)
+                    .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Theme.appBackground, in: RoundedRectangle(cornerRadius: 6))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 6).stroke(Theme.border, lineWidth: 1)
-                    }
             }
         }
+        .background(Theme.elevated, in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8).stroke(Theme.border, lineWidth: 1)
+        }
+    }
+
+    private var iconName: String {
+        switch name {
+        case "Read": return "doc.text"
+        case "Write": return "square.and.pencil"
+        case "Edit": return "pencil"
+        case "Bash": return "terminal"
+        case "Glob", "Grep": return "magnifyingglass"
+        default: return "wrench.adjustable"
+        }
+    }
+
+    /// Pull the most relevant argument out of the tool input JSON so we can
+    /// show "Read · flows.json" instead of just the tool name on its own row.
+    private var inlineSummary: String? {
+        guard !inputJSON.isEmpty,
+              let data = inputJSON.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+
+        let candidates = ["file_path", "path", "command", "pattern", "url", "query"]
+        for key in candidates {
+            if let value = obj[key] as? String, !value.isEmpty {
+                if key.hasSuffix("path") {
+                    return "· " + (value as NSString).lastPathComponent
+                }
+                return "· " + value
+            }
+        }
+        return nil
     }
 }
 
@@ -309,68 +352,89 @@ private struct ToolResultRow: View {
     @State private var isExpanded: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 0) {
             Button {
                 isExpanded.toggle()
             } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: isError ? "xmark.circle" : "checkmark.circle")
-                        .font(.caption)
-                        .foregroundStyle(isError ? Theme.danger : Theme.textTertiary)
-                    Text(isError ? "result · error" : "result")
+                HStack(spacing: 8) {
+                    Image(systemName: isError ? "exclamationmark.octagon" : "checkmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(isError ? Theme.danger : Theme.success)
+                        .frame(width: 16)
+                    Text(headline)
                         .font(.caption)
                         .foregroundStyle(Theme.textSecondary)
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 8, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(Theme.textTertiary)
-                    Spacer()
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
             if isExpanded {
-                Text(output)
+                Divider().overlay(Theme.border)
+                Text(output.isEmpty ? "(empty)" : output)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(isError ? Theme.danger : Theme.textSecondary)
                     .textSelection(.enabled)
-                    .padding(8)
+                    .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Theme.appBackground, in: RoundedRectangle(cornerRadius: 6))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 6).stroke(Theme.border, lineWidth: 1)
-                    }
             }
         }
+        .padding(.leading, 24) // align under ToolUseRow's content
+    }
+
+    private var headline: String {
+        if isError { return "Error" }
+        let firstLine = output.split(separator: "\n", omittingEmptySubsequences: true).first.map(String.init) ?? ""
+        if firstLine.isEmpty { return "Done" }
+        let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
+        return trimmed.count > 80 ? String(trimmed.prefix(80)) + "…" : trimmed
     }
 }
 
 private struct FileWrittenRow: View {
+    @Environment(AppState.self) private var state
     let path: String
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "doc.text.fill")
-                .foregroundStyle(Theme.success)
-                .font(.caption)
-            Text(URL(fileURLWithPath: path).lastPathComponent)
-                .font(.system(.callout, design: .monospaced))
-                .foregroundStyle(Theme.textPrimary)
-            Spacer()
-            Button {
-                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
-            } label: {
-                Image(systemName: "arrow.up.right.square")
+        Button {
+            state.viewFile(at: path)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "doc.text.fill")
+                    .foregroundStyle(Theme.success)
                     .font(.caption)
-                    .foregroundStyle(Theme.textSecondary)
+                Text(URL(fileURLWithPath: path).lastPathComponent)
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(Theme.textPrimary)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Theme.textTertiary)
             }
-            .buttonStyle(.plain)
-            .help("Reveal in Finder")
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .buttonStyle(.plain)
         .background(Theme.elevated, in: RoundedRectangle(cornerRadius: 7))
         .overlay {
             RoundedRectangle(cornerRadius: 7).stroke(Theme.border, lineWidth: 1)
+        }
+        .help("View file contents")
+        .contextMenu {
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+            }
         }
     }
 }
@@ -434,6 +498,7 @@ private struct ThinkingRow: View {
 }
 
 private struct GeneratedFilesRow: View {
+    @Environment(AppState.self) private var state
     let workdir: String
     let files: [String]
 
@@ -456,19 +521,32 @@ private struct GeneratedFilesRow: View {
             }
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(files, id: \.self) { file in
-                    HStack(spacing: 8) {
-                        Image(systemName: "doc")
-                            .foregroundStyle(Theme.textTertiary)
-                            .font(.caption)
-                        Text(file)
-                            .font(.system(.callout, design: .monospaced))
-                            .foregroundStyle(Theme.textPrimary)
-                            .textSelection(.enabled)
-                        Spacer()
+                    let fullPath = (workdir as NSString).appendingPathComponent(file)
+                    Button {
+                        state.viewFile(at: fullPath)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "doc")
+                                .foregroundStyle(Theme.textTertiary)
+                                .font(.caption)
+                            Text(file)
+                                .font(.system(.callout, design: .monospaced))
+                                .foregroundStyle(Theme.textPrimary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(Theme.textTertiary)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
+                    .buttonStyle(.plain)
                     .background(Theme.elevated, in: RoundedRectangle(cornerRadius: 6))
+                    .help("View file contents")
                 }
             }
         }
