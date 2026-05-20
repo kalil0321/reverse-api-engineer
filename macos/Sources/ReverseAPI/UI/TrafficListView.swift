@@ -16,7 +16,6 @@ struct TrafficListView: View {
                 visibleCount: filteredFlows.count,
                 visibleIDs: filteredFlows.map(\.id)
             )
-            TrafficFilterBar()
             ThinDivider()
             if state.store.flows.isEmpty {
                 EmptyTrafficState()
@@ -54,9 +53,7 @@ private struct TrafficListHeader: View {
                 .padding(.vertical, 1)
                 .background(Theme.elevated, in: Capsule())
             Spacer()
-            if hasActiveFilters {
-                ResetFiltersButton()
-            }
+            FilterButton(hasActiveFilters: hasActiveFilters)
             DeleteAllButton()
         }
         // Same horizontal padding as TrafficRow so the header select-all
@@ -76,14 +73,46 @@ private struct TrafficListHeader: View {
     }
 }
 
-// MARK: - Filter bar (text + chip rows)
+// MARK: - Filter button + popover
 
-private struct TrafficFilterBar: View {
+private struct FilterButton: View {
+    let hasActiveFilters: Bool
+    @State private var isShowing = false
+
+    var body: some View {
+        Button {
+            isShowing.toggle()
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "line.3.horizontal.decrease")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.textPrimary)
+                    .frame(width: 22, height: 22)
+                    .background(Theme.elevated, in: Circle())
+                if hasActiveFilters {
+                    Circle()
+                        .fill(Theme.success)
+                        .frame(width: 6, height: 6)
+                        .offset(x: 1, y: -1)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .help(hasActiveFilters ? "Filter traffic · active" : "Filter traffic")
+        .popover(isPresented: $isShowing, arrowEdge: .top) {
+            FilterPopoverContent()
+                .frame(width: 320)
+        }
+    }
+}
+
+private struct FilterPopoverContent: View {
     @Environment(AppState.self) private var state
 
     var body: some View {
         @Bindable var bindable = state
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
+            // Text filter
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 11, weight: .medium))
@@ -106,16 +135,77 @@ private struct TrafficFilterBar: View {
             .padding(.vertical, 6)
             .background(Theme.input, in: RoundedRectangle(cornerRadius: 7))
 
-            ResourceKindRow(selection: $bindable.filter.resourceKinds)
-            if !state.store.methodOptions.isEmpty {
-                MethodRow(options: state.store.methodOptions, selection: $bindable.filter.methods)
+            VStack(alignment: .leading, spacing: 10) {
+                FilterSectionLabel("Type")
+                ResourceKindRow(selection: $bindable.filter.resourceKinds)
             }
-            StatusRow(selection: $bindable.filter.statusBuckets)
+
+            if !state.store.methodOptions.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    FilterSectionLabel("Method")
+                    MethodRow(options: state.store.methodOptions, selection: $bindable.filter.methods)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                FilterSectionLabel("Status")
+                StatusRow(selection: $bindable.filter.statusBuckets)
+            }
+
+            Toggle(isOn: $bindable.filter.onlyErrors) {
+                Text("Errors only")
+                    .font(.callout)
+                    .foregroundStyle(Theme.textPrimary)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .tint(Theme.success)
+
+            if hasActiveFilters {
+                Divider().overlay(Theme.border)
+                Button {
+                    state.filter = TrafficFilter()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text("Reset filters")
+                            .font(.callout)
+                    }
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+            }
         }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 10)
+        .padding(14)
+    }
+
+    private var hasActiveFilters: Bool {
+        let f = state.filter
+        return !f.search.isEmpty
+            || f.onlyErrors
+            || !f.resourceKinds.isEmpty
+            || !f.methods.isEmpty
+            || !f.statusBuckets.isEmpty
+            || !f.hosts.isEmpty
     }
 }
+
+private struct FilterSectionLabel: View {
+    let text: String
+
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text.uppercased())
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(Theme.textTertiary)
+            .tracking(0.6)
+    }
+}
+
+// MARK: - Text filter (custom NSTextField — not SwiftUI's default searchable)
 
 private struct TrafficSearchField: NSViewRepresentable {
     @Binding var text: String
@@ -296,24 +386,6 @@ private struct FilterChip: View {
     private var borderColor: Color {
         if isSelected { return tint.opacity(0.5) }
         return Theme.border
-    }
-}
-
-private struct ResetFiltersButton: View {
-    @Environment(AppState.self) private var state
-
-    var body: some View {
-        Button {
-            state.filter = TrafficFilter()
-        } label: {
-            Image(systemName: "arrow.counterclockwise")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Theme.textPrimary)
-                .frame(width: 22, height: 22)
-                .background(Theme.elevated, in: Circle())
-        }
-        .buttonStyle(.plain)
-        .help("Reset all filters")
     }
 }
 
