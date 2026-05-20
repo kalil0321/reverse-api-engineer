@@ -86,21 +86,28 @@ async def run_chat(request: ChatRequest, base_dir: Path) -> AsyncIterator[AgentE
         system_prompt=SYSTEM_PROMPT,
         cwd=str(dirs.output_dir),
         allowed_tools=["Read", "Write", "Edit"],
-        # `acceptEdits` still prompts for Read on paths outside the cwd —
-        # including the session's own flows.json, which lives in the
-        # sibling flows/ directory. Use `bypassPermissions` (same setting
-        # the reverse_api collector + auto_engineer use) so the agent can
-        # operate end-to-end without a permission dialog. The sidecar is
-        # already isolated to per-chat session directories, so there's no
-        # broader-than-intended access enabled here.
         permission_mode="bypassPermissions",
         include_partial_messages=True,
+        # When the client passes a Claude session id from a previous turn,
+        # `resume` makes the SDK re-attach to its own persisted state for
+        # that session. We don't need to re-send the conversation history
+        # ourselves — the SDK already has it.
+        resume=request.claude_session_id,
     )
 
     pending_writes: dict[str, str] = {}
+    captured_session_id: str | None = None
 
     try:
         async for sdk_message in query(prompt=prompt, options=options):
+            # Capture the SDK-assigned session id from the first message
+            # that carries one, and surface it to the client so it can
+            # persist + resume on subsequent turns.
+            if captured_session_id is None:
+                sid = getattr(sdk_message, "session_id", None)
+                if isinstance(sid, str) and sid:
+                    captured_session_id = sid
+                    yield AgentEvent.session_started(chat_id, sid)
             async for event in _translate(chat_id, sdk_message, pending_writes):
                 yield event
     except asyncio.CancelledError:
