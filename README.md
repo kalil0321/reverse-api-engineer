@@ -7,8 +7,8 @@
 </div>
 
 <p align="center">
-CLI tool that captures browser traffic and automatically generates production-ready Python API clients.<br>
-No more manual reverse engineering—just browse, capture, and get clean API code.
+<b>Turn any website into an API.</b><br>
+Browse (or let an agent browse), and get a clean, typed client for the endpoints the site actually uses.
 </p>
 
 <p align="center">
@@ -23,171 +23,49 @@ No more manual reverse engineering—just browse, capture, and get clean API cod
   <em>Manual mode</em>
 </p>
 
-## Table of Contents
+## How it works
 
-- [Features](#-features)
-- [Installation](#-installation)
-- [Quick Start](#-quick-start)
-- [Usage Modes](#-usage-modes)
-  - [Manual Mode](#manual-mode)
-  - [Engineer Mode](#engineer-mode)
-  - [Agent Mode](#agent-mode)
-  - [Collector Mode](#collector-mode)
-- [Configuration](#-configuration)
-  - [Model Selection](#model-selection)
-  - [Agent Configuration](#agent-configuration)
-  - [SDK Selection](#sdk-selection)
-- [CLI Commands](#-cli-commands)
-- [Examples](#-examples)
-- [Development](#-development)
-- [Contributing](#-contributing)
+1. You give it a website and a goal ("fetch all Apple jobs").
+2. A browser visits the site, either driven by you or by an AI agent.
+3. Network traffic is captured to a HAR file.
+4. Claude reads the traffic and writes you a working API client (Python, JS, or TS).
 
-## ✨ Features
+No more manually opening DevTools, copying cURL commands, and gluing together a client.
 
-- 🌐 **Browser Automation**: Built on Playwright with stealth mode for realistic browsing
-- 🤖 **Autonomous Agent Mode**: Fully automated browser interaction using AI agents via MCP (Playwright MCP or Chrome DevTools MCP)
-- 📊 **HAR Recording**: Captures all network traffic in HTTP Archive format
-- 🧠 **AI-Powered Generation**: Uses Claude 4.6 to analyze traffic and generate clean Python code
-- 🔍 **Collector Mode**: Data collection with automatic JSON/CSV export
-- 🔌 **Multi-SDK Support**: Native integration with Claude and OpenCode SDKs
-- 💻 **Interactive CLI**: Minimalist terminal interface with mode cycling (Shift+Tab)
-- 📦 **Production Ready**: Generated scripts include error handling, type hints, and documentation
-- 💾 **Session History**: All runs saved locally with full message logs
-- 💰 **Cost Tracking**: Detailed token usage and cost estimation with cache support
+## Install
 
-### Limitations
-
-- This tool executes code locally using Claude Code—please monitor output
-- Some websites employ advanced bot-detection that may limit capture or require manual interaction
-
-## 🚀 Installation
-
-### Using uv (recommended)
 ```bash
-uv tool install reverse-api-engineer
-```
-
-### Using pip
-```bash
-pip install reverse-api-engineer
-```
-
-### Post-installation
-Install Playwright browsers:
-```bash
+uv tool install reverse-api-engineer   # or: pip install reverse-api-engineer
 playwright install chromium
 ```
 
-### Pricing
+## Quick start
 
-Reverse API Engineer includes built-in pricing for the most common models (Claude 4.6, Gemini 3, GPT-4.1/5). Cost tracking uses a 2-tier fallback:
-1. **Local pricing table** — built-in pricing for common models
-2. **Default fallback** — Claude Sonnet 4.6 pricing for unknown models
-
-If `litellm` is independently installed in your environment, an extended pricing lookup is auto-detected for 100+ additional models. We no longer ship a `[pricing]` extra; install `litellm` directly if you need that coverage.
-
-## 🚀 Quick Start
-
-Launch the interactive CLI:
 ```bash
 reverse-api-engineer
-```
-
-The CLI has four modes (cycle with **Shift+Tab**):
-- **manual**: Browser capture + AI generation
-- **engineer**: Re-process existing captures
-- **agent**: Autonomous AI browser agent (default: auto mode with MCP-based browser + real-time reverse engineering)
-- **collector**: AI-powered web data collection (very minimalist version for now)
-
-Example workflow:
-```bash
-$ reverse-api-engineer
 > fetch all apple jobs from their careers page
 
-# Browser opens, navigate and interact
-# Close browser when done
-# AI generates production-ready API client
-
-# Scripts saved to: ./scripts/apple_jobs_api/
+# Browser opens. Navigate, interact, close when done.
+# → ./scripts/apple_jobs_api/  (api_client.py, README.md, example_usage.py)
 ```
 
-## 📖 Usage Modes
+Cycle modes with **Shift+Tab**:
 
-### Manual Mode
+| Mode | What it does |
+|------|--------------|
+| `manual` | You drive the browser; AI generates the client from captured traffic. |
+| `agent` | An AI agent drives the browser autonomously (Playwright MCP or Chrome DevTools MCP). |
+| `engineer` | Re-run generation on a previous capture (`engineer <run_id>`). |
+| `collector` | Agent collects structured data (JSON/CSV) using web search + fetch. |
 
-Full pipeline with manual browser interaction:
+Agent mode providers:
+- **auto** (default): Playwright MCP, single workflow for browsing + reverse engineering.
+- **chrome-mcp**: drives your real Chrome so you keep existing sessions/cookies. Requires Chrome 146+ and Node.js 20.19+.
 
-1. Start the CLI: `reverse-api-engineer`
-2. Enter task description (e.g., "Fetch Apple job listings")
-3. Optionally provide starting URL
-4. Browse and interact with the website
-5. Close browser when done
-6. AI automatically generates the API client
+## Configuration
 
-**Output locations:**
-- `~/.reverse-api/runs/scripts/{run_id}/` (permanent storage)
-- `./scripts/{descriptive_name}/` (local copy with readable name)
+Settings live in `~/.reverse-api/config.json` and can be edited via `/settings` in the CLI:
 
-### Engineer Mode
-
-Re-run AI generation on a previous capture:
-```bash
-# Switch to engineer mode (Shift+Tab) and enter run_id
-# Or use command line:
-reverse-api-engineer engineer <run_id>
-```
-
-### Agent Mode
-
-Fully automated browser interaction using AI agents:
-
-1. Start CLI and switch to agent mode (Shift+Tab)
-2. Enter task description (e.g., "Click on the first job listing")
-3. Optionally provide starting URL
-4. Agent automatically navigates and interacts
-5. HAR captured automatically
-6. API client generated automatically
-
-**Agent Provider Options:**
-
-- **auto** (default): Uses Playwright MCP browser automation with Claude Agent SDK & Opencode. Combines browser control and real-time reverse engineering in a single workflow.
-- **chrome-mcp**: Uses [Chrome DevTools MCP](https://www.npmjs.com/package/chrome-devtools-mcp) to drive your real Chrome browser (with existing sessions, cookies, and auth). Requires Chrome 146+ and Node.js 20.19+.
-
-Change agent provider in `/settings` → "agent provider".
-
-### Collector Mode
-
-Web data collection using Claude Agent SDK:
-
-1. Start CLI and switch to collector mode (Shift+Tab)
-2. Enter a natural language prompt describing the data to collect (e.g., "Find 3 JS frameworks")
-3. The agent uses WebFetch, WebSearch, and file tools to autonomously collect structured data
-4. Data is automatically exported to JSON and CSV formats
-
-**Output locations:**
-- `~/.reverse-api/runs/collected/{folder_name}/` (permanent storage)
-- `./collected/{folder_name}/` (local copy with readable name)
-
-**Output files:**
-- `items.json` - Collected data in JSON format
-- `items.csv` - Collected data in CSV format
-- `README.md` - Collection metadata and schema documentation
-
-**Model Configuration:**
-Collector mode uses the `collector_model` setting (default: `claude-sonnet-4-6`). This can be configured in `~/.reverse-api/config.json`.
-
-Example workflow:
-```bash
-$ reverse-api-engineer
-> Find 3 JS frameworks
-
-# Agent autonomously searches and collects data
-# Data saved to: ./collected/js_frameworks/
-```
-
-## 🔧 Configuration
-
-Settings stored in `~/.reverse-api/config.json`:
 ```json
 {
   "agent_provider": "auto",
@@ -195,189 +73,88 @@ Settings stored in `~/.reverse-api/config.json`:
   "collector_model": "claude-sonnet-4-6",
   "opencode_model": "claude-sonnet-4-6",
   "opencode_provider": "anthropic",
-  "output_dir": null,
+  "copilot_model": "gpt-5",
+  "cursor_model": "composer-2",
   "output_language": "python",
   "real_time_sync": true,
   "sdk": "claude"
 }
 ```
 
-### Model Selection
+- **Models**: Sonnet 4.6 (default), Opus 4.6 (most capable), Haiku 4.5 (fastest). For OpenCode see [models.dev](https://models.dev).
+- **SDK**: `claude` (default), `opencode`, `cursor`, or `copilot` (GitHub Copilot).
+- **Output language**: `python`, `javascript`, or `typescript`.
 
-Choose from Claude 4.6 models for API generation:
-- **Sonnet 4.6** (default): Balanced performance and cost
-- **Opus 4.6**: Maximum capability for complex APIs
-- **Haiku 4.5**: Fastest and most economical
+## CLI
 
-Change in `/settings` or via CLI:
-```bash
-reverse-api-engineer manual --model claude-sonnet-4-6
-```
+Slash commands inside the CLI:
+- `/settings`: configure model, SDK, agent provider, and sync settings.
+- `/history`: list past runs with timestamps, costs, and status.
+- `/messages <run_id>`: view detailed message logs for a run.
+- `/help` (alias: `/commands`): show the command list.
+- `/exit` (alias: `/quit`): leave the CLI.
 
-If you use Opencode, look at the [models](https://models.dev).
-
-### Agent Configuration
-
-Configure AI agents for autonomous browser automation.
-
-**Agent Providers:**
-- **auto** (default): Playwright MCP browser automation with real-time reverse engineering. Uses Claude Agent SDK with browser MCP tools. Combines browser control and API reverse engineering in a single unified workflow. Works with Claude SDK (default) or OpenCode SDK.
-- **chrome-mcp**: Drives your real Chrome browser via [Chrome DevTools MCP](https://www.npmjs.com/package/chrome-devtools-mcp). Useful when you need existing sessions, cookies, or auth. Requires Chrome 146+ and Node.js 20.19+; enable auto-connect at `chrome://inspect/#remote-debugging`.
-
-The agent's reasoning model is the same as the SDK model — see [Model Selection](#model-selection).
-
-Change in `/settings` → "agent provider"
-
-### SDK Selection
-
-- **Claude** (default): Direct integration with Anthropic's Claude API
-- **OpenCode**: Uses OpenCode SDK (requires OpenCode running locally)
-
-Change in `/settings` or edit `config.json` directly.
-
-### Output Language
-
-Control the programming language of generated API clients:
-- **python** (default): Generate Python API clients
-- **javascript**: Generate JavaScript API clients
-- **typescript**: Generate TypeScript API clients
-
-Change in `/settings` → "Output Language" or edit `config.json`:
-```json
-{
-  "output_language": "typescript"
-}
-```
-
-### Real-time Sync
-
-Enable or disable real-time file synchronization during engineering sessions:
-- **Enabled** (default): Files are synced to disk as they're generated
-- **Disabled**: Files are written only at the end of the session
-
-When enabled, you can see files appear in real-time as the AI generates them. This is useful for monitoring progress and debugging.
-
-Change in `/settings` → "Real-time Sync" or edit `config.json`:
-```json
-{
-  "real_time_sync": false
-}
-```
-
-## 💻 CLI Commands
-
-Use these slash commands while in the CLI:
-- `/settings` - Configure model, agent, SDK, and output directory
-- `/history` - View past runs with costs
-- `/messages <run_id>` - View detailed message logs
-- `/help` - Show all commands
-- `/exit` - Quit
-
-### Scripted / Agent Usage
-
-The CLI subcommands can be driven by another agent or a wrapper script. Pass `--no-interactive` (and/or `--json`) so they fail fast instead of opening questionary prompts, and pipe the structured output into `jq`.
-
-When `--json` is set: stdout contains exactly one JSON document (the final result), Rich logs and progress are diverted to stderr, and the process exits with a stable code.
+Scriptable subcommands (pipe to `jq`):
 
 ```bash
-# Run an autonomous agent capture and get a single JSON result on stdout
-reverse-api-engineer agent \
-  --prompt "capture the public jobs api" \
-  --url https://example.com/jobs \
-  --json | jq
+reverse-api-engineer agent --prompt "capture the public jobs api" \
+  --url https://example.com/jobs --json | jq
 
-# List runs / inspect a run as JSON (empty history -> [])
 reverse-api-engineer list --json
 reverse-api-engineer show <run_id> --json
-
-# Run a generated script non-interactively
-#   --no-interactive : never open the script-picker / install confirm
-#   --auto-install   : install missing deps on retry without asking
 reverse-api-engineer run <run_id> --file api_client.py \
   --no-interactive --auto-install -- --org acme
 ```
 
-#### `agent --json` output schema
+Pass `--no-interactive` (and/or `--json`) to skip prompts. With `--json`, stdout is one JSON document and logs go to stderr.
+
+### `agent --json` schema
 
 | Field            | Type                | Notes                                                                  |
 |------------------|---------------------|------------------------------------------------------------------------|
-| `schema_version` | `int`               | Currently `1`. Bumped on breaking changes.                             |
+| `schema_version` | `int`               | Currently `1`.                                                         |
 | `status`         | `"ok"` \| `"error"` | Top-level result.                                                      |
-| `run_id`         | `string` \| `null`  | Stable id for follow-up `show` / `engineer` / `run` calls.             |
-| `prompt`         | `string`            | The prompt that was passed in.                                         |
-| `url`            | `string` \| `null`  | Optional starting URL.                                                 |
-| `mode`           | `string` \| `null`  | Provider used (`"auto"` for Playwright MCP, `"chrome-mcp"`).           |
-| `har_path`       | `string` \| `null`  | Absolute path to the captured HAR (`recording.har`).                   |
-| `script_path`    | `string` \| `null`  | Absolute path to the generated client when reverse engineering ran.    |
-| `usage`          | `object`            | Token + cost usage from the engineer SDK (`{input_tokens, output_tokens, total_cost}`).|
-| `error`          | `string` \| `null`  | Human-readable error message when `status == "error"`.                 |
+| `run_id`         | `string` \| `null`  | Use with `show` / `engineer` / `run`.                                  |
+| `prompt`         | `string`            |                                                                        |
+| `url`            | `string` \| `null`  |                                                                        |
+| `mode`           | `string` \| `null`  | `"auto"` or `"chrome-mcp"`.                                            |
+| `har_path`       | `string` \| `null`  | Captured HAR.                                                          |
+| `script_path`    | `string` \| `null`  | Generated client.                                                      |
+| `usage`          | `object`            | `{input_tokens, output_tokens, total_cost}`.                           |
+| `error`          | `string` \| `null`  | When `status == "error"`.                                              |
 
-#### Exit codes
+### Exit codes
 
-| Code | Meaning                                                                   |
-|------|---------------------------------------------------------------------------|
-| `0`  | Success.                                                                  |
-| `1`  | Runtime error (capture or engineering failed; details in `error`).        |
-| `2`  | Misuse — required arg missing under `--no-interactive` / `--json`.        |
+| Code | Meaning |
+|------|---------|
+| `0` | Success. |
+| `1` | Runtime error. |
+| `2` | Missing required arg under `--no-interactive` / `--json`. |
 
-For `run`, the exit code is the underlying script's return code on success, or `1` if no script was found, or non-zero if `--no-interactive` would otherwise have to prompt.
+For `run`, the exit code mirrors the underlying script.
 
-## 💡 Examples
+## Output locations
 
-### Example: Reverse Engineering a Job Board API
+- `~/.reverse-api/runs/scripts/{run_id}/`: permanent storage
+- `./scripts/{descriptive_name}/`: local copy with a readable name
+- Collector: `./collected/{folder_name}/` (`items.json`, `items.csv`, `README.md`)
 
-```bash
-$ reverse-api-engineer
-> fetch all apple jobs from their careers page
+## Caveats
 
-# Browser opens, you navigate and interact
-# Close browser when done
+- Generated code runs locally via Claude Code, so review before executing.
+- Sites with aggressive bot detection may block capture or require manual interaction.
 
-# AI generates:
-# - api_client.py (full API implementation)
-# - README.md (documentation)
-# - example_usage.py (usage examples)
+## Development
 
-# Scripts copied to: ./scripts/apple_jobs_api/
-```
-
-Generated `api_client.py` includes:
-- Authentication handling
-- Clean function interfaces
-- Type hints and docstrings
-- Error handling
-- Production-ready code
-
-## 🛠️ Development
-
-### Setup
 ```bash
 git clone https://github.com/kalil0321/reverse-api-engineer.git
 cd reverse-api-engineer
 uv sync
-```
-
-### Run
-```bash
 uv run reverse-api-engineer
 ```
 
-### Build
-```bash
-./scripts/clean_build.sh
-```
+Build: `./scripts/clean_build.sh`. Requires Python 3.11+, Playwright browsers, and an API key for agent mode.
 
-## 🔐 Requirements
+## License
 
-- Python 3.11+
-- Claude Code / OpenCode (for reverse engineering)
-- Playwright browsers installed
-- API key for agent mode (see [Agent Configuration](#agent-configuration))
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT. See [LICENSE](LICENSE).
