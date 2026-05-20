@@ -24,12 +24,17 @@ from claude_agent_sdk import (
 # the package's public namespace (at least up to 0.1.48). Import it directly
 # from the submodule, and degrade gracefully to an unmatchable sentinel class
 # if the SDK ever drops it — we just lose streaming, not the whole sidecar.
+_STREAMING_ENABLED = True
 try:
     from claude_agent_sdk.types import StreamEvent
 except ImportError:  # pragma: no cover - SDK shape changed
+    _STREAMING_ENABLED = False
+
     class StreamEvent:  # type: ignore[no-redef]
         """Stub used only for isinstance checks when the SDK doesn't expose
-        StreamEvent. Nothing will match it, so streaming silently degrades."""
+        StreamEvent. Nothing will match it, so streaming silently degrades —
+        but we then fall back to emitting whole TextBlocks from
+        AssistantMessage so the user still sees the assistant's reply."""
         pass
 
 from rae_agent.prompts import SYSTEM_PROMPT, build_user_prompt
@@ -146,9 +151,15 @@ async def _translate(
     if isinstance(message, AssistantMessage):
         for block in message.content:
             if isinstance(block, TextBlock):
-                # Text already streamed via StreamEvent chunks above — skip
-                # to avoid emitting the same body twice.
-                continue
+                # When real streaming is on, the text already arrived via
+                # StreamEvent chunks — skip to avoid duplicating the body.
+                # When the SDK doesn't expose StreamEvent we fall back to
+                # emitting the whole TextBlock so the user actually sees
+                # the assistant's reply.
+                if _STREAMING_ENABLED:
+                    continue
+                if block.text:
+                    yield AgentEvent.assistant_text(chat_id, block.text)
             elif isinstance(block, ToolUseBlock):
                 tool_input = dict(block.input or {})
                 yield AgentEvent.tool_use(chat_id, block.name, tool_input)
