@@ -75,6 +75,7 @@ Settings live in `~/.reverse-api/config.json` and can be edited via `/settings` 
   "opencode_provider": "anthropic",
   "copilot_model": "gpt-5",
   "cursor_model": "composer-2",
+  "output_dir": null,
   "output_language": "python",
   "real_time_sync": true,
   "sdk": "claude"
@@ -131,7 +132,7 @@ Pass `--no-interactive` (and/or `--json`) to skip prompts. With `--json`, stdout
 | `1` | Runtime error. |
 | `2` | Missing required arg under `--no-interactive` / `--json`. |
 
-For `run`, the exit code mirrors the underlying script.
+For `run`, the exit code is the underlying script's return code on success, `1` if no script was found, or non-zero if `--no-interactive` would have had to prompt.
 
 ## Output locations
 
