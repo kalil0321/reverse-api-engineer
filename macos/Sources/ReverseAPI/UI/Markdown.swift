@@ -1,275 +1,142 @@
 import SwiftUI
+import MarkdownUI
 
-/// Lightweight markdown renderer for assistant output.
-/// Supports: fenced code blocks, headers, bullet/ordered lists, paragraphs.
-/// Inline syntax (bold/italic/code/links) is handled by AttributedString.
+/// Thin wrapper around MarkdownUI's `Markdown` view so the rest of the app
+/// keeps its previous import (`MarkdownView(text:)`). Themed against our
+/// dark palette so headings, code blocks, lists, links, etc. all match the
+/// rest of the agent panel.
 struct MarkdownView: View {
     let text: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                view(for: block)
+        Markdown(text)
+            .markdownTheme(.rae)
+            .markdownTextStyle {
+                ForegroundColor(Theme.textPrimary)
+                FontSize(13)
             }
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private extension Theme {
+    @MainActor static var monospacedFont: Font {
+        .system(.callout, design: .monospaced)
+    }
+}
+
+extension MarkdownUI.Theme {
+    /// Dark theme tuned for the agent panel: no extra paragraph spacing on
+    /// top of MarkdownUI's defaults, headings sized down for the side panel,
+    /// inline code and code blocks render against `Theme.appBackground`,
+    /// blockquotes get a subtle left bar.
+    static let rae = MarkdownUI.Theme()
+        .text {
+            ForegroundColor(Theme.textPrimary)
+            FontSize(13)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var blocks: [MarkdownBlock] {
-        MarkdownParser.parse(text)
-    }
-
-    @ViewBuilder
-    private func view(for block: MarkdownBlock) -> some View {
-        switch block {
-        case .heading(let level, let raw):
-            Text(inline(raw))
-                .font(headingFont(level: level))
-                .foregroundStyle(Theme.textPrimary)
-                .textSelection(.enabled)
-                .padding(.top, level == 1 ? 4 : 2)
-
-        case .paragraph(let raw):
-            Text(inline(raw))
-                .font(.body)
-                .foregroundStyle(Theme.textPrimary)
-                .textSelection(.enabled)
+        .strong {
+            FontWeight(.semibold)
+        }
+        .link {
+            ForegroundColor(Theme.accent)
+            UnderlineStyle(.single)
+        }
+        .code {
+            FontFamilyVariant(.monospaced)
+            FontSize(.em(0.92))
+            ForegroundColor(Theme.textPrimary)
+            BackgroundColor(Color.white.opacity(0.08))
+        }
+        .heading1 { configuration in
+            configuration.label
+                .markdownTextStyle {
+                    FontWeight(.semibold)
+                    FontSize(18)
+                    ForegroundColor(Theme.textPrimary)
+                }
+                .markdownMargin(top: .em(0.8), bottom: .em(0.2))
+        }
+        .heading2 { configuration in
+            configuration.label
+                .markdownTextStyle {
+                    FontWeight(.semibold)
+                    FontSize(16)
+                    ForegroundColor(Theme.textPrimary)
+                }
+                .markdownMargin(top: .em(0.7), bottom: .em(0.2))
+        }
+        .heading3 { configuration in
+            configuration.label
+                .markdownTextStyle {
+                    FontWeight(.semibold)
+                    FontSize(14)
+                    ForegroundColor(Theme.textPrimary)
+                }
+                .markdownMargin(top: .em(0.6), bottom: .em(0.2))
+        }
+        .paragraph { configuration in
+            configuration.label
                 .fixedSize(horizontal: false, vertical: true)
-
-        case .bullet(let items):
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                    HStack(alignment: .top, spacing: 8) {
-                        Text("•")
-                            .foregroundStyle(Theme.textSecondary)
-                        Text(inline(item))
-                            .font(.body)
-                            .foregroundStyle(Theme.textPrimary)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-
-        case .ordered(let items):
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                    HStack(alignment: .top, spacing: 8) {
-                        Text("\(index + 1).")
-                            .foregroundStyle(Theme.textSecondary)
-                            .monospacedDigit()
-                        Text(inline(item))
-                            .font(.body)
-                            .foregroundStyle(Theme.textPrimary)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-
-        case .codeBlock(let language, let code):
-            MarkdownCodeBlock(language: language, code: code)
+                .relativeLineSpacing(.em(0.18))
+                .markdownMargin(top: .em(0.3), bottom: .em(0.3))
         }
-    }
-
-    private func inline(_ raw: String) -> AttributedString {
-        if let attr = try? AttributedString(markdown: raw, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
-            return attr
+        .listItem { configuration in
+            configuration.label
+                .markdownMargin(top: .em(0.1))
         }
-        return AttributedString(raw)
-    }
-
-    private func headingFont(level: Int) -> Font {
-        switch level {
-        case 1: return .system(.title2, design: .default).weight(.semibold)
-        case 2: return .system(.title3, design: .default).weight(.semibold)
-        default: return .system(.headline, design: .default)
-        }
-    }
-}
-
-private struct MarkdownCodeBlock: View {
-    let language: String?
-    let code: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let language, !language.isEmpty {
-                HStack {
-                    Text(language)
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(Theme.textTertiary)
-                        .textCase(.lowercase)
-                    Spacer()
-                    Button {
-                        let pb = NSPasteboard.general
-                        pb.clearContents()
-                        pb.setString(code, forType: .string)
-                    } label: {
-                        Image(systemName: "doc.on.doc")
-                            .font(.caption2)
+        .codeBlock { configuration in
+            VStack(alignment: .leading, spacing: 0) {
+                if let language = configuration.language, !language.isEmpty {
+                    HStack {
+                        Text(language)
+                            .font(.caption2.monospaced())
                             .foregroundStyle(Theme.textTertiary)
+                        Spacer()
+                        Button {
+                            let pb = NSPasteboard.general
+                            pb.clearContents()
+                            pb.setString(configuration.content, forType: .string)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .font(.caption2)
+                                .foregroundStyle(Theme.textTertiary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Copy code")
                     }
-                    .buttonStyle(.plain)
-                    .help("Copy")
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Theme.elevated)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(Theme.elevated)
-            }
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(code)
-                    .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(Theme.textPrimary)
-                    .textSelection(.enabled)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .background(Theme.appBackground)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8).stroke(Theme.border, lineWidth: 1)
-        }
-    }
-}
-
-// MARK: - Parser
-
-enum MarkdownBlock: Equatable {
-    case heading(level: Int, text: String)
-    case paragraph(String)
-    case bullet([String])
-    case ordered([String])
-    case codeBlock(language: String?, code: String)
-}
-
-enum MarkdownParser {
-    static func parse(_ text: String) -> [MarkdownBlock] {
-        var blocks: [MarkdownBlock] = []
-        var lines = text.components(separatedBy: "\n")[...]
-
-        var paragraphBuffer: [String] = []
-        var bulletBuffer: [String] = []
-        var orderedBuffer: [String] = []
-
-        func flushParagraph() {
-            if !paragraphBuffer.isEmpty {
-                blocks.append(.paragraph(paragraphBuffer.joined(separator: " ")))
-                paragraphBuffer.removeAll()
-            }
-        }
-        func flushBullets() {
-            if !bulletBuffer.isEmpty {
-                blocks.append(.bullet(bulletBuffer))
-                bulletBuffer.removeAll()
-            }
-        }
-        func flushOrdered() {
-            if !orderedBuffer.isEmpty {
-                blocks.append(.ordered(orderedBuffer))
-                orderedBuffer.removeAll()
-            }
-        }
-        func flushAll() {
-            flushParagraph()
-            flushBullets()
-            flushOrdered()
-        }
-
-        while let line = lines.first {
-            lines = lines.dropFirst()
-
-            // Fenced code block
-            if let fence = codeFence(line) {
-                flushAll()
-                var collected: [String] = []
-                while let next = lines.first {
-                    lines = lines.dropFirst()
-                    if codeFence(next) != nil { break }
-                    collected.append(next)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    configuration.label
+                        .relativeLineSpacing(.em(0.15))
+                        .markdownTextStyle {
+                            FontFamilyVariant(.monospaced)
+                            FontSize(12.5)
+                            ForegroundColor(Theme.textPrimary)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                blocks.append(.codeBlock(language: fence, code: collected.joined(separator: "\n")))
-                continue
+                .background(Theme.appBackground)
             }
-
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-
-            // Blank line ⇒ flush paragraph
-            if trimmed.isEmpty {
-                flushAll()
-                continue
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8).stroke(Theme.border, lineWidth: 1)
             }
-
-            // Heading
-            if let (level, rest) = headingMatch(trimmed) {
-                flushAll()
-                blocks.append(.heading(level: level, text: rest))
-                continue
-            }
-
-            // Bullet
-            if let item = bulletMatch(trimmed) {
-                flushParagraph()
-                flushOrdered()
-                bulletBuffer.append(item)
-                continue
-            }
-
-            // Ordered
-            if let item = orderedMatch(trimmed) {
-                flushParagraph()
-                flushBullets()
-                orderedBuffer.append(item)
-                continue
-            }
-
-            // Paragraph
-            flushBullets()
-            flushOrdered()
-            paragraphBuffer.append(trimmed)
+            .markdownMargin(top: .em(0.4), bottom: .em(0.4))
         }
-
-        flushAll()
-        return blocks
-    }
-
-    private static func codeFence(_ line: String) -> String? {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard trimmed.hasPrefix("```") else { return nil }
-        let after = trimmed.dropFirst(3)
-        let lang = after.trimmingCharacters(in: .whitespaces)
-        return lang.isEmpty ? "" : lang
-    }
-
-    private static func headingMatch(_ line: String) -> (Int, String)? {
-        var level = 0
-        var index = line.startIndex
-        while index < line.endIndex, line[index] == "#" {
-            level += 1
-            index = line.index(after: index)
+        .blockquote { configuration in
+            HStack(spacing: 10) {
+                Rectangle()
+                    .fill(Theme.border)
+                    .frame(width: 2)
+                configuration.label
+                    .markdownTextStyle { ForegroundColor(Theme.textSecondary) }
+            }
+            .markdownMargin(top: .em(0.4), bottom: .em(0.4))
         }
-        guard level > 0, level <= 3 else { return nil }
-        guard index < line.endIndex, line[index] == " " else { return nil }
-        let rest = String(line[line.index(after: index)...])
-        return (level, rest)
-    }
-
-    private static func bulletMatch(_ line: String) -> String? {
-        guard line.hasPrefix("- ") || line.hasPrefix("* ") else { return nil }
-        return String(line.dropFirst(2))
-    }
-
-    private static func orderedMatch(_ line: String) -> String? {
-        var index = line.startIndex
-        var hasDigits = false
-        while index < line.endIndex, line[index].isNumber {
-            hasDigits = true
-            index = line.index(after: index)
-        }
-        guard hasDigits, index < line.endIndex, line[index] == "." else { return nil }
-        index = line.index(after: index)
-        guard index < line.endIndex, line[index] == " " else { return nil }
-        return String(line[line.index(after: index)...])
-    }
 }
