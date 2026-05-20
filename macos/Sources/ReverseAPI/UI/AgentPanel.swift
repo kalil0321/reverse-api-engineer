@@ -6,15 +6,26 @@ struct AgentPanel: View {
     @Environment(AppState.self) private var state
 
     var body: some View {
+        switch state.agent.mode {
+        case .list:
+            SessionsListView()
+                .background(Theme.appBackground)
+        case .session:
+            ActiveSessionView()
+                .background(Theme.appBackground)
+        }
+    }
+}
+
+// MARK: - Active session
+
+private struct ActiveSessionView: View {
+    @Environment(AppState.self) private var state
+
+    var body: some View {
         @Bindable var agent = state.agent
         VStack(spacing: 0) {
-            AgentHeader(
-                target: $agent.target,
-                status: agent.status,
-                flowCount: flowsToSend.count,
-                isExplicitSelection: !state.agentSelection.isEmpty,
-                onClear: { agent.clear() }
-            )
+            SessionHeader(target: $agent.target)
             AgentTimeline(
                 events: agent.events,
                 flowCount: flowsToSend.count,
@@ -25,13 +36,9 @@ struct AgentPanel: View {
             )
             AgentComposer(input: $agent.input, status: agent.status, onSend: send)
         }
-        .background(Theme.appBackground)
     }
 
     private var flowsToSend: [CapturedFlow] {
-        // If the user has explicitly checked rows, share those; otherwise
-        // fall back to the filtered view so a fresh session still has
-        // something to chew on.
         if !state.agentSelection.isEmpty {
             return state.store.flows.filter { state.agentSelection.contains($0.id) }
         }
@@ -44,68 +51,31 @@ struct AgentPanel: View {
     }
 }
 
-// MARK: - Header
+// MARK: - Session header (minimal: back, language picker)
 
-private struct AgentHeader: View {
+private struct SessionHeader: View {
+    @Environment(AppState.self) private var state
     @Binding var target: AgentTargetLanguage
-    let status: AgentSession.Status
-    let flowCount: Int
-    let isExplicitSelection: Bool
-    let onClear: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 7, height: 7)
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Agent")
+        HStack(spacing: 8) {
+            Button {
+                state.agent.backToList()
+            } label: {
+                Image(systemName: "chevron.left")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Theme.textPrimary)
-                Text(subtitle)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.textTertiary)
-            }
-            Spacer()
-            LanguageMenu(target: $target)
-            Button(action: onClear) {
-                Image(systemName: "trash")
-                    .font(.caption)
-                    .foregroundStyle(Theme.textTertiary)
-                    .frame(width: 24, height: 24)
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(width: 26, height: 26)
+                    .background(Theme.elevated, in: Circle())
             }
             .buttonStyle(.plain)
-            .help("Clear conversation")
+            .help("Back to sessions")
+            Spacer()
+            LanguageMenu(target: $target)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.vertical, 12)
     }
-
-    private var subtitle: String {
-        let suffix: String
-        switch status {
-        case .idle: suffix = "Idle"
-        case .launching: suffix = "Starting…"
-        case .ready: suffix = "Ready"
-        case .streaming: suffix = "Thinking…"
-        case .failed: suffix = "Error"
-        }
-        let source = isExplicitSelection
-            ? "\(flowCount) selected"
-            : "\(flowCount) filtered"
-        return "\(suffix) · \(source)"
-    }
-
-    private var statusColor: Color {
-        switch status {
-        case .idle: return Theme.textTertiary
-        case .launching: return .yellow
-        case .ready: return Theme.success
-        case .streaming: return Theme.accent
-        case .failed: return Theme.danger
-        }
-    }
-
 }
 
 private struct LanguageMenu: View {
