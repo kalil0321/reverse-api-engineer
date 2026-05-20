@@ -42,12 +42,6 @@ struct ReverseAPIApp: App {
         .windowToolbarStyle(.unifiedCompact)
         .commands {
             CommandGroup(replacing: .newItem) {}
-            CommandGroup(after: .toolbar) {
-                Button(isAgentVisible ? "Hide Agent" : "Show Agent") {
-                    isAgentVisible.toggle()
-                }
-                .keyboardShortcut("j", modifiers: .command)
-            }
         }
     }
 }
@@ -65,19 +59,10 @@ final class AppLifecycle {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var keyMonitor: Any?
     private var isTerminating = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.appearance = NSAppearance(named: .darkAqua)
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            let togglesAgent = event.charactersIgnoringModifiers?.lowercased() == "j" &&
-                modifiers == .command
-            guard togglesAgent else { return event }
-            NotificationCenter.default.post(name: .toggleRaeAgent, object: nil)
-            return nil
-        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -99,18 +84,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     func applicationWillTerminate(_ notification: Notification) {
-        if let keyMonitor {
-            NSEvent.removeMonitor(keyMonitor)
-            self.keyMonitor = nil
-        }
         if !isTerminating {
             AppLifecycle.shared.restoreProxyBeforeExit()
         }
     }
-}
-
-extension Notification.Name {
-    static let toggleRaeAgent = Notification.Name("rae.toggleAgent")
 }
 
 enum AppSession {
@@ -161,6 +138,13 @@ private struct WindowAccessor: NSViewRepresentable {
                 self?.onWindow?(window)
             }
         }
+
+        // Never intercept mouse / keyboard events: this view exists solely to
+        // bridge SwiftUI to its hosting NSWindow, not to participate in the
+        // responder or hit-testing chain. Returning nil lets clicks fall
+        // through to the SwiftUI content below.
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override var acceptsFirstResponder: Bool { false }
     }
 }
 
