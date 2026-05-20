@@ -11,7 +11,6 @@ struct ContentView: View {
         ZStack {
             VStack(spacing: 0) {
                 ActionBar(onOpenPalette: { isPaletteVisible = true })
-                ThinDivider()
                 HSplitView {
                     Card {
                         HSplitView {
