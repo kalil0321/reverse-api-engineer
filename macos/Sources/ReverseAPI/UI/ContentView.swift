@@ -31,9 +31,6 @@ struct ContentView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                ThinDivider()
-                StatusBar()
             }
 
             // Dim layer (fades alone)
@@ -228,8 +225,6 @@ private struct ActionBar: View {
 
                 ResourceKindStrip(selectedKinds: $bindable.filter.resourceKinds)
 
-                SearchButton(action: onOpenPalette)
-
                 if activeFilterCount > 0 {
                     Button {
                         bindable.filter = TrafficFilter()
@@ -241,6 +236,10 @@ private struct ActionBar: View {
                     .buttonStyle(.borderless)
                     .help("Clear \(activeFilterCount) active filter(s)")
                 }
+
+                CaptureStateChip()
+                CATrustChip()
+                SearchButton(action: onOpenPalette)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -343,61 +342,58 @@ private struct ErrorBanner: View {
     }
 }
 
-// MARK: - Status bar (footer)
+// MARK: - Inline status chips (live in the ActionBar)
 
-private struct StatusBar: View {
+private struct CaptureStateChip: View {
     @Environment(AppState.self) private var state
 
     var body: some View {
-        HStack(spacing: 12) {
-            StatusDot(color: state.isCapturing ? Theme.success : Theme.textTertiary)
-            Text(captureLabel)
-                .font(.caption)
-                .foregroundStyle(Theme.textSecondary)
-
-            Dot()
-
-            Image(systemName: state.caTrustInstalled ? "checkmark.seal.fill" : "seal")
-                .foregroundStyle(state.caTrustInstalled ? Theme.success : Theme.textTertiary)
-                .font(.caption)
-            Text(state.caTrustInstalled ? "CA trusted" : "CA not trusted")
-                .font(.caption)
-                .foregroundStyle(Theme.textSecondary)
-
-            Spacer()
-
-            Text("\(state.store.flows.count) flows")
+        HStack(spacing: 6) {
+            Circle()
+                .fill(dotColor)
+                .frame(width: 6, height: 6)
+            Text(label)
                 .font(.caption)
                 .foregroundStyle(Theme.textSecondary)
                 .monospacedDigit()
-                .contentTransition(.numericText())
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
-        .background(Theme.surface)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
+        .background(Theme.input, in: Capsule())
+        .help("Capture state · 127.0.0.1:\(state.port)")
     }
 
-    private var captureLabel: String {
+    private var dotColor: Color {
+        if state.isWorking { return .yellow }
+        if state.isCapturing { return Theme.success }
+        return Theme.textTertiary
+    }
+
+    private var label: String {
         if state.isWorking { return "working…" }
-        if state.isCapturing { return "recording · 127.0.0.1:\(state.port)" }
-        return "idle · 127.0.0.1:\(state.port)"
+        if state.isCapturing { return "recording · \(state.port)" }
+        return "idle · \(state.port)"
     }
 }
 
-private struct StatusDot: View {
-    let color: Color
-    var body: some View {
-        Circle()
-            .fill(color)
-            .frame(width: 7, height: 7)
-    }
-}
+private struct CATrustChip: View {
+    @Environment(AppState.self) private var state
 
-private struct Dot: View {
     var body: some View {
-        Circle()
-            .fill(Theme.textTertiary.opacity(0.5))
-            .frame(width: 3, height: 3)
+        HStack(spacing: 6) {
+            Image(systemName: state.caTrustInstalled ? "checkmark.seal.fill" : "seal")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(state.caTrustInstalled ? Theme.success : Theme.textTertiary)
+            Text(state.caTrustInstalled ? "CA trusted" : "CA")
+                .font(.caption)
+                .foregroundStyle(Theme.textSecondary)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
+        .background(Theme.input, in: Capsule())
+        .help(state.caTrustInstalled
+              ? "Root CA installed — HTTPS can be inspected"
+              : "Root CA not trusted — HTTPS will fail")
     }
 }
 
