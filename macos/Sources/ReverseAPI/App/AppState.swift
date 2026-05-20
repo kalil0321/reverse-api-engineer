@@ -20,8 +20,20 @@ final class AppState {
     private(set) var lastError: String?
 
     var selectedFlowID: UUID?
+    /// Flows the user has explicitly checked to share with the agent on the
+    /// next send. When empty, the agent receives the filtered view instead.
+    var agentSelection: Set<UUID> = []
     var filter = TrafficFilter()
     var captureMode: CaptureMode = .device
+
+    func deleteFlows(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        if let selected = selectedFlowID, ids.contains(selected) {
+            selectedFlowID = nil
+        }
+        agentSelection.subtract(ids)
+        Task { await store.delete(ids: ids) }
+    }
 
     let store: FlowStore
     let engine: ProxyEngine
