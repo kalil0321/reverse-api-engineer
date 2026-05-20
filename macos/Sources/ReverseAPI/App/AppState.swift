@@ -3,6 +3,13 @@ import Observation
 import ReverseAPIProxy
 import Security
 
+/// Identifiable wrapper for the file the user is currently inspecting, used
+/// with SwiftUI's `.sheet(item:)` so toggling between files re-renders.
+struct AgentFileRef: Identifiable, Hashable {
+    let url: URL
+    var id: URL { url }
+}
+
 @MainActor
 @Observable
 final class AppState {
@@ -23,8 +30,14 @@ final class AppState {
     /// Flows the user has explicitly checked to share with the agent on the
     /// next send. When empty, the agent receives the filtered view instead.
     var agentSelection: Set<UUID> = []
+    /// When set, ContentView shows AgentFileViewer for this path.
+    var viewingFile: AgentFileRef?
     var filter = TrafficFilter()
     var captureMode: CaptureMode = .device
+
+    func viewFile(at path: String) {
+        viewingFile = AgentFileRef(url: URL(fileURLWithPath: path))
+    }
 
     func deleteFlows(_ ids: Set<UUID>) {
         guard !ids.isEmpty else { return }

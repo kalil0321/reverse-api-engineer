@@ -55,6 +55,15 @@ struct ContentView: View {
             }
         }
         .animation(.spring(response: 0.32, dampingFraction: 0.84), value: isPaletteVisible)
+        .sheet(item: Binding(
+            get: { state.viewingFile },
+            set: { state.viewingFile = $0 }
+        )) { ref in
+            AgentFileViewer(url: ref.url, isPresented: Binding(
+                get: { state.viewingFile != nil },
+                set: { if !$0 { state.viewingFile = nil } }
+            ))
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Theme.appBackground)
         .preferredColorScheme(.dark)
