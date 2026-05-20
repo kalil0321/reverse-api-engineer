@@ -182,7 +182,6 @@ private struct FlowInspector: View {
                 PreviewPaneContent(
                     data: flow.responseBody,
                     kind: kind,
-                    flowURL: flow.url,
                     contentType: responseHeader("content-type")
                 )
             } else {
@@ -313,7 +312,13 @@ private struct FlowInspector: View {
         if let pretty = JSONFormatter.prettyPrintJSON(data, contentType: ct) {
             return pretty
         }
-        if let text = String(data: data, encoding: .utf8), let ct, ct.lowercased().contains("text") {
+        // If the bytes decode as UTF-8, prefer the text dump regardless of
+        // the content-type advertising "text/*". A lot of API responses
+        // (JSON without a Content-Type, application/xml, application/csp-report,
+        // application/x-www-form-urlencoded, etc.) are perfectly readable
+        // strings — gating on `text` in the MIME type sent them all into
+        // the base64 fallback.
+        if let text = String(data: data, encoding: .utf8) {
             return text
         }
         return """
@@ -340,7 +345,6 @@ enum PreviewKind {
 private struct PreviewPaneContent: View {
     let data: Data
     let kind: PreviewKind
-    let flowURL: String
     let contentType: String?
 
     var body: some View {
@@ -368,7 +372,13 @@ private struct PreviewPaneContent: View {
         case .image:
             ImagePreview(data: data)
         case .html:
-            HTMLPreview(data: data, baseURL: URL(string: flowURL))
+            // Pass a nil baseURL so WKWebView treats the captured response
+            // as a standalone document — otherwise it resolves relative
+            // `<img src="…">` / `<link rel=stylesheet>` / `<script src=…>`
+            // against the original URL and silently makes live network
+            // requests the proxy never captured, defeating the offline
+            // inspection guarantee.
+            HTMLPreview(data: data, baseURL: nil)
         case .pdf:
             PDFPreview(data: data)
         }
