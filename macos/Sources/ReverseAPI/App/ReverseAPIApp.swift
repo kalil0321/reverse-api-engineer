@@ -62,6 +62,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isTerminating = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // `swift run` launches a bare SwiftPM executable with no .app bundle
+        // and no Info.plist, so macOS doesn't treat it as a regular GUI app —
+        // the window never reliably becomes key and AppKit text fields can't
+        // become first responder, which is why typing into the search palette
+        // and agent composer silently fails. Explicitly switching to .regular
+        // activation policy and activating in front of other apps gives the
+        // process a proper foreground app status. No-op when the binary is
+        // launched from a real .app bundle.
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
         NSApp.appearance = NSAppearance(named: .darkAqua)
     }
 
