@@ -2,25 +2,30 @@ import AppKit
 import SwiftUI
 import ReverseAPIProxy
 
+/// Traffic list rendered as a vertical stack of compact two-line rows. The
+/// previous fixed-column tabular layout broke when the traffic card got
+/// narrow (paths and hosts collided, columns wrapped). The new row keeps
+/// host on top + path below in a flex middle column so the row stays
+/// readable down to ~240pt wide.
 struct TrafficListView: View {
     @Environment(AppState.self) private var state
 
     var body: some View {
-        ZStack {
-            Theme.appBackground.ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                TrafficHeaderRow(visibleIDs: filteredFlows.map(\.id))
-                ThinDivider()
-                if state.store.flows.isEmpty {
-                    EmptyTrafficState()
-                } else if filteredFlows.isEmpty {
-                    EmptyFilterState()
-                } else {
-                    TrafficRowList(flows: filteredFlows)
-                }
+        VStack(spacing: 0) {
+            TrafficListHeader(
+                visibleCount: filteredFlows.count,
+                visibleIDs: filteredFlows.map(\.id)
+            )
+            ThinDivider()
+            if state.store.flows.isEmpty {
+                EmptyTrafficState()
+            } else if filteredFlows.isEmpty {
+                EmptyFilterState()
+            } else {
+                TrafficRowList(flows: filteredFlows)
             }
         }
+        .background(Theme.surface)
     }
 
     private var filteredFlows: [CapturedFlow] {
@@ -30,23 +35,26 @@ struct TrafficListView: View {
 
 // MARK: - Header
 
-private struct TrafficHeaderRow: View {
-    @Environment(AppState.self) private var state
+private struct TrafficListHeader: View {
+    let visibleCount: Int
     let visibleIDs: [UUID]
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 10) {
             SelectAllCheckbox(visibleIDs: visibleIDs)
-                .frame(width: 28, alignment: .center)
-            HeaderLabel("Time", width: 72, align: .leading)
-            HeaderLabel("Method", width: 64, align: .leading)
-            HeaderLabel("Host", width: 200, align: .leading)
-            HeaderLabel("Path", width: nil, align: .leading)
-            HeaderLabel("Status", width: 60, align: .trailing)
+            Text("Traffic")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.textPrimary)
+            Text("\(visibleCount)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(Theme.textTertiary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 1)
+                .background(Theme.elevated, in: Capsule())
+            Spacer()
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 6)
-        .background(Theme.appBackground)
+        .padding(.vertical, 12)
     }
 }
 
@@ -55,11 +63,9 @@ private struct SelectAllCheckbox: View {
     let visibleIDs: [UUID]
 
     var body: some View {
-        Button {
-            toggle()
-        } label: {
+        Button(action: toggle) {
             Image(systemName: glyph)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(tint)
                 .frame(width: 18, height: 18)
         }
@@ -84,7 +90,7 @@ private struct SelectAllCheckbox: View {
     }
 
     private var tint: Color {
-        (allSelected || someSelected) ? Theme.accent : Theme.textTertiary
+        (allSelected || someSelected) ? Theme.textPrimary : Theme.textTertiary
     }
 
     private func toggle() {
@@ -93,27 +99,6 @@ private struct SelectAllCheckbox: View {
         } else {
             visibleIDs.forEach { state.agentSelection.insert($0) }
         }
-    }
-}
-
-private struct HeaderLabel: View {
-    let text: String
-    let width: CGFloat?
-    let align: Alignment
-
-    init(_ text: String, width: CGFloat?, align: Alignment) {
-        self.text = text
-        self.width = width
-        self.align = align
-    }
-
-    var body: some View {
-        Text(text.uppercased())
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(Theme.textTertiary)
-            .tracking(0.6)
-            .frame(width: width, alignment: align)
-            .frame(maxWidth: width == nil ? .infinity : nil, alignment: align)
     }
 }
 
@@ -162,7 +147,7 @@ private struct TrafficRow: View {
 
     var body: some View {
         Button(action: onSelect) {
-            HStack(spacing: 0) {
+            HStack(spacing: 10) {
                 AgentCheckbox(isOn: isCheckedForAgent) {
                     if state.agentSelection.contains(flow.id) {
                         state.agentSelection.remove(flow.id)
@@ -170,35 +155,33 @@ private struct TrafficRow: View {
                         state.agentSelection.insert(flow.id)
                     }
                 }
-                .frame(width: 28, alignment: .center)
-
-                Text(flow.startedAt, format: .dateTime.hour().minute().second())
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(Theme.textTertiary)
-                    .frame(width: 72, alignment: .leading)
 
                 MethodBadge(method: flow.method)
-                    .frame(width: 64, alignment: .leading)
+                    .frame(width: 46, alignment: .leading)
 
-                Text(flow.host)
-                    .font(.callout)
-                    .foregroundStyle(Theme.textPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(width: 200, alignment: .leading)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(flow.host)
+                        .font(.callout)
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(flow.path)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                Text(flow.path)
-                    .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                StatusBadge(status: flow.responseStatus, error: flow.error)
-                    .frame(width: 60, alignment: .trailing)
+                VStack(alignment: .trailing, spacing: 1) {
+                    StatusBadge(status: flow.responseStatus, error: flow.error)
+                    Text(flow.startedAt, format: .dateTime.hour().minute().second())
+                        .font(.system(size: 10, weight: .regular, design: .monospaced))
+                        .foregroundStyle(Theme.textTertiary)
+                }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
             .frame(maxWidth: .infinity)
             .background(background)
             .contentShape(Rectangle())
@@ -238,8 +221,8 @@ private struct AgentCheckbox: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: isOn ? "checkmark.square.fill" : "square")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(isOn ? Theme.accent : Theme.textTertiary)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(isOn ? Theme.textPrimary : Theme.textTertiary)
                 .frame(width: 18, height: 18)
         }
         .buttonStyle(.plain)
@@ -254,6 +237,7 @@ private struct MethodBadge: View {
         Text(method)
             .font(.system(.caption, design: .monospaced).weight(.semibold))
             .foregroundStyle(color)
+            .lineLimit(1)
     }
 
     private var color: Color {

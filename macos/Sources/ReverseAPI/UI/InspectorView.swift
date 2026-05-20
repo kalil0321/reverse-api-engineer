@@ -55,7 +55,7 @@ private struct FlowInspector: View {
             ScrollView {
                 content
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16)
+                    .padding(14)
             }
         }
         .background(Theme.surface)
@@ -68,19 +68,20 @@ private struct FlowInspector: View {
     }
 
     private var tabBar: some View {
-        HStack {
-            NSSegmented(
-                labels: availableTabs.map { $0.rawValue },
-                selection: Binding(
-                    get: { availableTabs.firstIndex(of: tab) ?? 0 },
-                    set: { tab = availableTabs[$0] }
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack {
+                NSSegmented(
+                    labels: availableTabs.map { $0.rawValue },
+                    selection: Binding(
+                        get: { availableTabs.firstIndex(of: tab) ?? 0 },
+                        set: { tab = availableTabs[$0] }
+                    )
                 )
-            )
-            .fixedSize()
-            Spacer()
+                .fixedSize()
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
     }
 
     private var availableTabs: [InspectorTab] {
@@ -100,10 +101,10 @@ private struct FlowInspector: View {
                         .font(.system(.callout, design: .monospaced).weight(.semibold))
                         .foregroundStyle(statusColor(status))
                 }
-                Spacer()
+                Spacer(minLength: 4)
                 if let finishedAt = flow.finishedAt {
                     Text(formatDuration(flow.startedAt, finishedAt))
-                        .foregroundStyle(Theme.textSecondary)
+                        .foregroundStyle(Theme.textTertiary)
                         .font(.caption)
                         .monospacedDigit()
                 }
@@ -114,18 +115,26 @@ private struct FlowInspector: View {
                     Image(systemName: "xmark")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(Theme.textSecondary)
-                        .frame(width: 20, height: 20)
+                        .frame(width: 22, height: 22)
+                        .background(Theme.elevated, in: Circle())
                 }
                 .buttonStyle(.plain)
                 .help("Close inspector")
             }
 
-            Text(flow.url)
-                .font(.system(.callout, design: .monospaced))
-                .foregroundStyle(Theme.textPrimary)
-                .textSelection(.enabled)
-                .lineLimit(2)
-                .truncationMode(.middle)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(flow.host)
+                    .font(.callout)
+                    .foregroundStyle(Theme.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(flow.path)
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(Theme.textSecondary)
+                    .textSelection(.enabled)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+            }
 
             if let error = flow.error {
                 Label(error, systemImage: "exclamationmark.octagon.fill")
@@ -133,9 +142,9 @@ private struct FlowInspector: View {
                     .font(.caption)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 14)
-        .padding(.bottom, 12)
+        .padding(.horizontal, 14)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
     }
 
     private var copyMenu: some View {
@@ -214,14 +223,16 @@ private struct FlowInspector: View {
     private func row(_ key: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(key)
-                .frame(width: 100, alignment: .leading)
-                .foregroundStyle(Theme.textSecondary)
-                .font(.callout)
+                .frame(width: 84, alignment: .leading)
+                .foregroundStyle(Theme.textTertiary)
+                .font(.caption)
             Text(value)
                 .textSelection(.enabled)
                 .font(.system(.callout, design: .monospaced))
                 .foregroundStyle(Theme.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(2)
+                .truncationMode(.middle)
         }
     }
 
@@ -573,18 +584,19 @@ private struct HeadersSection: View {
                     .font(.callout)
             } else {
                 ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text(header.name)
-                            .font(.system(.callout, design: .monospaced).weight(.medium))
-                            .foregroundStyle(Theme.textSecondary)
-                            .frame(width: 150, alignment: .leading)
+                            .font(.system(.caption, design: .monospaced).weight(.semibold))
+                            .foregroundStyle(Theme.textTertiary)
+                            .textCase(.lowercase)
                         Text(header.value)
                             .font(.system(.callout, design: .monospaced))
                             .foregroundStyle(Theme.textPrimary)
                             .textSelection(.enabled)
                             .lineLimit(nil)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }

@@ -16,21 +16,27 @@ struct ContentView: View {
                     Card {
                         HSplitView {
                             TrafficListView()
-                                .frame(minWidth: 360, maxHeight: .infinity)
+                                .frame(minWidth: 280, maxHeight: .infinity)
                             if state.selectedFlowID != nil {
                                 InspectorView()
                                     .frame(minWidth: 320, idealWidth: 480, maxHeight: .infinity)
                             }
                         }
                     }
-                    .frame(minWidth: 420)
+                    .frame(minWidth: 320)
+                    // Right padding on the trailing edge of the traffic card
+                    // gives the visible gap between cards. HSplitView itself
+                    // owns a 1pt system divider; the padding pushes it off
+                    // the card outline so the two cards read as separate.
+                    .padding(.trailing, 6)
 
                     Card {
                         AgentPanel()
                     }
-                    .frame(minWidth: 320, idealWidth: 380)
+                    .frame(minWidth: 340, idealWidth: 380)
+                    .padding(.leading, 6)
                 }
-                .padding(10)
+                .padding(12)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
