@@ -497,6 +497,22 @@ private struct NativeMultilineTextField: NSViewRepresentable {
         textView.isSelectable = true
         textView.allowsUndo = true
 
+        // Word-wrap configuration. By default NSTextView inside NSScrollView
+        // assumes a horizontally-growable text container — typed text spills
+        // to the right forever instead of wrapping. These properties pin the
+        // text container to the scroll view's width so lines break naturally.
+        let unbounded = CGFloat.greatestFiniteMagnitude
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: unbounded, height: unbounded)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        if let container = textView.textContainer {
+            container.widthTracksTextView = true
+            container.containerSize = NSSize(width: 0, height: unbounded)
+            container.lineFragmentPadding = 0
+        }
+
         // Force every color path explicitly. NSTextView renders typed
         // characters using `typingAttributes`, NOT `textColor` alone, and
         // when `textColor` resolves through `.labelColor` against an
@@ -530,8 +546,9 @@ private struct NativeMultilineTextField: NSViewRepresentable {
         let scroll = NSScrollView()
         scroll.documentView = textView
         scroll.drawsBackground = false
-        scroll.hasVerticalScroller = false
+        scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = false
+        scroll.autohidesScrollers = true
         scroll.borderType = .noBorder
         scroll.appearance = NSAppearance(named: .darkAqua)
 
