@@ -525,9 +525,15 @@ private struct TrafficRow: View {
 
                 VStack(alignment: .trailing, spacing: 1) {
                     StatusBadge(status: flow.responseStatus, error: flow.error)
-                    Text(flow.startedAt, format: .dateTime.hour().minute().second())
-                        .font(.system(size: 10, weight: .regular, design: .monospaced))
-                        .foregroundStyle(Theme.textTertiary)
+                    HStack(spacing: 4) {
+                        Text(flow.startedAt, format: .dateTime.hour().minute().second())
+                        if let duration = durationLabel {
+                            Text("(\(duration))")
+                                .foregroundStyle(Theme.textTertiary.opacity(0.8))
+                        }
+                    }
+                    .font(.system(size: 10, weight: .regular, design: .monospaced))
+                    .foregroundStyle(Theme.textTertiary)
                 }
             }
             .padding(.horizontal, 12)
@@ -561,6 +567,17 @@ private struct TrafficRow: View {
         if isSelected { return Theme.elevated }
         if isHovering { return Color.white.opacity(0.03) }
         return Color.clear
+    }
+
+    /// Returns a compact human-readable duration (e.g. "234ms", "1.2s") for
+    /// the row's request, or nil while the response is still in flight.
+    private var durationLabel: String? {
+        guard let finished = flow.finishedAt else { return nil }
+        let interval = finished.timeIntervalSince(flow.startedAt)
+        if interval < 1 {
+            return String(format: "%.0fms", interval * 1000)
+        }
+        return String(format: "%.2fs", interval)
     }
 }
 
