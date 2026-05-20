@@ -8,7 +8,6 @@ struct CommandPalette: View {
 
     @State private var query: String = ""
     @State private var highlightedIndex: Int = 0
-    @FocusState private var isInputFocused: Bool
     @Namespace private var highlightNamespace
 
     var body: some View {
@@ -40,11 +39,6 @@ struct CommandPalette: View {
         .shadow(color: .black.opacity(0.35), radius: 6, x: 0, y: 3)
         .onChange(of: query) { _, _ in
             highlightedIndex = 0
-        }
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                isInputFocused = true
-            }
         }
         .onKeyPress(.upArrow) {
             moveHighlight(-1)
@@ -80,12 +74,13 @@ struct CommandPalette: View {
                 .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(Theme.textSecondary)
 
-            TextField("", text: $query, prompt: Text("Search traffic").foregroundColor(Theme.textTertiary))
-                .textFieldStyle(.plain)
-                .font(.system(size: 20, weight: .regular))
-                .foregroundStyle(Theme.textPrimary)
-                .focused($isInputFocused)
-                .onSubmit { select() }
+            NativeSearchField(
+                text: $query,
+                placeholder: "Search traffic",
+                onSubmit: { select() }
+            )
+            .frame(maxWidth: .infinity)
+            .frame(height: 28)
 
             if !query.isEmpty {
                 Button {
@@ -491,6 +486,82 @@ private struct CountChip: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(Color.white.opacity(0.05), in: Capsule())
+    }
+}
+
+// MARK: - Native text field with guaranteed auto-focus
+
+/// AppKit NSTextField wrapped for SwiftUI. Used instead of SwiftUI's
+/// TextField + @FocusState because the latter doesn't reliably receive
+/// keystrokes when the palette is presented as an overlay on macOS 14 —
+/// the responder chain ends up with the wrong first responder and typing
+/// goes nowhere. This wrapper grabs first-responder status explicitly the
+/// moment the field is attached to the window.
+private struct NativeSearchField: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+    let onSubmit: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField()
+        field.delegate = context.coordinator
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = .systemFont(ofSize: 18, weight: .regular)
+        field.textColor = NSColor(Theme.textPrimary)
+        field.placeholderAttributedString = NSAttributedString(
+            string: placeholder,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 18, weight: .regular),
+                .foregroundColor: NSColor(Theme.textTertiary),
+            ]
+        )
+        field.stringValue = text
+        field.appearance = NSAppearance(named: .darkAqua)
+        field.cell?.usesSingleLineMode = true
+        field.cell?.wraps = false
+        field.cell?.isScrollable = true
+
+        // Take first responder once the view has a window.
+        DispatchQueue.main.async {
+            field.window?.makeFirstResponder(field)
+            if let editor = field.currentEditor() as? NSTextView {
+                editor.insertionPointColor = NSColor(Theme.textPrimary)
+            }
+        }
+
+        return field
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        context.coordinator.parent = self
+        if field.stringValue != text {
+            field.stringValue = text
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: NativeSearchField
+
+        init(_ parent: NativeSearchField) {
+            self.parent = parent
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            parent.text = field.stringValue
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                parent.onSubmit()
+                return true
+            }
+            return false
+        }
     }
 }
 

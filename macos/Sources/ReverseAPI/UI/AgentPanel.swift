@@ -129,35 +129,38 @@ private struct AgentTimeline: View {
     let status: AgentSession.Status
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18) {
-                    if events.isEmpty && error == nil {
-                        IntroState(flowCount: flowCount)
+        if events.isEmpty && error == nil && generatedFiles.isEmpty && status != .streaming {
+            EmptyAgentState()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Theme.appBackground)
+        } else {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 18) {
+                        ForEach(events) { event in
+                            AgentEventRow(event: event)
+                                .id(event.id)
+                        }
+                        if status == .streaming {
+                            ThinkingRow()
+                        }
+                        if let error {
+                            ErrorRow(message: error)
+                        }
+                        if !generatedFiles.isEmpty, let workdir {
+                            GeneratedFilesRow(workdir: workdir, files: generatedFiles)
+                        }
                     }
-                    ForEach(events) { event in
-                        AgentEventRow(event: event)
-                            .id(event.id)
-                    }
-                    if status == .streaming {
-                        ThinkingRow()
-                    }
-                    if let error {
-                        ErrorRow(message: error)
-                    }
-                    if !generatedFiles.isEmpty, let workdir {
-                        GeneratedFilesRow(workdir: workdir, files: generatedFiles)
-                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 18)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 18)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .background(Theme.appBackground)
-            .onChange(of: events.count) { _, _ in
-                if let last = events.last {
-                    withAnimation(.easeOut(duration: 0.15)) {
-                        proxy.scrollTo(last.id, anchor: .bottom)
+                .background(Theme.appBackground)
+                .onChange(of: events.count) { _, _ in
+                    if let last = events.last {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        }
                     }
                 }
             }
@@ -165,19 +168,11 @@ private struct AgentTimeline: View {
     }
 }
 
-private struct IntroState: View {
-    let flowCount: Int
-
+private struct EmptyAgentState: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Reverse engineer with the agent")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Theme.textPrimary)
-            Text("\(flowCount) filtered flow\(flowCount == 1 ? "" : "s") will be shared. Ask for an API client, an endpoint analysis, or anything else.")
-                .font(.callout)
-                .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
+        Image(systemName: "chevron.left.forwardslash.chevron.right")
+            .font(.system(size: 42, weight: .light))
+            .foregroundStyle(Theme.textTertiary)
     }
 }
 
@@ -443,8 +438,21 @@ private struct AgentComposer: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 10) {
-            ComposerTextField(text: $input, placeholder: "Ask the agent…", onSubmit: { if canSend { onSend() } })
+            ZStack(alignment: .topLeading) {
+                if input.isEmpty {
+                    Text("Ask the agent…")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.textTertiary)
+                        .padding(.leading, 5)
+                        .padding(.top, 4)
+                        .allowsHitTesting(false)
+                }
+                NativeMultilineTextField(text: $input, onSubmit: {
+                    if canSend { onSend() }
+                })
                 .frame(minHeight: 22, maxHeight: 120)
+            }
+
             Button(action: { if canSend { onSend() } }) {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 12, weight: .bold))
@@ -456,9 +464,8 @@ private struct AgentComposer: View {
                     )
             }
             .buttonStyle(.plain)
-            .keyboardShortcut(.return, modifiers: [.command])
             .disabled(!canSend)
-            .help("Send (⌘↵)")
+            .help("Send")
         }
         .padding(10)
         .background(Theme.input, in: RoundedRectangle(cornerRadius: 12))
@@ -472,113 +479,81 @@ private struct AgentComposer: View {
     }
 }
 
-private struct ComposerTextField: NSViewRepresentable {
+/// Multi-line NSTextView wrapped for SwiftUI. Avoids the broken SwiftUI
+/// TextField(axis: .vertical) + .focused() + ZStack overlay combination,
+/// which on macOS 14 fails to receive key events in certain hosting
+/// configurations. Returns Enter to submit, Shift+Enter to insert a newline.
+private struct NativeMultilineTextField: NSViewRepresentable {
     @Binding var text: String
-    let placeholder: String
     let onSubmit: () -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(text: $text, onSubmit: onSubmit) }
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeNSView(context: Context) -> NSScrollView {
         let textView = NSTextView()
+        textView.delegate = context.coordinator
         textView.isRichText = false
         textView.isEditable = true
+        textView.isSelectable = true
         textView.allowsUndo = true
         textView.font = .systemFont(ofSize: 13)
         textView.textColor = NSColor(Theme.textPrimary)
-        textView.backgroundColor = .clear
+        textView.insertionPointColor = NSColor(Theme.textPrimary)
         textView.drawsBackground = false
-        textView.delegate = context.coordinator
-        textView.textContainerInset = NSSize(width: 0, height: 4)
+        textView.backgroundColor = .clear
+        textView.textContainerInset = NSSize(width: 1, height: 4)
+        textView.appearance = NSAppearance(named: .darkAqua)
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
-        textView.allowsCharacterPickerTouchBarItem = false
-        textView.appearance = NSAppearance(named: .darkAqua)
+        textView.isAutomaticTextCompletionEnabled = false
+        textView.isAutomaticLinkDetectionEnabled = false
+        textView.isAutomaticDataDetectionEnabled = false
 
         let scroll = NSScrollView()
         scroll.documentView = textView
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = false
+        scroll.hasHorizontalScroller = false
         scroll.borderType = .noBorder
-        scroll.backgroundColor = .clear
+        scroll.appearance = NSAppearance(named: .darkAqua)
 
         context.coordinator.textView = textView
-        context.coordinator.scrollView = scroll
-        context.coordinator.placeholder = placeholder
-        context.coordinator.updatePlaceholder()
         return scroll
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let textView = scroll.documentView as? NSTextView else { return }
-        context.coordinator.text = $text
-        context.coordinator.onSubmit = onSubmit
-        context.coordinator.placeholder = placeholder
+        context.coordinator.parent = self
         if textView.string != text {
             textView.string = text
         }
-        context.coordinator.updatePlaceholder()
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
-        var text: Binding<String>
-        var onSubmit: () -> Void
+        var parent: NativeMultilineTextField
         weak var textView: NSTextView?
-        weak var scrollView: NSScrollView?
-        var placeholder: String = ""
-        private var placeholderLayer: CATextLayer?
 
-        init(text: Binding<String>, onSubmit: @escaping () -> Void) {
-            self.text = text
-            self.onSubmit = onSubmit
+        init(_ parent: NativeMultilineTextField) {
+            self.parent = parent
         }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            text.wrappedValue = textView.string
-            updatePlaceholder()
+            parent.text = textView.string
         }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                let event = NSApp.currentEvent
-                let isShift = event?.modifierFlags.contains(.shift) ?? false
-                if isShift {
+                let shift = NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false
+                if shift {
                     textView.insertNewlineIgnoringFieldEditor(nil)
-                    return true
                 } else {
-                    onSubmit()
-                    return true
+                    parent.onSubmit()
                 }
+                return true
             }
             return false
-        }
-
-        func updatePlaceholder() {
-            guard let textView else { return }
-            if textView.string.isEmpty {
-                if placeholderLayer == nil {
-                    let layer = CATextLayer()
-                    layer.string = placeholder
-                    layer.font = NSFont.systemFont(ofSize: 13)
-                    layer.fontSize = 13
-                    layer.foregroundColor = NSColor(Theme.textTertiary).cgColor
-                    layer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2
-                    layer.alignmentMode = .left
-                    textView.wantsLayer = true
-                    textView.layer?.addSublayer(layer)
-                    placeholderLayer = layer
-                }
-                if let layer = placeholderLayer {
-                    layer.string = placeholder
-                    let height: CGFloat = 18
-                    layer.frame = CGRect(x: 4, y: textView.bounds.height - height - 4, width: textView.bounds.width - 8, height: height)
-                }
-            } else {
-                placeholderLayer?.removeFromSuperlayer()
-                placeholderLayer = nil
-            }
         }
     }
 }
