@@ -82,6 +82,10 @@ class ChatRequest:
     target: TargetLanguage
     flows: list[FlowSummary] = field(default_factory=list)
     history: list[dict[str, str]] = field(default_factory=list)
+    # The Claude Agent SDK session id from a previous turn. When present we
+    # pass it as ClaudeAgentOptions.resume so the SDK can re-attach to its
+    # own persisted state instead of replaying our local history.
+    claude_session_id: str | None = None
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> "ChatRequest":
@@ -97,12 +101,15 @@ class ChatRequest:
             {"role": str(item.get("role", "user")), "content": str(item.get("content", ""))}
             for item in payload.get("history", [])
         ]
+        raw_sid = payload.get("claudeSessionId") or payload.get("claude_session_id")
+        claude_session_id = str(raw_sid) if isinstance(raw_sid, str) and raw_sid else None
         return cls(
             id=str(payload.get("id", "")),
             user_message=str(payload.get("message", "")),
             target=target,
             flows=flows,
             history=history,
+            claude_session_id=claude_session_id,
         )
 
 
@@ -117,6 +124,13 @@ class AgentEvent:
     @classmethod
     def assistant_text(cls, chat_id: str, text: str) -> "AgentEvent":
         return cls(type="assistant_text", payload={"id": chat_id, "text": text})
+
+    @classmethod
+    def session_started(cls, chat_id: str, claude_session_id: str) -> "AgentEvent":
+        return cls(
+            type="session_started",
+            payload={"id": chat_id, "claudeSessionId": claude_session_id},
+        )
 
     @classmethod
     def assistant_text_chunk(cls, chat_id: str, text: str) -> "AgentEvent":

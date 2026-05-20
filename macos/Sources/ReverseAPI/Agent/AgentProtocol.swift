@@ -1,7 +1,7 @@
 import Foundation
 import ReverseAPIProxy
 
-enum AgentTargetLanguage: String, CaseIterable, Identifiable, Sendable {
+enum AgentTargetLanguage: String, CaseIterable, Identifiable, Sendable, Codable {
     case python
     case typescript
     case go
@@ -61,7 +61,7 @@ struct AgentFlowPayload: Encodable {
     }
 }
 
-struct AgentHistoryItem: Encodable {
+struct AgentHistoryItem: Codable {
     let role: String
     let content: String
 }
@@ -73,9 +73,13 @@ struct AgentChatRequest: Encodable {
     let target: String
     let flows: [AgentFlowPayload]
     let history: [AgentHistoryItem]
+    /// Claude Agent SDK session id from a previous turn. When present, the
+    /// backend passes it as `ClaudeAgentOptions.resume` so the SDK can
+    /// re-attach to its own persisted state for that conversation.
+    let claudeSessionId: String?
 }
 
-enum AgentEvent: Sendable, Identifiable {
+enum AgentEvent: Sendable, Identifiable, Codable {
     case userText(eventID: UUID, text: String)
     case assistantText(chatID: String, eventID: UUID, text: String)
     case assistantTextChunk(chatID: String, eventID: UUID, text: String)
@@ -84,6 +88,10 @@ enum AgentEvent: Sendable, Identifiable {
     case fileWritten(chatID: String, eventID: UUID, path: String)
     case complete(chatID: String, eventID: UUID, workdir: String, files: [String])
     case error(chatID: String?, eventID: UUID, message: String)
+    /// Backend hands us the Claude Agent SDK session id on the first turn
+    /// so we can pass it back as `resume` on subsequent turns and let the
+    /// SDK rehydrate the conversation history itself.
+    case sessionStarted(chatID: String, eventID: UUID, claudeSessionID: String)
 
     var id: UUID {
         switch self {
@@ -95,6 +103,7 @@ enum AgentEvent: Sendable, Identifiable {
         case .fileWritten(_, let id, _): return id
         case .complete(_, let id, _, _): return id
         case .error(_, let id, _): return id
+        case .sessionStarted(_, let id, _): return id
         }
     }
 }
@@ -151,6 +160,12 @@ enum AgentEventDecoder {
                 chatID: chatID,
                 eventID: eventID,
                 message: object["message"] as? String ?? "unknown error"
+            )
+        case "session_started":
+            return .sessionStarted(
+                chatID: chatID ?? "",
+                eventID: eventID,
+                claudeSessionID: object["claudeSessionId"] as? String ?? ""
             )
         default:
             throw DecodeError.unknownType(type)

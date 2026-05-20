@@ -207,9 +207,10 @@ private struct AgentEventRow: View {
             UserMessageRow(text: text)
         case .assistantText(_, _, let text):
             AssistantRow(text: text)
-        case .assistantTextChunk:
+        case .assistantTextChunk, .sessionStarted:
             // Chunks are folded into the active assistantText event by
-            // AgentSession; we never render them as standalone rows.
+            // AgentSession; sessionStarted is metadata only — neither is
+            // rendered as a standalone timeline row.
             EmptyView()
         case .toolUse(_, _, let name, let inputJSON):
             ToolUseRow(name: name, inputJSON: inputJSON)
