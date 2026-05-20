@@ -101,12 +101,24 @@ final class AppState {
 
         // Eagerly recover from a stale snapshot left over from a previous
         // process that didn't shut down cleanly. We do this synchronously
-        // in init (off the main work) so by the time the UI appears the
-        // user's network is already in a sane state — Safari/Chrome are
-        // dead-in-the-water as long as the system proxy points at our
-        // port and we're not actually accepting connections.
-        if let persisted = try? Self.readSnapshot(from: snapshotFileURL), !persisted.isEmpty {
+        // in init so by the time the UI appears the user's network is
+        // already in a sane state — Safari/Chrome are dead-in-the-water
+        // as long as the system proxy points at our port and we're not
+        // accepting connections.
+        //
+        // Only load the snapshot when the system proxy is currently
+        // pointing at our port. Otherwise the file is just leftover from
+        // a prior run that the user has since changed manually — loading
+        // it would let us "restore" stale settings on the next exit and
+        // overwrite the user's real, current proxy configuration.
+        if self.systemProxyEnabled,
+           let persisted = try? Self.readSnapshot(from: snapshotFileURL),
+           !persisted.isEmpty {
             self.proxySnapshot = persisted
+        } else {
+            // File is either missing, malformed, or no longer relevant —
+            // drop it so we don't accidentally pick it up later.
+            Self.deleteSnapshot(at: snapshotFileURL)
         }
 
         store.subscribe(to: engine.bus)
@@ -355,10 +367,11 @@ final class AppState {
         let snapshot = try await Task.detached(priority: .userInitiated) {
             let snapshot = try systemProxy.snapshot()
             // Write the snapshot to disk BEFORE flipping the system proxy.
-            // If we crash between enable() and the in-memory assignment,
-            // the next launch can still restore the user's real settings
-            // instead of just disabling and losing them.
-            try? Self.writeSnapshot(snapshot, to: snapshotURL)
+            // If this fails (read-only volume, sandbox refusal, disk full)
+            // we must NOT flip the proxy — otherwise a subsequent crash
+            // would leave the user with no way to recover their original
+            // settings.
+            try Self.writeSnapshot(snapshot, to: snapshotURL)
             do {
                 try systemProxy.enable(host: "127.0.0.1", port: port)
                 return snapshot
