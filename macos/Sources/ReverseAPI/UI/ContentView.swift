@@ -8,6 +8,11 @@ struct ContentView: View {
     @State private var isPaletteVisible: Bool = false
     @State private var trafficWidth: CGFloat = 720
     @State private var dragStartWidth: CGFloat?
+    // First-launch onboarding gate. The sheet is shown until the user
+    // explicitly acknowledges it via "Get started" / "Skip for now" —
+    // both buttons flip this flag, NOT the sheet dismiss path, so closing
+    // the window before acknowledging doesn't silently mark it complete.
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
     var body: some View {
         ZStack {
@@ -101,6 +106,12 @@ struct ContentView: View {
                 get: { state.viewingFile != nil },
                 set: { if !$0 { state.viewingFile = nil } }
             ))
+        }
+        .sheet(isPresented: Binding(
+            get: { !hasCompletedOnboarding },
+            set: { if !$0 { hasCompletedOnboarding = true } }
+        )) {
+            OnboardingView(hasCompletedOnboarding: $hasCompletedOnboarding)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Theme.appBackground)
