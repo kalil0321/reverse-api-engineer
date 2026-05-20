@@ -86,7 +86,14 @@ async def run_chat(request: ChatRequest, base_dir: Path) -> AsyncIterator[AgentE
         system_prompt=SYSTEM_PROMPT,
         cwd=str(dirs.output_dir),
         allowed_tools=["Read", "Write", "Edit"],
-        permission_mode="acceptEdits",
+        # `acceptEdits` still prompts for Read on paths outside the cwd —
+        # including the session's own flows.json, which lives in the
+        # sibling flows/ directory. Use `bypassPermissions` (same setting
+        # the reverse_api collector + auto_engineer use) so the agent can
+        # operate end-to-end without a permission dialog. The sidecar is
+        # already isolated to per-chat session directories, so there's no
+        # broader-than-intended access enabled here.
+        permission_mode="bypassPermissions",
         include_partial_messages=True,
     )
 
