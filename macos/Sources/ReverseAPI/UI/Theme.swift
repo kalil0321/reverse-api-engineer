@@ -1,11 +1,14 @@
 import SwiftUI
 
 enum Theme {
-    // Backgrounds (darkest → lightest) — near-black palette
-    static let appBackground = Color(red: 0.020, green: 0.020, blue: 0.024)        // #050506
-    static let surface = Color(red: 0.043, green: 0.043, blue: 0.051)              // #0B0B0D
-    static let elevated = Color(red: 0.086, green: 0.086, blue: 0.102)             // #16161A
-    static let input = Color(red: 0.059, green: 0.059, blue: 0.067)                // #0F0F11
+    // Backgrounds (darkest → lightest) — exploration: bumped roughly +6%
+    // luminance across the dark stack so the canvas reads as warm dark grey
+    // instead of near-black. Each surface keeps the same relative gap
+    // (~5% between tiers) so contrast on hover/selected states is preserved.
+    static let appBackground = Color(red: 0.071, green: 0.075, blue: 0.086)        // #12131A
+    static let surface = Color(red: 0.106, green: 0.110, blue: 0.122)              // #1B1C1F
+    static let elevated = Color(red: 0.157, green: 0.161, blue: 0.180)             // #28292E
+    static let input = Color(red: 0.122, green: 0.125, blue: 0.141)                // #1F2024
     static let overlay = Color.black.opacity(0.55)
 
     // Borders & dividers
