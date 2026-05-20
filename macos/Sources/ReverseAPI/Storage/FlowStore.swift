@@ -56,7 +56,9 @@ public final class FlowStore {
     }
 
     /// Remove the given flows from both the in-memory list and the database.
-    /// Safe to call with empty/unknown ids.
+    /// Safe to call with empty/unknown ids. Bails out without touching the
+    /// in-memory list if the database delete fails so the two sides don't
+    /// drift apart silently — caller can retry.
     public func delete(ids: Set<UUID>) async {
         guard !ids.isEmpty else { return }
         let snapshot = generation.bump()
@@ -72,6 +74,7 @@ public final class FlowStore {
             }.value
         } catch {
             logger.error("failed to delete \(ids.count) flow(s): \(error)")
+            return
         }
         guard generation.value == snapshot else { return }
         let removed = flows.filter { ids.contains($0.id) }
