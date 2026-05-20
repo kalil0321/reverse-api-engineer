@@ -16,6 +16,7 @@ struct TrafficListView: View {
                 visibleCount: filteredFlows.count,
                 visibleIDs: filteredFlows.map(\.id)
             )
+            TrafficFilterBar()
             ThinDivider()
             if state.store.flows.isEmpty {
                 EmptyTrafficState()
@@ -53,7 +54,9 @@ private struct TrafficListHeader: View {
                 .padding(.vertical, 1)
                 .background(Theme.elevated, in: Capsule())
             Spacer()
-            FilterButton()
+            if hasActiveFilters {
+                ResetFiltersButton()
+            }
             DeleteAllButton()
         }
         // Same horizontal padding as TrafficRow so the header select-all
@@ -61,101 +64,256 @@ private struct TrafficListHeader: View {
         .padding(.horizontal, 12)
         .frame(height: 44)
     }
+
+    private var hasActiveFilters: Bool {
+        let f = state.filter
+        return !f.search.isEmpty
+            || f.onlyErrors
+            || !f.resourceKinds.isEmpty
+            || !f.methods.isEmpty
+            || !f.statusBuckets.isEmpty
+            || !f.hosts.isEmpty
+    }
 }
 
-// MARK: - Filter + delete-all actions
+// MARK: - Filter bar (text + chip rows)
 
-private struct FilterButton: View {
+private struct TrafficFilterBar: View {
     @Environment(AppState.self) private var state
 
     var body: some View {
         @Bindable var bindable = state
-        Menu {
-            Toggle(isOn: $bindable.filter.onlyErrors) {
-                Label("Errors only", systemImage: "exclamationmark.octagon")
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.textTertiary)
+                TrafficSearchField(text: $bindable.filter.search)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 16)
+                if !state.filter.search.isEmpty {
+                    Button {
+                        state.filter.search = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.textTertiary)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            Section("Type") {
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Theme.input, in: RoundedRectangle(cornerRadius: 7))
+
+            ResourceKindRow(selection: $bindable.filter.resourceKinds)
+            if !state.store.methodOptions.isEmpty {
+                MethodRow(options: state.store.methodOptions, selection: $bindable.filter.methods)
+            }
+            StatusRow(selection: $bindable.filter.statusBuckets)
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 10)
+    }
+}
+
+private struct TrafficSearchField: NSViewRepresentable {
+    @Binding var text: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField()
+        field.delegate = context.coordinator
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = .systemFont(ofSize: 12)
+        field.textColor = .white
+        field.placeholderAttributedString = NSAttributedString(
+            string: "Filter by host, path, method…",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 12),
+                .foregroundColor: NSColor.white.withAlphaComponent(0.32),
+            ]
+        )
+        field.stringValue = text
+        field.appearance = NSAppearance(named: .darkAqua)
+        field.cell?.usesSingleLineMode = true
+        field.cell?.wraps = false
+        field.cell?.isScrollable = true
+        return field
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        context.coordinator.parent = self
+        if field.stringValue != text {
+            field.stringValue = text
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: TrafficSearchField
+
+        init(_ parent: TrafficSearchField) { self.parent = parent }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            parent.text = field.stringValue
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+                parent.text = ""
+                return true
+            }
+            return false
+        }
+    }
+}
+
+private struct ResourceKindRow: View {
+    @Binding var selection: Set<TrafficFilter.ResourceKind>
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
                 ForEach(TrafficFilter.ResourceKind.allCases) { kind in
-                    Toggle(isOn: bindingForResource(kind)) { Text(kind.rawValue) }
-                }
-            }
-            Section("Method") {
-                ForEach(state.store.methodOptions, id: \.self) { method in
-                    Toggle(isOn: bindingForMethod(method)) { Text(method) }
-                }
-            }
-            Section("Status") {
-                ForEach(TrafficFilter.StatusBucket.allCases) { bucket in
-                    Toggle(isOn: bindingForBucket(bucket)) { Text(bucket.rawValue) }
-                }
-            }
-            if activeFilterCount > 0 {
-                Divider()
-                Button("Reset filters", role: .destructive) {
-                    bindable.filter = TrafficFilter()
-                }
-            }
-        } label: {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: "line.3.horizontal.decrease")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.textPrimary)
-                    .frame(width: 22, height: 22)
-                    .background(Theme.elevated, in: Circle())
-                if activeFilterCount > 0 {
-                    Circle()
-                        .fill(Theme.success)
-                        .frame(width: 6, height: 6)
-                        .offset(x: 1, y: -1)
+                    FilterChip(
+                        title: kind.rawValue,
+                        isSelected: selection.contains(kind)
+                    ) {
+                        if selection.contains(kind) { selection.remove(kind) }
+                        else { selection.insert(kind) }
+                    }
                 }
             }
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help(activeFilterCount > 0
-              ? "Filter traffic · \(activeFilterCount) active"
-              : "Filter traffic")
     }
+}
 
-    private var activeFilterCount: Int {
-        var count = 0
-        if state.filter.onlyErrors { count += 1 }
-        count += state.filter.resourceKinds.count
-        count += state.filter.methods.count
-        count += state.filter.statusBuckets.count
-        count += state.filter.hosts.count
-        return count
-    }
+private struct MethodRow: View {
+    let options: [String]
+    @Binding var selection: Set<String>
 
-    private func bindingForResource(_ kind: TrafficFilter.ResourceKind) -> Binding<Bool> {
-        Binding(
-            get: { state.filter.resourceKinds.contains(kind) },
-            set: { isOn in
-                if isOn { state.filter.resourceKinds.insert(kind) }
-                else { state.filter.resourceKinds.remove(kind) }
+    var body: some View {
+        if options.isEmpty {
+            EmptyView()
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(options, id: \.self) { method in
+                        FilterChip(
+                            title: method,
+                            isSelected: selection.contains(method),
+                            tint: methodTint(method)
+                        ) {
+                            if selection.contains(method) { selection.remove(method) }
+                            else { selection.insert(method) }
+                        }
+                    }
+                }
             }
-        )
+        }
     }
 
-    private func bindingForMethod(_ method: String) -> Binding<Bool> {
-        Binding(
-            get: { state.filter.methods.contains(method) },
-            set: { isOn in
-                if isOn { state.filter.methods.insert(method) }
-                else { state.filter.methods.remove(method) }
+    private func methodTint(_ method: String) -> Color {
+        switch method {
+        case "GET": return Theme.methodGet
+        case "POST": return Theme.methodPost
+        case "PUT", "PATCH": return Theme.methodPut
+        case "DELETE": return Theme.methodDelete
+        case "CONNECT": return Theme.methodConnect
+        default: return Theme.textSecondary
+        }
+    }
+}
+
+private struct StatusRow: View {
+    @Binding var selection: Set<TrafficFilter.StatusBucket>
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                ForEach(TrafficFilter.StatusBucket.allCases) { bucket in
+                    FilterChip(
+                        title: bucket.rawValue,
+                        isSelected: selection.contains(bucket),
+                        tint: statusTint(bucket)
+                    ) {
+                        if selection.contains(bucket) { selection.remove(bucket) }
+                        else { selection.insert(bucket) }
+                    }
+                }
             }
-        )
+        }
     }
 
-    private func bindingForBucket(_ bucket: TrafficFilter.StatusBucket) -> Binding<Bool> {
-        Binding(
-            get: { state.filter.statusBuckets.contains(bucket) },
-            set: { isOn in
-                if isOn { state.filter.statusBuckets.insert(bucket) }
-                else { state.filter.statusBuckets.remove(bucket) }
-            }
-        )
+    private func statusTint(_ bucket: TrafficFilter.StatusBucket) -> Color {
+        switch bucket {
+        case .informational: return Theme.textSecondary
+        case .success: return Theme.success
+        case .redirect: return Theme.methodGet
+        case .clientError: return Theme.methodPut
+        case .serverError: return Theme.danger
+        }
+    }
+}
+
+private struct FilterChip: View {
+    let title: String
+    let isSelected: Bool
+    var tint: Color = Theme.textPrimary
+    let action: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(foreground)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 3)
+                .background(background, in: Capsule())
+                .overlay {
+                    Capsule().stroke(borderColor, lineWidth: 1)
+                }
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+    }
+
+    private var foreground: Color {
+        isSelected ? tint : Theme.textSecondary
+    }
+
+    private var background: Color {
+        if isSelected { return tint.opacity(0.18) }
+        if isHovering { return Color.white.opacity(0.05) }
+        return Color.clear
+    }
+
+    private var borderColor: Color {
+        if isSelected { return tint.opacity(0.5) }
+        return Theme.border
+    }
+}
+
+private struct ResetFiltersButton: View {
+    @Environment(AppState.self) private var state
+
+    var body: some View {
+        Button {
+            state.filter = TrafficFilter()
+        } label: {
+            Image(systemName: "arrow.counterclockwise")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Theme.textPrimary)
+                .frame(width: 22, height: 22)
+                .background(Theme.elevated, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .help("Reset all filters")
     }
 }
 
