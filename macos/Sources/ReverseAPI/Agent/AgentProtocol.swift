@@ -49,10 +49,19 @@ struct AgentFlowPayload: Encodable {
     static func encodedBody(_ data: Data, limit: Int) -> String? {
         guard !data.isEmpty else { return nil }
         if data.count > limit {
-            let head = data.prefix(limit)
+            // Cut on a UTF-8 boundary, not at the raw byte limit — slicing
+            // mid-codepoint makes `String(data:)` fail, which used to send
+            // perfectly readable text bodies through the binary fallback.
+            // Step backward up to 3 bytes (max UTF-8 continuation length)
+            // to find a valid prefix; bail to the binary path only if
+            // nothing readable survives.
             let suffix = "\n…<truncated \(data.count - limit) bytes>"
-            if let text = String(data: head, encoding: .utf8) {
-                return text + suffix
+            for offset in 0...min(3, limit) {
+                let candidateEnd = limit - offset
+                let head = data.prefix(candidateEnd)
+                if let text = String(data: head, encoding: .utf8) {
+                    return text + suffix
+                }
             }
             return "<binary:\(data.count) bytes, truncated>"
         }
