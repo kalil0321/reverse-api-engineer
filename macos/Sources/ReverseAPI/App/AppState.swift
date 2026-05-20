@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import ReverseAPIProxy
+import Security
 
 @MainActor
 @Observable
@@ -81,6 +82,9 @@ final class AppState {
         defer { isWorking = false }
 
         do {
+            if mode == .device {
+                try await ensureCATrustInstalled()
+            }
             try await engine.start()
 
             if mode == .device {
@@ -131,18 +135,30 @@ final class AppState {
         }
     }
 
+    private func ensureCATrustInstalled() async throws {
+        if installer.isInstalled(derBytes: caDER) {
+            caTrustInstalled = true
+            return
+        }
+
+        let installer = self.installer
+        let der = self.caDER
+        try await Task.detached(priority: .userInitiated) {
+            try installer.install(derBytes: der)
+        }.value
+        caTrustInstalled = installer.isInstalled(derBytes: caDER)
+        if !caTrustInstalled {
+            throw CertificateTrustError.trustFailed(errSecAuthFailed)
+        }
+    }
+
     func installCATrust() async {
         guard !isWorking else { return }
         isWorking = true
         defer { isWorking = false }
 
         do {
-            let installer = self.installer
-            let der = self.caDER
-            try await Task.detached(priority: .userInitiated) {
-                try installer.install(derBytes: der)
-            }.value
-            caTrustInstalled = true
+            try await ensureCATrustInstalled()
             lastError = nil
         } catch {
             lastError = "Failed to install CA trust: \(error)"
