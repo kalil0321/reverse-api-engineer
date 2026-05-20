@@ -5,18 +5,31 @@ actor AgentSidecar {
         var executablePath: String
         var arguments: [String]
         var workdir: URL
+        var pythonPath: [String]
+        var origin: AgentRuntime.Origin
 
-        public init(executablePath: String, arguments: [String], workdir: URL) {
+        public init(
+            executablePath: String,
+            arguments: [String],
+            workdir: URL,
+            pythonPath: [String] = [],
+            origin: AgentRuntime.Origin = .fallback
+        ) {
             self.executablePath = executablePath
             self.arguments = arguments
             self.workdir = workdir
+            self.pythonPath = pythonPath
+            self.origin = origin
         }
 
         public static func python3(workdir: URL) -> LaunchSpec {
-            LaunchSpec(
-                executablePath: "/usr/bin/env",
-                arguments: ["python3", "-m", "rae_agent.server"],
-                workdir: workdir
+            let runtime = AgentRuntime.resolve()
+            return LaunchSpec(
+                executablePath: runtime.executablePath,
+                arguments: runtime.arguments,
+                workdir: workdir,
+                pythonPath: runtime.pythonPath,
+                origin: runtime.origin
             )
         }
 
@@ -25,11 +38,22 @@ actor AgentSidecar {
         }
     }
 
-    enum SidecarError: Error {
+    enum SidecarError: Error, CustomStringConvertible {
         case alreadyRunning
         case failedToStart(String)
         case timedOut
         case processDied(Int32)
+        case stderrSnapshot(String)
+
+        var description: String {
+            switch self {
+            case .alreadyRunning: return "sidecar already running"
+            case .failedToStart(let msg): return "failed to start: \(msg)"
+            case .timedOut: return "sidecar did not announce its port in time"
+            case .processDied(let code): return "sidecar exited with status \(code)"
+            case .stderrSnapshot(let snapshot): return snapshot
+            }
+        }
     }
 
     private(set) var process: Process?
@@ -49,6 +73,12 @@ actor AgentSidecar {
         environment["RAE_AGENT_PORT"] = "0"
         environment["RAE_AGENT_WORKDIR"] = spec.workdir.path
         environment["PYTHONUNBUFFERED"] = "1"
+        if !spec.pythonPath.isEmpty {
+            let existing = environment["PYTHONPATH"]
+            let combined = ([existing].compactMap { $0?.isEmpty == false ? $0 : nil } + spec.pythonPath)
+                .joined(separator: ":")
+            environment["PYTHONPATH"] = combined
+        }
         process.environment = environment
 
         let stdout = Pipe()
@@ -56,11 +86,15 @@ actor AgentSidecar {
         process.standardOutput = stdout
         process.standardError = stderr
 
-        try process.run()
+        do {
+            try process.run()
+        } catch {
+            throw SidecarError.failedToStart("could not exec \(spec.executablePath): \(error.localizedDescription)")
+        }
         self.process = process
 
         do {
-            let bound = try await waitForBoundPort(stdout: stdout, deadline: timeout, process: process)
+            let bound = try await waitForBoundPort(stdout: stdout, stderr: stderr, deadline: timeout, process: process)
             self.port = bound
             return bound
         } catch {
@@ -82,16 +116,23 @@ actor AgentSidecar {
         self.port = nil
     }
 
-    private func waitForBoundPort(stdout: Pipe, deadline: Duration, process: Process) async throws -> Int {
-        let handle = stdout.fileHandleForReading
+    private func waitForBoundPort(stdout: Pipe, stderr: Pipe, deadline: Duration, process: Process) async throws -> Int {
+        let stdoutHandle = stdout.fileHandleForReading
+        let stderrHandle = stderr.fileHandleForReading
         let buffer = AsyncStreamBuffer()
-        handle.readabilityHandler = { fileHandle in
-            let chunk = fileHandle.availableData
-            if !chunk.isEmpty {
-                buffer.append(chunk)
-            }
+        let errBuffer = AsyncStreamBuffer()
+        stdoutHandle.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if !chunk.isEmpty { buffer.append(chunk) }
         }
-        defer { handle.readabilityHandler = nil }
+        stderrHandle.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if !chunk.isEmpty { errBuffer.append(chunk) }
+        }
+        defer {
+            stdoutHandle.readabilityHandler = nil
+            stderrHandle.readabilityHandler = nil
+        }
 
         let deadlineDate = ContinuousClock.now.advanced(by: deadline)
         while ContinuousClock.now < deadlineDate {
@@ -103,6 +144,10 @@ actor AgentSidecar {
                 return port
             }
             if !process.isRunning {
+                let stderrDump = errBuffer.snapshot().trimmingCharacters(in: .whitespacesAndNewlines)
+                if !stderrDump.isEmpty {
+                    throw SidecarError.stderrSnapshot(stderrDump)
+                }
                 throw SidecarError.processDied(process.terminationStatus)
             }
             try await Task.sleep(for: .milliseconds(50))
@@ -129,5 +174,11 @@ private final class AsyncStreamBuffer: @unchecked Sendable {
             if line.hasPrefix(prefix) { return String(line) }
         }
         return nil
+    }
+
+    func snapshot() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return String(data: data, encoding: .utf8) ?? ""
     }
 }
