@@ -242,6 +242,10 @@ final class AppState {
             do {
                 try await store.clear()
                 selectedFlowID = nil
+                // Stale UUIDs in agentSelection would leave the agent
+                // panel in "N selected" mode with nothing to actually
+                // send — wipe alongside the flows.
+                agentSelection.removeAll()
                 lastError = nil
             } catch {
                 lastError = "Failed to clear flows: \(error)"
