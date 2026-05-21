@@ -17,6 +17,15 @@ struct SplashView: View {
     /// Wordmark slides in from the asterisk's right.
     @State private var wordmarkOffset: CGFloat = -18
 
+    init() {
+        // SwiftUI Previews bypass App.init() where BrandFont.bootstrap()
+        // normally runs, so the wordmark would fall back to SF Italic in
+        // Xcode's canvas. Register here too — registration is idempotent
+        // at the Core Text level and the runtime cost is one dictionary
+        // lookup on subsequent calls.
+        BrandFont.bootstrap()
+    }
+
     var body: some View {
         ZStack {
             Theme.appBackground.ignoresSafeArea()
@@ -69,3 +78,9 @@ struct SplashView: View {
         }
     }
 }
+
+#Preview("Splash") {
+    SplashView()
+        .frame(width: 720, height: 480)
+}
+
