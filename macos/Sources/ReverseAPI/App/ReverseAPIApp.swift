@@ -5,47 +5,71 @@ import SwiftUI
 struct ReverseAPIApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var session = AppSession.live()
+    /// Splash gate — visible for ~1.6s on launch so the wordmark gets a
+    /// brand moment instead of the window flashing through an empty
+    /// frame. Flips to false after the timer fires.
+    @State private var isShowingSplash = true
 
     var body: some Scene {
         Window("rae", id: "main") {
-            switch session {
-            case .ready(let state):
-                ContentView()
-                    .environment(state)
-                    .onAppear {
-                        AppLifecycle.shared.state = state
-                    }
-                    .onDisappear {
-                        Task { await state.shutdownForWindowClose() }
-                    }
-                    .background(WindowAccessor { window in
-                        window.title = ""
-                        window.titleVisibility = .hidden
-                        window.titlebarAppearsTransparent = true
-                        window.isOpaque = true
-                        window.backgroundColor = NSColor(Theme.appBackground)
-                    })
-                    .frame(
-                        // Bumped so the traffic card can always fit
-                        // table+inspector side by side (its inner HSplitView
-                        // needs ~700pt) without compressing past its
-                        // rounded border into a glitchy state. Old 980pt
-                        // window minimum was below that threshold.
-                        minWidth: 1100,
-                        maxWidth: .infinity,
-                        minHeight: 640,
-                        maxHeight: .infinity,
-                        alignment: .topLeading
-                    )
-            case .failed(let error):
-                BootFailureView(error: error)
-                    .frame(minWidth: 500, minHeight: 300)
+            ZStack {
+                mainContent
+                    .opacity(isShowingSplash ? 0 : 1)
+                if isShowingSplash {
+                    SplashView()
+                        .transition(.opacity)
+                }
+            }
+            .task {
+                try? await Task.sleep(for: .milliseconds(1600))
+                withAnimation(.easeOut(duration: 0.45)) {
+                    isShowingSplash = false
+                }
             }
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unifiedCompact)
         .commands {
             CommandGroup(replacing: .newItem) {}
+        }
+    }
+
+    @ViewBuilder
+    private var mainContent: some View {
+        switch session {
+        case .ready(let state):
+            ContentView()
+                .environment(state)
+                .onAppear {
+                    AppLifecycle.shared.state = state
+                }
+                .onDisappear {
+                    Task { await state.shutdownForWindowClose() }
+                }
+                .background(WindowAccessor { window in
+                    window.title = ""
+                    window.titleVisibility = .hidden
+                    window.titlebarAppearsTransparent = true
+                    window.isOpaque = true
+                    // Dynamic NSColor under the hood — flips automatically
+                    // when the system appearance changes.
+                    window.backgroundColor = NSColor(Theme.appBackground)
+                })
+                .frame(
+                    // Bumped so the traffic card can always fit
+                    // table+inspector side by side (its inner HSplitView
+                    // needs ~700pt) without compressing past its
+                    // rounded border into a glitchy state. Old 980pt
+                    // window minimum was below that threshold.
+                    minWidth: 1100,
+                    maxWidth: .infinity,
+                    minHeight: 640,
+                    maxHeight: .infinity,
+                    alignment: .topLeading
+                )
+        case .failed(let error):
+            BootFailureView(error: error)
+                .frame(minWidth: 500, minHeight: 300)
         }
     }
 }
@@ -83,7 +107,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // launched from a real .app bundle.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
-        NSApp.appearance = NSAppearance(named: .darkAqua)
+        // No longer force `.darkAqua` — the Theme tokens are dynamic NSColors
+        // and ContentView no longer pins `.preferredColorScheme(.dark)`,
+        // so light/dark now follows the system setting.
         installSignalHandlers()
     }
 
