@@ -76,12 +76,21 @@ cp "$BUILT_BIN" "$MACOS_BIN/$APP_NAME"
 chmod +x "$MACOS_BIN/$APP_NAME"
 
 # ---------------------------------------------------------------------------
-# 3. Static Info.plist + (optional) AppIcon
+# 3. Static Info.plist + (optional) AppIcon + bundled SwiftPM resources
 # ---------------------------------------------------------------------------
 cp "$MACOS_DIR/Resources/Info.plist" "$CONTENTS/Info.plist"
 
 if [ -f "$MACOS_DIR/Resources/AppIcon.icns" ]; then
     cp "$MACOS_DIR/Resources/AppIcon.icns" "$RESOURCES/AppIcon.icns"
+fi
+
+# SwiftPM compiles a resource bundle for any target that declares `resources:`
+# — we ship Fraunces italic for the brand wordmark this way. The bundle
+# lives next to the executable in the build products dir; copy it into the
+# .app so Bundle.module finds it at runtime.
+SPM_RESOURCE_BUNDLE="$BIN_PATH/ReverseAPI_ReverseAPI.bundle"
+if [ -d "$SPM_RESOURCE_BUNDLE" ]; then
+    cp -R "$SPM_RESOURCE_BUNDLE" "$RESOURCES/"
 fi
 
 # ---------------------------------------------------------------------------
