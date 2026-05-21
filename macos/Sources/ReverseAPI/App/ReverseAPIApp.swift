@@ -10,6 +10,17 @@ struct ReverseAPIApp: App {
     /// frame. Flips to false after the timer fires.
     @State private var isShowingSplash = true
 
+    init() {
+        // Register the bundled Fraunces font *here*, not in
+        // applicationDidFinishLaunching — `App.init()` runs before any
+        // View body is computed, while the delegate's launch callback
+        // fires after the run loop starts. Doing it late means the
+        // SplashView's first paint resolves `Font.fraunces(...)` to a
+        // fallback (SF Italic) and only flips to Fraunces on a later
+        // layout pass, which reads as the wordmark "morphing" mid-anim.
+        BrandFont.bootstrap()
+    }
+
     var body: some Scene {
         Window("rae", id: "main") {
             ZStack {
@@ -91,11 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var signalSources: [DispatchSourceSignal] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Register the bundled Fraunces italic font BEFORE the first window
-        // appears — otherwise the onboarding sheet's `*` brand asterisk +
-        // "rae" wordmark first-paint in SF Italic and only flip to Fraunces
-        // on a later layout pass, which reads as a layout glitch.
-        BrandFont.bootstrap()
+        // Font bootstrap happens in `ReverseAPIApp.init()` so it lands
+        // before any view body is computed — see the comment there.
 
         // `swift run` launches a bare SwiftPM executable with no .app bundle
         // and no Info.plist, so macOS doesn't treat it as a regular GUI app —
