@@ -99,6 +99,15 @@ fi
 # `uv venv --relocatable` rewrites shebangs + activator so the venv can be
 # moved to its final path. `uv pip install --python <interp>` targets the
 # embedded interpreter so deps land inside the bundled venv's site-packages.
+#
+# Drop any inherited HTTP proxy env vars before `uv` reaches out to PyPI.
+# uv reads HTTP_PROXY / HTTPS_PROXY / ALL_PROXY (case both) from the
+# environment — if rae was previously set as the system proxy and the
+# shell still has them exported pointing at 127.0.0.1:<rae-port>, fetches
+# fail with "Connection refused (os error 61)" the moment rae isn't
+# running. PyPI itself is reachable directly; routing the build through
+# a local MITM never made sense anyway.
+unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy NO_PROXY no_proxy
 # ---------------------------------------------------------------------------
 echo "→ creating embedded Python $PYTHON_VERSION runtime"
 uv venv --relocatable --python "$PYTHON_VERSION" "$AGENT_RUNTIME"
