@@ -31,6 +31,21 @@ can map that backend for you. The generated client wraps the same endpoints
 your browser called, with auth, pagination, and error handling already wired
 up.
 
+### Where it fits
+
+Use it when the browser already knows the workflow, but the API is undocumented
+or too time-consuming to map by hand:
+
+- **Job boards**: capture search, filters, pagination, and detail endpoints.
+- **E-commerce sites**: turn listing and product requests into reusable client
+  methods.
+- **Authenticated dashboards**: use manual capture or Chrome DevTools MCP when
+  cookies and existing sessions matter.
+- **Internal tools**: document backend calls before replacing brittle UI
+  automation.
+- **Agent workflows**: run captures from another agent and consume the JSON
+  result programmatically.
+
 ### Drive captures from another agent
 
 Scripted commands are available for agent workflows. `agent` and `engineer`

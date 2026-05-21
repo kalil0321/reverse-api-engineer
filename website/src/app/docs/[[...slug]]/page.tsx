@@ -13,6 +13,7 @@ import {
   flattenTree,
 } from '@/lib/docs';
 import { getDocsMdxComponents } from '@/components/docs/mdx-components';
+import { appName } from '@/lib/shared';
 
 interface PageProps {
   params: Promise<{ slug?: string[] }>;
@@ -125,7 +126,22 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const page = getDocPage(slug);
   if (!page) return {};
   return {
-    title: `${page.frontmatter.title} · reverse-api-engineer`,
+    title: page.frontmatter.title,
     description: page.frontmatter.description,
+    alternates: {
+      canonical: page.url,
+    },
+    openGraph: {
+      type: 'article',
+      siteName: appName,
+      title: `${page.frontmatter.title} · ${appName}`,
+      description: page.frontmatter.description,
+      url: page.url,
+    },
+    twitter: {
+      card: 'summary',
+      title: `${page.frontmatter.title} · ${appName}`,
+      description: page.frontmatter.description,
+    },
   };
 }

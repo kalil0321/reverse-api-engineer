@@ -1,9 +1,25 @@
 import Link from 'next/link';
+import type { Metadata } from 'next';
 import { ArrowRightIcon } from 'lucide-react';
 import { githubUrl } from '@/lib/shared';
 import { HeroCyclingPhrase } from '@/components/hero-cycling-phrase';
 import { InstallCommand } from '@/components/install-command';
 import { BuiltInTheOpen } from '@/components/built-in-the-open';
+
+export const metadata: Metadata = {
+  title: 'Generate API Clients from Browser Traffic',
+  description:
+    'Capture browser traffic with Playwright or Chrome DevTools MCP and generate typed Python, JavaScript, or TypeScript API clients.',
+  alternates: {
+    canonical: '/',
+  },
+  openGraph: {
+    title: 'Generate API Clients from Browser Traffic',
+    description:
+      'Capture browser traffic and turn HAR recordings into typed API clients.',
+    url: '/',
+  },
+};
 
 function GithubIcon({ className }: { className?: string }) {
   return (
@@ -95,7 +111,7 @@ function HowItWorks() {
   const steps = [
     { num: '01', title: 'Browse', body: 'Open the CLI. Drive the browser, or let the agent.' },
     { num: '02', title: 'Capture', body: 'HAR records every request, header, and body.' },
-    { num: '03', title: 'Generate', body: 'Claude reads the HAR. Writes a typed client.' },
+    { num: '03', title: 'Generate', body: 'Your model reads the HAR. Writes a typed client.' },
     { num: '04', title: 'Review', body: 'Audit the output, then commit it like any code.' },
   ];
   return (
