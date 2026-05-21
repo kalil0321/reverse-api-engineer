@@ -115,7 +115,6 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Theme.appBackground)
-        .preferredColorScheme(.dark)
         .toolbar { toolbarContent }
         .task {
             await state.recoverStaleSystemProxyOnLaunch()

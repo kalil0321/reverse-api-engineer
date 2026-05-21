@@ -36,11 +36,11 @@ struct OnboardingView: View {
                 // website header / app icon / hero. Drawn as a glyph (not an
                 // SF Symbol) so the Fraunces shape carries through.
                 Text("*")
-                    .font(.fraunces(size: 38, weight: .semibold))
+                    .font(.fraunces(size: 38, weight: 600))
                     .foregroundStyle(Theme.brandPink)
                     .baselineOffset(-4)
                 Text("rae")
-                    .font(.fraunces(size: 30, weight: .semibold))
+                    .font(.fraunces(size: 30, weight: 600))
                     .foregroundStyle(Theme.textPrimary)
             }
             Text("Three quick steps to start intercepting and reverse-engineering API traffic on this Mac.")
