@@ -555,10 +555,16 @@ private struct AgentComposer: View {
             Button(action: { if canSend { onSend() } }) {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(canSend ? Theme.appBackground : Theme.textTertiary)
+                    // Cream/dark icon on pink — high contrast, brand-led.
+                    .foregroundStyle(canSend ? Color.white : Theme.textTertiary)
                     .frame(width: 28, height: 28)
                     .background(
-                        canSend ? Theme.textPrimary : Theme.elevated,
+                        // Brand pink while the user has typed something to
+                        // send — the primary action of the entire panel
+                        // earns the brand color. Falls back to neutral
+                        // `Theme.elevated` when disabled so we don't bait
+                        // a click on an empty composer.
+                        canSend ? Theme.brandPink : Theme.elevated,
                         in: Circle()
                     )
             }
@@ -568,6 +574,13 @@ private struct AgentComposer: View {
         }
         .padding(10)
         .background(Theme.input, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            // 1pt outline so the composer reads as a focused input even
+            // before the background lift kicks in — works in both
+            // appearances since `Theme.border` is dynamic.
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Theme.border, lineWidth: 1)
+        )
         .padding(12)
         .background(Theme.surface)
     }
