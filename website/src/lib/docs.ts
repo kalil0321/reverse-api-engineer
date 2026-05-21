@@ -20,12 +20,6 @@ export interface DocPage {
   content: string;            // raw MDX body (no frontmatter)
 }
 
-export interface TocItem {
-  title: string;
-  url: string;     // "#some-slug"
-  depth: number;   // 2..4
-}
-
 export type TreeNode =
   | { type: 'page'; url: string; title: string }
   | { type: 'folder'; title: string; children: TreeNode[] }
@@ -48,6 +42,13 @@ function isSeparator(name: string): string | null {
   return m ? m[1] : null;
 }
 
+/* Sanitise a docs URL to a relative path under /docs/. Filenames come from
+   the local filesystem and are inherently safe, but this guard satisfies
+   static analysers that taint-track every fs-derived string. */
+function safeDocsUrl(url: string): string {
+  return /^\/docs(\/[A-Za-z0-9\-_/]*)?$/.test(url) ? url : BASE_URL;
+}
+
 // ─── Page loader ──────────────────────────────────────────────────────────
 
 export function getDocPage(slug: string[] | undefined): DocPage | null {
@@ -65,9 +66,10 @@ export function getDocPage(slug: string[] | undefined): DocPage | null {
     if (fs.existsSync(filePath)) {
       const raw = fs.readFileSync(filePath, 'utf8');
       const parsed = matter(raw);
+      const url = segments.length === 0 ? BASE_URL : `${BASE_URL}/${segments.join('/')}`;
       return {
         slug: segments,
-        url: segments.length === 0 ? BASE_URL : `${BASE_URL}/${segments.join('/')}`,
+        url: safeDocsUrl(url),
         filePath,
         frontmatter: parsed.data as DocFrontmatter,
         content: parsed.content,
@@ -136,7 +138,7 @@ function buildTree(dir: string, segments: string[]): TreeNode[] {
         const url = segments.length === 0 ? BASE_URL : `${BASE_URL}/${segments.join('/')}`;
         tree.push({
           type: 'page',
-          url,
+          url: safeDocsUrl(url),
           title: fm.title ?? 'Introduction',
         });
       }
@@ -160,7 +162,7 @@ function buildTree(dir: string, segments: string[]): TreeNode[] {
       const slug = [...segments, item];
       tree.push({
         type: 'page',
-        url: `${BASE_URL}/${slug.join('/')}`,
+        url: safeDocsUrl(`${BASE_URL}/${slug.join('/')}`),
         title: fm.title ?? titleCase(item),
       });
     }
@@ -174,42 +176,9 @@ function buildTree(dir: string, segments: string[]): TreeNode[] {
 export function flattenTree(nodes: TreeNode[]): Array<{ url: string; title: string }> {
   const out: Array<{ url: string; title: string }> = [];
   for (const n of nodes) {
-    if (n.type === 'page') out.push({ url: n.url, title: n.title });
+    if (n.type === 'page') out.push({ url: safeDocsUrl(n.url), title: n.title });
     if (n.type === 'folder') out.push(...flattenTree(n.children));
   }
   return out;
 }
 
-// ─── TOC extraction (regex-based, matches rehype-slug) ────────────────────
-
-export function extractToc(mdx: string): TocItem[] {
-  const out: TocItem[] = [];
-  let inFence = false;
-  for (const line of mdx.split('\n')) {
-    if (line.startsWith('```')) {
-      inFence = !inFence;
-      continue;
-    }
-    if (inFence) continue;
-    const m = line.match(/^(#{2,4})\s+(.+?)\s*$/);
-    if (m) {
-      const depth = m[1].length;
-      const title = m[2].replace(/[*_`]/g, '');
-      const slug = slugify(title);
-      out.push({ title, url: `#${slug}`, depth });
-    }
-  }
-  return out;
-}
-
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/&/g, ' and ')
-    .replace(/[^a-z0-9\s-]/g, '')
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-');
-}

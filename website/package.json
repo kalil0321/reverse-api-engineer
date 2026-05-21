@@ -6,8 +6,7 @@
     "build": "next build",
     "dev": "next dev",
     "start": "next start",
-    "types:check": "fumadocs-mdx && next typegen && tsc --noEmit",
-    "postinstall": "fumadocs-mdx",
+    "types:check": "next typegen && tsc --noEmit",
     "lint": "eslint",
     "pages:preview": "next build && wrangler pages dev out --port 8788",
     "pages:deploy": "next build && wrangler pages deploy out"
