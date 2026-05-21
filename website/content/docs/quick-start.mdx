@@ -1,0 +1,91 @@
+---
+title: Quick start
+description: From a fresh install to a working API client in under five minutes.
+---
+
+<Steps>
+  <Step>
+    ### Launch the CLI
+
+    ```bash
+    reverse-api-engineer
+    ```
+
+    You land in a minimalist interactive prompt. Cycle between modes with
+    **`Shift+Tab`**:
+
+    - **agent**: autonomous AI browser agent (default)
+    - **manual**: browser capture + AI generation (you drive)
+    - **engineer**: re-process an existing capture
+    - **collector**: AI-powered web data collection
+  </Step>
+
+  <Step>
+    ### Run your first manual capture
+
+    Press **`Shift+Tab`** once to switch from agent mode to manual mode, then
+    type a goal: what you want from the site.
+
+    ```bash
+    > fetch all apple jobs from their careers page
+    ```
+
+    The CLI opens a Chromium window. You browse, click, scroll, search:
+    whatever exercises the requests you care about. Close the window when
+    done. The AI takes over: it reads the HAR file, identifies the API
+    surface, and emits a typed Python client.
+
+    <Demo
+      src="https://raw.githubusercontent.com/kalil0321/reverse-api-engineer/main/assets/reverse-api-engineer.gif"
+      alt="Manual mode capture and generation"
+      caption="Manual mode: you browse, the AI writes the client."
+    />
+  </Step>
+
+  <Step>
+    ### Read the output
+
+    Generated scripts are saved in two places:
+
+    <Files>
+      <Folder name="~/.reverse-api/runs/scripts/{run_id}" defaultOpen>
+        <File name="api_client.py" />
+        <File name="example_usage.py" />
+        <File name="README.md" />
+      </Folder>
+      <Folder name="./scripts/apple_jobs_api" defaultOpen>
+        <File name="api_client.py" />
+        <File name="example_usage.py" />
+        <File name="README.md" />
+      </Folder>
+    </Files>
+
+    The first is canonical (permanent, indexed by `run_id`). The second is a
+    local copy with a readable name, dropped right next to your project.
+  </Step>
+
+  <Step>
+    ### Run the generated client
+
+    The generated script is just Python. Run it like any other:
+
+    ```bash
+    python scripts/apple_jobs_api/example_usage.py
+    ```
+
+    Or programmatically, via the CLI runner:
+
+    ```bash
+    reverse-api-engineer run <run_id> --file api_client.py \
+      --no-interactive --auto-install
+    ```
+  </Step>
+</Steps>
+
+## Next steps
+
+<Cards>
+  <Card title="Modes in depth" href="/docs/modes/manual" description="When to use Manual vs Engineer vs Agent." />
+  <Card title="Configure your model" href="/docs/configuration/models" description="Pick between Sonnet, Opus, Haiku." />
+  <Card title="Scripted usage" href="/docs/cli/scripted-usage" description="Run from another agent with --json output." />
+</Cards>

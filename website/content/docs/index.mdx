@@ -1,0 +1,129 @@
+---
+title: Introduction
+description: Reverse-engineer any website's API and get a production-ready Python client in minutes.
+---
+
+**Reverse API Engineer** is a CLI tool that captures browser traffic and uses
+your configured AI SDK to generate production-ready Python (or JavaScript /
+TypeScript) API clients. No more manual reverse engineering: browse, capture,
+and get clean API code.
+
+<Demo
+  src="https://raw.githubusercontent.com/kalil0321/reverse-api-engineer/main/assets/rae-autoscout.gif"
+  alt="Agent mode capturing a job board"
+  caption="Agent mode: the AI browses, captures, and writes the client end-to-end."
+/>
+
+<Cards>
+  <Card title="Install" href="/docs/installation" description="Get the CLI running in under a minute." />
+  <Card title="Quick start" href="/docs/quick-start" description="From install to a working Python client." />
+  <Card title="Usage modes" href="/docs/modes/manual" description="Agent, Manual, Engineer, Collector." />
+  <Card title="Configuration" href="/docs/configuration/models" description="Models, providers, SDKs, output." />
+</Cards>
+
+## What you can do with it
+
+### Reverse-engineer any HTTP-based API
+
+Job boards, e-commerce, SaaS dashboards, social platforms, internal admin
+tools: if it's a website that talks to a backend, **Reverse API Engineer**
+can map that backend for you. The generated client wraps the same endpoints
+your browser called, with auth, pagination, and error handling already wired
+up.
+
+### Where it fits
+
+Use it when the browser already knows the workflow, but the API is undocumented
+or too time-consuming to map by hand:
+
+- **Job boards**: capture search, filters, pagination, and detail endpoints.
+- **E-commerce sites**: turn listing and product requests into reusable client
+  methods.
+- **Authenticated dashboards**: use manual capture or Chrome DevTools MCP when
+  cookies and existing sessions matter.
+- **Internal tools**: document backend calls before replacing brittle UI
+  automation.
+- **Agent workflows**: run captures from another agent and consume the JSON
+  result programmatically.
+
+### Drive captures from another agent
+
+Scripted commands are available for agent workflows. `agent` and `engineer`
+support `--json` plus non-interactive execution, `list` and `show` support
+JSON output, and `run` supports `--no-interactive` for script selection and
+dependency prompts. Easy to wrap in a CI job, a [Claude Agent SDK][agent-sdk]
+loop, or a cron task.
+
+[agent-sdk]: https://code.claude.com/docs/en/agent-sdk/
+
+## Feature deep-dive
+
+### Browser automation with stealth
+
+Built on **Playwright** with anti-detection patches and viewport
+randomisation. Captures every request as HAR: headers, cookies, request
+bodies, response bodies, timing.
+
+### Autonomous agent loop
+
+Plug an MCP-driven agent into the loop and it browses on your behalf. Two
+providers shipped:
+
+- **Playwright MCP** *(default)*: headless capture, fully self-contained.
+- **Chrome DevTools MCP**: drives your **real Chrome** with existing
+  sessions, cookies, and auth.
+
+The agent reverse-engineers the API in real time while it browses, so by the
+time the run ends, the client is already generated.
+
+### AI-powered codegen with Claude
+
+The HAR is fed to your configured model (Claude by default) along with a tuned
+system prompt. Output:
+
+- Typed Python (or TS / JS) clients with docstrings.
+- Authentication handling: cookies, bearers, CSRF tokens.
+- Pagination helpers, error types, retry-safe operations.
+- A runnable `example_usage.*` and a generated `README.md`.
+
+### Multi-SDK: Claude, OpenCode, Copilot, or Cursor
+
+Use **Anthropic's API directly** (default) or route through **OpenCode**
+running locally. Copilot and Cursor SDK backends are also available when their
+optional dependencies and credentials are configured.
+
+### Interactive CLI with mode cycling
+
+Press **`Shift+Tab`** to cycle between modes. Slash commands (`/settings`,
+`/history`, `/messages`) keep configuration and run inspection one keystroke
+away.
+
+### Session history & cost tracking
+
+Every run is saved to `~/.reverse-api/runs/`. View past captures, generated
+scripts, and full message logs. Token usage and cost are tracked per run with
+cache-hit awareness, useful when iterating with engineer mode on the same
+HAR.
+
+### Production-ready output
+
+Generated scripts include type hints, structured error handling, and inline
+documentation. They're not "demo" snippets; they're meant to be checked into
+your codebase and called from production.
+
+### Output in Python, JavaScript, or TypeScript
+
+Switch the target language in `/settings`. Same capture, different code.
+Useful when you want the same API client surfaced to multiple stacks.
+
+## Limitations
+
+<Callout type="warn" title="Heads up">
+This tool can run AI-generated code locally through your configured SDK. Always
+review output before running it in production environments. Some sites also use
+advanced bot-detection that may limit capture or force manual interaction.
+</Callout>
+
+## License
+
+MIT. See [LICENSE](https://github.com/kalil0321/reverse-api-engineer/blob/main/LICENSE).

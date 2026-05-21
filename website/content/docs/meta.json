@@ -1,0 +1,13 @@
+{
+  "title": "Documentation",
+  "pages": [
+    "index",
+    "installation",
+    "quick-start",
+    "---Usage---",
+    "modes",
+    "cli",
+    "---Reference---",
+    "configuration"
+  ]
+}

@@ -1,0 +1,54 @@
+---
+title: Agent configuration
+description: Configure the AI agent that drives the browser in agent mode.
+---
+
+Agent mode runs an AI loop that drives a browser via MCP. The provider you
+pick determines *which* browser and *how* it's controlled.
+
+## Agent providers
+
+### `auto` (default)
+
+Playwright MCP browser automation with real-time reverse engineering. The
+configured SDK uses Playwright via MCP to control a headless (or headed)
+Chromium, capturing the HAR as it goes.
+
+Works with the Claude SDK (default) or the OpenCode SDK. Pick whichever
+you've already configured. Copilot and Cursor SDK backends are also supported
+when their optional dependencies and credentials are installed.
+
+### `chrome-mcp`
+
+Drives your **real Chrome browser** via
+[Chrome DevTools MCP](https://www.npmjs.com/package/chrome-devtools-mcp). Pick
+this when you need existing sessions, cookies, or auth from your daily Chrome
+profile.
+
+**Requirements:**
+
+- Chrome 146+
+- Node.js 20.19+
+- Auto-connect enabled at `chrome://inspect/#remote-debugging`
+
+## How to switch providers
+
+In the CLI:
+
+```text
+/settings then "agent provider"
+```
+
+Or edit `~/.reverse-api/config.json`:
+
+```json
+{
+  "agent_provider": "chrome-mcp"
+}
+```
+
+## Reasoning model
+
+The agent's reasoning model is the same as your configured SDK model. See
+[Model selection](/docs/configuration/models) to change it independently
+from the SDK.

@@ -1,0 +1,62 @@
+---
+title: Output language & sync
+description: Choose the generated client's language and control real-time file sync.
+---
+
+## Output language
+
+Generated API clients can be emitted in three languages:
+
+- **python** *(default)*
+- **javascript**
+- **typescript**
+
+Change it in the CLI:
+
+```text
+/settings then "Output Language"
+```
+
+Or in `~/.reverse-api/config.json`:
+
+```json
+{
+  "output_language": "typescript"
+}
+```
+
+The generated examples (`example_usage.*`) and README also adapt to the
+chosen language.
+
+## Real-time sync
+
+Controls whether files are flushed to disk *as* the AI generates them, or
+only at the end of the session.
+
+- **Enabled** *(default)*: see files appear in real time as they're written.
+  Useful for monitoring progress, watching the AI's thought process, and
+  debugging long captures.
+- **Disabled**: files only land at the end. Slightly less I/O churn, but no
+  progress visibility.
+
+```json
+{
+  "real_time_sync": false
+}
+```
+
+## Output directory
+
+By default, canonical scripts go into `~/.reverse-api/runs/scripts/{run_id}/`
+and real-time sync also mirrors them into `./scripts/{descriptive_name}/`.
+Override the canonical run root with `output_dir`:
+
+```json
+{
+  "output_dir": "/path/to/projects/generated"
+}
+```
+
+Leave it `null` to keep the default canonical root. The local synced copy
+continues to use `./scripts/{descriptive_name}/` from the directory where you
+launched the CLI.

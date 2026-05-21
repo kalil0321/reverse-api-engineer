@@ -12,6 +12,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+!website/src/lib/
+!website/src/lib/**
 parts/
 sdist/
 var/
@@ -92,7 +94,7 @@ test_env/
 test_env*/
 
 FEATURES.md
-docs/
+/docs/
 collected/
 collector_mode_plan.md
 

@@ -1,0 +1,72 @@
+---
+title: SDK selection
+description: Choose the SDK backend for code generation.
+---
+
+Reverse API Engineer can drive code generation through Claude, OpenCode,
+Copilot, or Cursor.
+
+## Claude (default)
+
+Direct integration with Anthropic's Claude API. Uses your Anthropic API key.
+Recommended for most users.
+
+```json
+{
+  "sdk": "claude",
+  "claude_code_model": "claude-sonnet-4-6"
+}
+```
+
+## OpenCode
+
+Uses the [OpenCode SDK](https://opencode.ai) running locally. Pick this if
+you want to route through your own model gateway, run open-weights models,
+or use a non-Anthropic provider.
+
+```json
+{
+  "sdk": "opencode",
+  "opencode_model": "claude-opus-4-6",
+  "opencode_provider": "anthropic"
+}
+```
+
+OpenCode must be running locally before the CLI starts. Model identifiers
+are defined by OpenCode itself, see [models.dev](https://models.dev).
+
+## Copilot
+
+Uses the GitHub Copilot SDK when the optional Copilot dependency and token are
+configured.
+
+```json
+{
+  "sdk": "copilot",
+  "copilot_model": "gpt-5"
+}
+```
+
+## Cursor
+
+Uses the Cursor SDK bridge. Cursor can also load broader Cursor setting layers
+so WebFetch/WebSearch and configured tools match your desktop setup.
+
+```json
+{
+  "sdk": "cursor",
+  "cursor_model": "composer-2",
+  "cursor_web_search": true,
+  "cursor_setting_sources": null
+}
+```
+
+## Switching SDKs
+
+In the CLI:
+
+```text
+/settings then "SDK"
+```
+
+Or edit `~/.reverse-api/config.json` directly.

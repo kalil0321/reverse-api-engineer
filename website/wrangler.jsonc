@@ -1,0 +1,20 @@
+/**
+ * Cloudflare Pages config for the Reverse API Engineer marketing site.
+ *
+ * The site is a Next.js static export (next.config.mjs → output: 'export').
+ * Build output goes to ./out, then `wrangler pages deploy out` ships it.
+ *
+ * Deploy commands:
+ *   pnpm pages:preview   # local Pages dev server on :8788
+ *   pnpm pages:deploy    # ship to Cloudflare Pages
+ *
+ * First-time setup:
+ *   1. pnpm wrangler login
+ *   2. (Optional) rename `pages_build_output_dir` project via the dashboard
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "reverse-api-engineer",
+  "pages_build_output_dir": "./out",
+  "compatibility_date": "2025-11-15"
+}

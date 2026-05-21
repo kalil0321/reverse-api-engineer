@@ -1,0 +1,77 @@
+---
+title: Agent mode
+description: Fully autonomous browser interaction. The AI browses, captures, and writes the client end-to-end.
+---
+
+Agent mode hands the steering wheel to the AI. Describe the goal in plain
+English and the agent drives a browser through MCP while reverse-engineering
+the API in real time.
+
+<Demo
+  src="https://raw.githubusercontent.com/kalil0321/reverse-api-engineer/main/assets/rae-autoscout.gif"
+  alt="Agent mode capturing a job board autonomously"
+  caption="Agent mode: autonomous capture and codegen in one flow."
+/>
+
+## When to use it
+
+- You want full automation, no manual browsing required.
+- The site exposes a stable, predictable flow (public job boards, docs
+  sites, marketing APIs).
+- You're scripting captures from another agent, a cron job, or CI.
+
+## Running interactively
+
+```bash
+reverse-api-engineer
+# switch to agent mode with Shift+Tab
+> click on the first job listing
+```
+
+## Running non-interactively
+
+```bash
+reverse-api-engineer agent \
+  --prompt "capture the public jobs api" \
+  --url https://example.com/jobs \
+  --json | jq
+```
+
+The `--json` flag makes the command emit a single JSON document on stdout
+(see [Scripted usage](/docs/cli/scripted-usage) for the schema and exit
+codes).
+
+## Agent providers
+
+Pick the provider in `/settings` then "agent provider".
+
+<Tabs items={['auto (default)', 'chrome-mcp']}>
+  <Tab value="auto (default)">
+    **Playwright MCP** browser automation with your configured SDK. Combines
+    browser control and real-time reverse-engineering in a single workflow.
+    Use `--headless` when running on machines without a display.
+  </Tab>
+  <Tab value="chrome-mcp">
+    Drives your **real Chrome** browser via
+    [Chrome DevTools MCP](https://www.npmjs.com/package/chrome-devtools-mcp).
+    Useful when you need existing sessions, cookies, or auth from your daily
+    Chrome.
+
+    **Requirements:**
+    - Chrome 146+
+    - Node.js 20.19+
+    - Auto-connect enabled at `chrome://inspect/#remote-debugging`
+  </Tab>
+</Tabs>
+
+## Reasoning model
+
+The agent's reasoning model is the same as your configured SDK model. See
+[Model selection](/docs/configuration/models) to change it.
+
+<Callout type="info" title="Prompting tips">
+- **Be specific.** *"Capture the search endpoint"* beats *"scrape the site"*.
+- **Provide a `--url`.** Saves the agent a navigation hop and reduces drift.
+- **Use `--json`** when calling from another agent: one JSON document on
+  stdout, logs on stderr, stable exit codes.
+</Callout>

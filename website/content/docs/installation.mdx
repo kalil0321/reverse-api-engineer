@@ -1,0 +1,67 @@
+---
+title: Installation
+description: Install Reverse API Engineer with uv or pip, then set up Playwright browsers.
+---
+
+<Callout type="info" title="What you'll need">
+- **Python 3.11+**
+- SDK credentials for your selected backend. For the default Claude SDK, set
+  **`ANTHROPIC_API_KEY`**.
+- **Node.js + npx** for agent mode. `chrome-mcp` specifically requires
+  Node.js 20.19+.
+- A few minutes
+</Callout>
+
+## Install the CLI
+
+`uv` is recommended for faster installs and proper tool isolation. Pick one.
+
+<Tabs items={['uv (recommended)', 'pip']}>
+  <Tab value="uv (recommended)">
+    ```bash
+    uv tool install reverse-api-engineer
+    ```
+  </Tab>
+  <Tab value="pip">
+    ```bash
+    pip install reverse-api-engineer
+    ```
+  </Tab>
+</Tabs>
+
+## Install Playwright browsers
+
+This downloads the Chromium build that powers manual and agent capture:
+
+```bash
+playwright install chromium
+```
+
+## Verify the install
+
+```bash
+reverse-api-engineer --version
+```
+
+You should see a version string. If not, ensure your shell's `PATH` includes
+`~/.local/bin` (for `uv tool`) or wherever `pip` puts user scripts.
+
+## Where does it store data?
+
+```text
+~/.reverse-api/
+├── config.json              # your settings
+└── runs/
+    └── scripts/{run_id}/    # generated clients (canonical)
+```
+
+Plus a local copy in `./scripts/{descriptive_name}/` inside the directory
+where you launched the CLI, so the output lands inside the project you're
+working on.
+
+## Next
+
+<Cards>
+  <Card title="Quick start" href="/docs/quick-start" description="From `pip install` to a working client." />
+  <Card title="Configure your model" href="/docs/configuration/models" description="Pick between Sonnet, Opus, Haiku." />
+</Cards>
