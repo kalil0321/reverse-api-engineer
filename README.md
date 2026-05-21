@@ -1,9 +1,9 @@
 <div align="center">
   <img src="https://raw.githubusercontent.com/kalil0321/reverse-api-engineer/main/assets/reverse-api-banner.jpg" alt="Reverse API Engineer Banner">
   <br><br>
-  <a href="https://pypi.org/project/reverse-api-engineer/"><img src="https://img.shields.io/pypi/v/reverse-api-engineer?style=flat-square&color=red" alt="PyPI"></a>
-  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11+-red?style=flat-square" alt="Python"></a>
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-red?style=flat-square" alt="License"></a>
+  <a href="https://pypi.org/project/reverse-api-engineer/"><img src="https://img.shields.io/pypi/v/reverse-api-engineer?style=flat&color=dc143c&labelColor=1a2a44" alt="PyPI"></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11+-dc143c?style=flat&labelColor=1a2a44" alt="Python"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-dc143c?style=flat&labelColor=1a2a44" alt="License"></a>
 </div>
 
 <p align="center">
