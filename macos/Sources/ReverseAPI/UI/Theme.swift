@@ -31,10 +31,13 @@ enum Theme {
         light: hex(0xf5f2ee),
         dark: hex(0x1c1814)
     )
-    /// Input fields. `--color-washed`.
+    /// Input fields. Intentionally distinct from `surface` so a composer /
+    /// search field sits as its own focused element rather than blending
+    /// into the panel. Lifted (lighter than surface) in both modes:
+    /// pure white on light cream, warm brown-bright on dark cream-dark.
     static let input = Color.dynamic(
-        light: hex(0xf5f2ee),
-        dark: hex(0x14110e)
+        light: hex(0xffffff),
+        dark: hex(0x211c14)
     )
     /// Scrim behind modal palettes — slightly lighter than pitch black
     /// so light-mode users still see the underlying surface bleed
