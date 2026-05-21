@@ -67,6 +67,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var signalSources: [DispatchSourceSignal] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Register the bundled Fraunces italic font BEFORE the first window
+        // appears — otherwise the onboarding sheet's `*` brand asterisk +
+        // "rae" wordmark first-paint in SF Italic and only flip to Fraunces
+        // on a later layout pass, which reads as a layout glitch.
+        BrandFont.bootstrap()
+
         // `swift run` launches a bare SwiftPM executable with no .app bundle
         // and no Info.plist, so macOS doesn't treat it as a regular GUI app —
         // the window never reliably becomes key and AppKit text fields can't

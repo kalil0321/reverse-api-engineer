@@ -31,12 +31,16 @@ struct OnboardingView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Image(systemName: "chevron.left.forwardslash.chevron.right")
-                    .font(.system(size: 22, weight: .light))
-                    .foregroundStyle(Theme.textPrimary)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                // Brand asterisk in pink — mirrors the `*` mark used in the
+                // website header / app icon / hero. Drawn as a glyph (not an
+                // SF Symbol) so the Fraunces shape carries through.
+                Text("*")
+                    .font(.fraunces(size: 38, weight: .semibold))
+                    .foregroundStyle(Theme.brandPink)
+                    .baselineOffset(-4)
                 Text("rae")
-                    .font(.system(size: 26, weight: .semibold))
+                    .font(.fraunces(size: 30, weight: .semibold))
                     .foregroundStyle(Theme.textPrimary)
             }
             Text("Three quick steps to start intercepting and reverse-engineering API traffic on this Mac.")
@@ -127,11 +131,12 @@ private struct OnboardingStep: View {
     let actionLabel: String
     let action: () -> Void
 
-    /// Deeper, less-saturated green for completion states. The default
-    /// Theme.success (#4CCA84) shouts on the onboarding sheet where three
-    /// rows can be green at once — this one sits much closer to a muted
-    /// forest tone and reads as a status, not a celebration.
-    private static let completedGreen = Color(red: 0.31, green: 0.62, blue: 0.46)
+    /// Completion color. Pulls from `Theme.mint` (the cream/ink palette's
+    /// dark mint variant) so the three "Trusted / Routed / Capturing"
+    /// pills read as soft status indicators rather than vivid success
+    /// stamps. Centralised on `Theme.mint` so any future palette tweak
+    /// lives in one place.
+    private static let completedGreen = Theme.mint
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
