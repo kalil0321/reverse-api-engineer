@@ -1,0 +1,42 @@
+{
+  "name": "website",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev",
+    "start": "next start",
+    "types:check": "fumadocs-mdx && next typegen && tsc --noEmit",
+    "postinstall": "fumadocs-mdx",
+    "lint": "eslint",
+    "pages:preview": "next build && wrangler pages dev out --port 8788",
+    "pages:deploy": "next build && wrangler pages deploy out"
+  },
+  "dependencies": {
+    "gray-matter": "^4.0.3",
+    "lucide-react": "^1.16.0",
+    "next": "16.2.6",
+    "next-mdx-remote": "^6.0.0",
+    "next-themes": "^0.4.6",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "rehype-pretty-code": "^0.14.3",
+    "rehype-slug": "^6.0.0",
+    "remark-gfm": "^4.0.1",
+    "shiki": "^4.1.0",
+    "tailwind-merge": "^3.6.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.0",
+    "@types/mdx": "^2.0.13",
+    "@types/node": "^25.8.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^10.4.0",
+    "eslint-config-next": "16.2.6",
+    "postcss": "^8.5.14",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^6.0.3",
+    "wrangler": "^4.93.0"
+  }
+}

@@ -1,0 +1,550 @@
+@import 'tailwindcss';
+
+/* Dark mode: <html class="dark"> activates these variant utilities. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ─── Design tokens (Tailwind v4 @theme) ────────────────────────────────── */
+
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-fraunces), ui-serif, Georgia, 'Times New Roman', serif;
+  --font-mono: var(--font-jetbrains-mono), 'JetBrains Mono', 'SF Mono',
+    Menlo, Monaco, Consolas, monospace;
+
+  /* Brand palette */
+  --color-ink: #1f1f1f;
+  --color-ink-soft: #1f1f1fcc;
+  --color-cream: #fff7f0;
+  --color-cream-soft: #fef8ee;
+  --color-orange: #ffe7d4;
+  --color-sky: #d6efff;
+  --color-mint: #d5f1de;
+  --color-washed: #f5f2ee;
+
+  --color-fd-background: #fff7f0;
+  --color-fd-foreground: #1f1f1f;
+  --color-fd-primary: #e50d75;
+  --color-fd-primary-foreground: #fff7f0;
+  --color-fd-ring: #e50d75;
+  --color-fd-accent: #ffe1eb;
+  --color-fd-accent-foreground: #1f1f1f;
+  --color-fd-card: #ffffff;
+  --color-fd-card-foreground: #1f1f1f;
+  --color-fd-muted: #f5f2ee;
+  --color-fd-muted-foreground: #1f1f1f99;
+  --color-fd-border: #1f1f1f1a;
+}
+
+/* ─── Dark mode overrides ──────────────────────────────────────────────── */
+
+.dark {
+  --color-ink: #fff7f0;
+  --color-ink-soft: #fff7f0bb;
+  --color-cream: #14110e;
+  --color-cream-soft: #1c1814;
+  --color-orange: #3a1d0e;
+  --color-sky: #0d1b2e;
+  --color-mint: #0e2419;
+  --color-washed: #1a1612;
+
+  --color-fd-background: #14110e;
+  --color-fd-foreground: #fff7f0;
+  --color-fd-primary: #ff3d8b;
+  --color-fd-primary-foreground: #14110e;
+  --color-fd-ring: #ff3d8b;
+  --color-fd-accent: #2a1a22;
+  --color-fd-accent-foreground: #fff7f0;
+  --color-fd-card: #1c1814;
+  --color-fd-card-foreground: #fff7f0;
+  --color-fd-muted: #1a1612;
+  --color-fd-muted-foreground: #fff7f0aa;
+  --color-fd-border: #fff7f014;
+}
+
+/* ─── Base ──────────────────────────────────────────────────────────────── */
+
+html {
+  scrollbar-gutter: stable;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background-color: var(--color-cream);
+  color: var(--color-ink);
+}
+
+/* ─── Background utilities ──────────────────────────────────────────────── */
+
+@utility bg-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in oklch, var(--color-ink) 7%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklch, var(--color-ink) 5%, transparent) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+@utility bg-engineering {
+  background-image:
+    linear-gradient(to right, color-mix(in oklch, var(--color-ink) 7%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklch, var(--color-ink) 5%, transparent) 1px, transparent 1px);
+  background-size: 80px 80px, 80px 80px;
+  background-position: -1px -1px;
+}
+
+@utility bg-dots {
+  background-image: radial-gradient(
+    color-mix(in oklch, var(--color-ink) 80%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 22px 22px;
+}
+
+@utility bg-scanlines {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 2px,
+    color-mix(in oklch, var(--color-ink) 5%, transparent) 2px,
+    color-mix(in oklch, var(--color-ink) 5%, transparent) 3px
+  );
+}
+
+@utility mask-fade-y {
+  mask-image: linear-gradient(to bottom, transparent, black 12%, black 80%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 12%, black 80%, transparent);
+}
+
+.bg-color-mesh {
+  background:
+    radial-gradient(70% 65% at 0% 0%, #fec5d4 0%, transparent 65%),
+    radial-gradient(60% 60% at 100% 0%, #fff0e1 0%, transparent 70%),
+    radial-gradient(60% 60% at 0% 100%, #ffd9c2 0%, transparent 70%),
+    radial-gradient(70% 70% at 100% 100%, #fde0d3 0%, transparent 65%),
+    var(--color-cream);
+}
+
+.dark .bg-color-mesh {
+  background:
+    radial-gradient(70% 65% at 0% 0%, #3a1822 0%, transparent 65%),
+    radial-gradient(60% 60% at 100% 0%, #2a1f15 0%, transparent 70%),
+    radial-gradient(60% 60% at 0% 100%, #2d1810 0%, transparent 70%),
+    radial-gradient(70% 70% at 100% 100%, #281410 0%, transparent 65%),
+    var(--color-cream);
+}
+
+.bg-pastel-radial {
+  background: radial-gradient(
+    140% 90% at 30% 20%,
+    #c3f2d0 0%,
+    #b7ebff 50%,
+    #fee3cc 100%
+  );
+}
+
+.dark .bg-pastel-radial {
+  background: radial-gradient(
+    140% 90% at 30% 20%,
+    #1a2a22 0%,
+    #0d1b2e 50%,
+    #2a1810 100%
+  );
+}
+
+/* ─── Animations ────────────────────────────────────────────────────────── */
+
+/* Cursor blink — used in terminal previews */
+@keyframes blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+.cursor-blink {
+  display: inline-block;
+  width: 2px;
+  height: 0.8em;
+  margin-left: 2px;
+  background: currentColor;
+  vertical-align: -0.08em;
+  border-radius: 1px;
+  animation: blink 0.9s linear infinite;
+}
+
+/* Hero cycling phrase — word cycling + underline draw */
+.hero-phrase {
+  font-style: italic;
+  font-variation-settings: 'opsz' 144, 'SOFT' 100, 'WONK' 1;
+  font-weight: 400;
+  display: inline-block;
+  position: relative;
+  padding-bottom: 0.06em;
+  transition: opacity 0.26s ease, transform 0.26s ease;
+}
+
+.hero-phrase--in  { opacity: 1; transform: translateY(0); }
+.hero-phrase--out { opacity: 0; transform: translateY(-10px); }
+
+@keyframes draw-underline {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+.hero-phrase-line {
+  position: absolute;
+  left: 0; right: 0;
+  bottom: -0.05em;
+  height: 3px;
+  display: block;
+  background: var(--color-fd-primary);
+  border-radius: 2px;
+  transform-origin: left;
+  animation: draw-underline 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both;
+}
+
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+.marquee {
+  display: flex;
+  width: max-content;
+  animation: marquee 40s linear infinite;
+}
+
+/* ─── Display typography (Fraunces) ─────────────────────────────────────── */
+
+.font-display {
+  font-family: var(--font-display);
+  font-variation-settings: 'opsz' 144, 'SOFT' 50, 'WONK' 0;
+}
+
+.hero-display {
+  font-family: var(--font-display);
+  font-variation-settings: 'opsz' 144, 'SOFT' 30, 'WONK' 1;
+  font-weight: 500;
+  font-size: clamp(2.8rem, 7.5vw, 6rem);
+  letter-spacing: -0.045em;
+  line-height: 0.95;
+  color: var(--color-ink);
+}
+
+.hero-display em {
+  font-style: italic;
+  font-variation-settings: 'opsz' 144, 'SOFT' 100, 'WONK' 1;
+  font-weight: 400;
+}
+
+.section-display {
+  font-family: var(--font-display);
+  font-variation-settings: 'opsz' 144, 'SOFT' 40, 'WONK' 0;
+  font-weight: 500;
+  font-size: clamp(2rem, 4.5vw, 3.5rem);
+  letter-spacing: -0.035em;
+  line-height: 1;
+  color: var(--color-ink);
+}
+
+.section-display em {
+  font-style: italic;
+  font-variation-settings: 'opsz' 144, 'SOFT' 100, 'WONK' 1;
+  font-weight: 400;
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-ink);
+}
+
+/* ─── Buttons ──────────────────────────────────────────────────────────── */
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  height: 2.5rem;
+  padding: 0 1rem;
+  border-radius: 0.5rem;
+  font-size: 14px;
+  font-weight: 600;
+  background-color: var(--color-ink);
+  color: var(--color-cream);
+  border: 1.5px solid var(--color-ink);
+  box-shadow: 3px 3px 0 0 var(--color-fd-primary);
+  transition: transform 180ms cubic-bezier(0, 0, 0.2, 1),
+              box-shadow 180ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.btn-primary:hover {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 0 var(--color-fd-primary);
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  height: 2.5rem;
+  padding: 0 1rem;
+  border-radius: 0.5rem;
+  font-size: 14px;
+  font-weight: 600;
+  background-color: var(--color-cream);
+  color: var(--color-ink);
+  border: 1px solid color-mix(in oklch, var(--color-ink) 15%, transparent);
+  box-shadow: 0 2px 0 0 color-mix(in oklch, var(--color-ink) 14%, transparent);
+  transition: transform 180ms cubic-bezier(0, 0, 0.2, 1),
+              box-shadow 180ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.btn-secondary:hover {
+  transform: translateY(1px);
+  box-shadow: 0 0 0 0 color-mix(in oklch, var(--color-ink) 14%, transparent);
+}
+
+/* ─── Landing-specific cards ────────────────────────────────────────────── */
+
+.hero-visual {
+  position: relative;
+  border-radius: 1.5rem;
+  border: 1px solid color-mix(in oklch, var(--color-ink) 10%, transparent);
+  background: var(--color-fd-card);
+  overflow: hidden;
+  box-shadow:
+    0 1px 0 0 color-mix(in oklch, var(--color-cream) 60%, transparent) inset,
+    0 30px 60px -30px color-mix(in oklch, var(--color-ink) 25%, transparent);
+}
+
+.tile {
+  position: relative;
+  border-radius: 1.25rem;
+  border: 1px solid color-mix(in oklch, var(--color-ink) 10%, transparent);
+  background: var(--color-fd-card);
+  overflow: hidden;
+}
+
+.bg-ink .tile {
+  background: color-mix(in oklch, var(--color-ink) 88%, var(--color-cream));
+  border-color: color-mix(in oklch, var(--color-cream) 12%, transparent);
+}
+
+.terminal-window {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.7;
+}
+
+.terminal-window-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid color-mix(in oklch, var(--color-ink) 10%, transparent);
+  background: color-mix(in oklch, var(--color-ink) 5%, transparent);
+}
+
+.terminal-dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 9999px;
+  background: color-mix(in oklch, var(--color-ink) 14%, transparent);
+}
+
+.terminal-window-body {
+  padding: 1rem 1.25rem;
+  color: var(--color-ink);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+.bg-ink .terminal-window-body,
+.bg-ink .terminal-window-bar {
+  background: transparent;
+  border-color: color-mix(in oklch, var(--color-cream) 12%, transparent);
+  color: var(--color-cream);
+}
+
+.bg-ink .terminal-dot {
+  background: color-mix(in oklch, var(--color-cream) 18%, transparent);
+}
+
+/* Ambient code stream backdrop used in HowItWorks */
+.code-stream-pre {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: color-mix(in oklch, var(--color-ink) 22%, transparent);
+  white-space: pre;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* ─── Docs fixed sidebar ────────────────────────────────────────────────
+   Fixed to viewport, vertically centred, left edge aligned with the docs
+   container (max-w-7xl + px-6 default, px-10 on lg). Clamped max-height
+   keeps it inside the viewport without overlapping the SiteNav. */
+
+.docs-sidebar-fixed {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 240px;
+  max-height: calc(100vh - 6rem);
+  /* 40rem = half of max-w-7xl (80rem). 1.5rem = px-6 default. */
+  left: max(1.5rem, calc(50vw - 40rem + 1.5rem));
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+
+@media (min-width: 1024px) {
+  .docs-sidebar-fixed {
+    /* lg: px-10 = 2.5rem */
+    left: max(2.5rem, calc(50vw - 40rem + 2.5rem));
+  }
+}
+
+.docs-files-list,
+.docs-files-list ul {
+  list-style: none !important;
+  padding-left: 0 !important;
+}
+
+.docs-files-list li {
+  margin-top: 0 !important;
+}
+
+/* Card bg shifts toward foreground in BOTH modes (because --color-ink
+   flips with theme), giving cards real contrast against the page bg.
+   Hover is just a tiny nudge further, so it reads as "interactive"
+   without being flashy. */
+/* Light mode: outlined card — page-bg fill, faint border, no bg shift.
+   Dark mode: filled card with subtle ink mix. */
+.docs-card {
+  background-color: transparent;
+  border: 1px solid color-mix(in oklch, var(--color-ink) 8%, transparent);
+  transition: background-color 200ms cubic-bezier(0, 0, 0.2, 1),
+              border-color 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.dark .docs-card {
+  background-color: color-mix(in oklch, var(--color-ink) 6%, var(--color-cream));
+  border-color: transparent;
+}
+
+.docs-card:hover {
+  border-color: color-mix(in oklch, var(--color-ink) 18%, transparent);
+}
+
+.dark .docs-card:hover {
+  background-color: color-mix(in oklch, var(--color-ink) 10%, var(--color-cream));
+}
+
+.docs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.docs-table thead {
+  background: color-mix(in oklch, var(--color-ink) 5%, transparent);
+}
+
+.docs-table th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--color-ink-soft);
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid color-mix(in oklch, var(--color-ink) 10%, transparent);
+  white-space: nowrap;
+}
+
+.docs-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid color-mix(in oklch, var(--color-ink) 5%, transparent);
+  vertical-align: top;
+}
+
+.docs-table tbody tr:last-child td { border-bottom: 0; }
+
+/* Tailwind preflight strips list-style on ul/ol; restore it here. */
+.mdx ul {
+  list-style-type: disc;
+  list-style-position: outside;
+  padding-inline-start: 1.5rem;
+}
+
+.mdx ol {
+  list-style-type: decimal;
+  list-style-position: outside;
+  padding-inline-start: 1.5rem;
+}
+
+.mdx ul ul,
+.mdx ol ol,
+.mdx ul ol,
+.mdx ol ul {
+  margin-top: 0.35rem;
+}
+
+.mdx li {
+  margin-top: 0.4rem;
+  padding-left: 0.35rem;
+}
+
+/* In a loose list MDX wraps each item in <p> which would inherit our
+   <p>'s mt-5; reset so the marker aligns with the text. */
+.mdx li > :first-child {
+  margin-top: 0;
+}
+
+.mdx li > * + * {
+  margin-top: 0.5rem;
+}
+
+.mdx li::marker {
+  color: color-mix(in oklch, var(--color-ink) 70%, transparent);
+}
+
+.mdx ol li::marker {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--color-fd-primary);
+}
+
+/* Code blocks (rehype-pretty-code emits <figure><pre><code>) */
+.mdx figure[data-rehype-pretty-code-figure] {
+  margin-top: 1.25rem;
+  margin-bottom: 0;
+}
+
+.mdx pre code {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  line-height: 1.65;
+  display: grid;
+}
+
+.mdx figure[data-rehype-pretty-code-figure] [style*='--shiki-light'] {
+  color: var(--shiki-light);
+}
+
+.dark .mdx figure[data-rehype-pretty-code-figure] [style*='--shiki-dark'] {
+  color: var(--shiki-dark);
+}
+
+.mdx figcaption[data-rehype-pretty-code-title] {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-ink-soft);
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid color-mix(in oklch, var(--color-ink) 10%, transparent);
+  background: color-mix(in oklch, var(--color-ink) 4%, transparent);
+}

@@ -1,0 +1,40 @@
+---
+title: Slash commands
+description: Commands available inside the interactive CLI.
+---
+
+While in the interactive prompt, the following slash commands are available:
+
+| Command                | What it does                                              |
+|------------------------|-----------------------------------------------------------|
+| `/settings`            | Configure model, agent provider, SDK, output directory.   |
+| `/history`             | View past runs with token usage and cost.                 |
+| `/messages <run_id>`   | View the full message log for a previous run.             |
+| `/help`                | List all commands.                                        |
+| `/exit`                | Quit the CLI.                                             |
+
+## Mode cycling
+
+Press **`Shift+Tab`** to cycle between modes:
+
+```text
+agent → manual → engineer → collector → agent ...
+```
+
+The current mode is shown in the prompt. Each mode has its own behavior. See
+[Usage modes](/docs/modes/manual).
+
+## Listing and inspecting runs
+
+Outside the interactive CLI, you can use direct subcommands:
+
+```bash
+# list all runs
+reverse-api-engineer list
+
+# inspect a single run
+reverse-api-engineer show <run_id>
+```
+
+Both accept `--json` for machine-parseable output. See
+[Scripted usage](/docs/cli/scripted-usage).

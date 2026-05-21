@@ -1,0 +1,75 @@
+---
+title: Scripted usage
+description: Drive the CLI from another agent or a wrapper script with --no-interactive and --json.
+---
+
+The CLI can be driven by another agent, a CI job, or a wrapper script. Use
+`agent --json` or `engineer --json` for a single machine-readable result,
+`list --json` and `show --json` for history inspection, and `run
+--no-interactive` to avoid script-picker and dependency prompts.
+
+When `--json` is set:
+
+- **stdout** contains exactly one JSON document (the final result).
+- **stderr** receives Rich logs and progress updates.
+- The process exits with a **stable exit code**.
+
+## Examples
+
+### Run an autonomous capture and read the result as JSON
+
+```bash
+reverse-api-engineer agent \
+  --prompt "capture the public jobs api" \
+  --url https://example.com/jobs \
+  --json | jq
+```
+
+### List and inspect runs
+
+```bash
+# empty history returns []
+reverse-api-engineer list --json
+
+# inspect a run
+reverse-api-engineer show <run_id> --json
+```
+
+### Run a generated script non-interactively
+
+```bash
+reverse-api-engineer run <run_id> --file api_client.py \
+  --no-interactive --auto-install -- --org acme
+```
+
+- `--no-interactive`: never open the script-picker or install confirm.
+- `--auto-install`: install missing deps on retry without asking.
+- Everything after `--` is forwarded to the underlying script.
+
+## `agent --json` output schema
+
+| Field            | Type                | Notes                                                                  |
+|------------------|---------------------|------------------------------------------------------------------------|
+| `schema_version` | `int`               | Currently `1`. Bumped on breaking changes.                             |
+| `status`         | `"ok" \| "error"`   | Top-level result.                                                      |
+| `run_id`         | `string \| null`    | Stable id for follow-up `show` / `engineer` / `run` calls.             |
+| `prompt`         | `string`            | The prompt passed in.                                                  |
+| `url`            | `string \| null`    | Optional starting URL.                                                 |
+| `mode`           | `string \| null`    | Provider used (`"auto"` for Playwright MCP, `"chrome-mcp"`).           |
+| `har_path`       | `string \| null`    | Absolute path to the captured HAR (`recording.har`).                   |
+| `script_path`    | `string \| null`    | Absolute path to the generated client when reverse engineering ran.    |
+| `usage`          | `object`            | Normalized token plus cost usage (`input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `total_cost_usd`) plus raw SDK usage under `raw`. |
+| `error`          | `string \| null`    | Human-readable error message when `status == "error"`.                 |
+| `error_kind`     | `string \| null`    | Machine-readable error category such as `misuse`, `network`, or `engine_failure`. |
+
+## Exit codes
+
+| Code | Meaning                                                                  |
+|------|--------------------------------------------------------------------------|
+| `0`  | Success.                                                                 |
+| `1`  | Runtime error (capture or engineering failed; details in `error`).       |
+| `2`  | Misuse: required arg missing under `--no-interactive` / `--json`.        |
+
+For `run`, the exit code is the underlying script's return code on success,
+or `1` if no script was found, or non-zero if `--no-interactive` would
+otherwise have to prompt.

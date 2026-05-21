@@ -1,0 +1,68 @@
+---
+title: Manual mode
+description: You drive the browser, the AI writes the client. The default workflow.
+---
+
+Manual mode runs the full pipeline with you in the driver's seat.
+
+<Demo
+  src="https://raw.githubusercontent.com/kalil0321/reverse-api-engineer/main/assets/reverse-api-engineer.gif"
+  alt="Manual mode demo"
+  caption="Drive the browser yourself, get a client when you're done."
+/>
+
+## How it works
+
+<Steps>
+  <Step>
+    Start the CLI:
+    ```bash
+    reverse-api-engineer
+    ```
+  </Step>
+  <Step>
+    Enter a task description (e.g. *"Fetch Apple job listings"*).
+  </Step>
+  <Step>
+    Optionally provide a starting URL.
+  </Step>
+  <Step>
+    Browse and interact with the website: click, search, scroll, paginate.
+  </Step>
+  <Step>
+    Close the browser when done.
+  </Step>
+  <Step>
+    The AI reads the HAR and generates the API client automatically.
+  </Step>
+</Steps>
+
+## When to use it
+
+- You know exactly what flow you want to capture (and don't want an agent
+  improvising).
+- The site requires login, MFA, or human-only interactions.
+- You want to capture a *specific* subset of requests, not everything.
+
+## Output locations
+
+```text
+~/.reverse-api/runs/scripts/{run_id}/   # permanent storage
+./scripts/{descriptive_name}/           # local copy with a readable name
+```
+
+## What the AI sees
+
+Everything the browser saw: full HAR file with headers, cookies, request
+bodies, response bodies. Sensitive auth headers (cookies, bearer tokens) stay
+local on your machine. They're only sent to the model you've configured for
+client generation.
+
+<Callout type="info" title="Tips">
+- **Exercise edge cases.** Trigger pagination, filters, error states. The
+  generated client mirrors what you exercised.
+- **Don't over-browse.** Extra noise (analytics pings, marketing trackers)
+  doesn't break generation, but a tight capture yields a tighter client.
+- **Re-run with engineer mode** if the first generation isn't what you
+  wanted. No need to re-capture.
+</Callout>

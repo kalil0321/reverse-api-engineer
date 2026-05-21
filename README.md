@@ -47,9 +47,9 @@ No more manual reverse engineering—just browse, capture, and get clean API cod
 - 🌐 **Browser Automation**: Built on Playwright with stealth mode for realistic browsing
 - 🤖 **Autonomous Agent Mode**: Fully automated browser interaction using AI agents via MCP (Playwright MCP or Chrome DevTools MCP)
 - 📊 **HAR Recording**: Captures all network traffic in HTTP Archive format
-- 🧠 **AI-Powered Generation**: Uses Claude 4.6 to analyze traffic and generate clean Python code
+- 🧠 **AI-Powered Generation**: Uses your configured model to analyze traffic and generate clean client code
 - 🔍 **Collector Mode**: Data collection with automatic JSON/CSV export
-- 🔌 **Multi-SDK Support**: Native integration with Claude and OpenCode SDKs
+- 🔌 **Multi-SDK Support**: Native integration with Claude, OpenCode, Copilot, and Cursor SDKs
 - 💻 **Interactive CLI**: Minimalist terminal interface with mode cycling (Shift+Tab)
 - 📦 **Production Ready**: Generated scripts include error handling, type hints, and documentation
 - 💾 **Session History**: All runs saved locally with full message logs
@@ -57,7 +57,7 @@ No more manual reverse engineering—just browse, capture, and get clean API cod
 
 ### Limitations
 
-- This tool executes code locally using Claude Code—please monitor output
+- This tool can execute AI-generated code locally through your configured SDK—please monitor output
 - Some websites employ advanced bot-detection that may limit capture or require manual interaction
 
 ## 🚀 Installation
@@ -150,7 +150,7 @@ Fully automated browser interaction using AI agents:
 
 **Agent Provider Options:**
 
-- **auto** (default): Uses Playwright MCP browser automation with Claude Agent SDK & Opencode. Combines browser control and real-time reverse engineering in a single workflow.
+- **auto** (default): Uses Playwright MCP browser automation with your configured SDK. Combines browser control and real-time reverse engineering in a single workflow.
 - **chrome-mcp**: Uses [Chrome DevTools MCP](https://www.npmjs.com/package/chrome-devtools-mcp) to drive your real Chrome browser (with existing sessions, cookies, and auth). Requires Chrome 146+ and Node.js 20.19+.
 
 Change agent provider in `/settings` → "agent provider".
@@ -193,7 +193,11 @@ Settings stored in `~/.reverse-api/config.json`:
   "agent_provider": "auto",
   "claude_code_model": "claude-sonnet-4-6",
   "collector_model": "claude-sonnet-4-6",
-  "opencode_model": "claude-sonnet-4-6",
+  "cursor_model": "composer-2",
+  "cursor_web_search": true,
+  "cursor_setting_sources": null,
+  "copilot_model": "gpt-5",
+  "opencode_model": "claude-opus-4-6",
   "opencode_provider": "anthropic",
   "output_dir": null,
   "output_language": "python",
@@ -221,7 +225,7 @@ If you use Opencode, look at the [models](https://models.dev).
 Configure AI agents for autonomous browser automation.
 
 **Agent Providers:**
-- **auto** (default): Playwright MCP browser automation with real-time reverse engineering. Uses Claude Agent SDK with browser MCP tools. Combines browser control and API reverse engineering in a single unified workflow. Works with Claude SDK (default) or OpenCode SDK.
+- **auto** (default): Playwright MCP browser automation with real-time reverse engineering. Uses browser MCP tools with your configured SDK. Combines browser control and API reverse engineering in a single unified workflow. Works with Claude, OpenCode, Copilot, or Cursor SDKs.
 - **chrome-mcp**: Drives your real Chrome browser via [Chrome DevTools MCP](https://www.npmjs.com/package/chrome-devtools-mcp). Useful when you need existing sessions, cookies, or auth. Requires Chrome 146+ and Node.js 20.19+; enable auto-connect at `chrome://inspect/#remote-debugging`.
 
 The agent's reasoning model is the same as the SDK model — see [Model Selection](#model-selection).
@@ -232,6 +236,8 @@ Change in `/settings` → "agent provider"
 
 - **Claude** (default): Direct integration with Anthropic's Claude API
 - **OpenCode**: Uses OpenCode SDK (requires OpenCode running locally)
+- **Copilot**: Uses GitHub Copilot SDK when the optional dependency and token are configured
+- **Cursor**: Uses the Cursor SDK bridge with optional Cursor settings/tool layers
 
 Change in `/settings` or edit `config.json` directly.
 
@@ -309,7 +315,8 @@ reverse-api-engineer run <run_id> --file api_client.py \
 | `mode`           | `string` \| `null`  | Provider used (`"auto"` for Playwright MCP, `"chrome-mcp"`).           |
 | `har_path`       | `string` \| `null`  | Absolute path to the captured HAR (`recording.har`).                   |
 | `script_path`    | `string` \| `null`  | Absolute path to the generated client when reverse engineering ran.    |
-| `usage`          | `object`            | Token + cost usage from the engineer SDK (`{input_tokens, output_tokens, total_cost}`).|
+| `usage`          | `object`            | Normalized token + cost usage (`input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `total_cost_usd`) plus SDK-native details under `raw`.|
+| `error_kind`     | `string` \| `null`  | Machine-readable error category such as `misuse`, `network`, or `engine_failure`.|
 | `error`          | `string` \| `null`  | Human-readable error message when `status == "error"`.                 |
 
 #### Exit codes
@@ -370,9 +377,9 @@ uv run reverse-api-engineer
 ## 🔐 Requirements
 
 - Python 3.11+
-- Claude Code / OpenCode (for reverse engineering)
+- Credentials for your selected SDK (for the default Claude SDK, set `ANTHROPIC_API_KEY`)
 - Playwright browsers installed
-- API key for agent mode (see [Agent Configuration](#agent-configuration))
+- Node.js + npx for agent mode; `chrome-mcp` requires Node.js 20.19+
 
 ## 🤝 Contributing
 

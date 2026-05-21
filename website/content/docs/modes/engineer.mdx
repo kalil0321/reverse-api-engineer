@@ -1,0 +1,50 @@
+---
+title: Engineer mode
+description: Re-run AI generation on an existing capture without re-browsing.
+---
+
+Engineer mode skips the capture step. It takes an existing run (HAR plus
+metadata) and re-runs the AI generation pass. Useful when you want to try a
+different model, prompt, or output language without re-doing the browser
+work.
+
+## When to use it
+
+- The first generation missed something. Try Opus 4.6, or tweak the prompt.
+- You want the same capture exported to a different language (Python to TS).
+- You want to iterate on the generated client without paying the cost of
+  re-capturing the site.
+
+## How to run it
+
+Interactive:
+
+```bash
+reverse-api-engineer
+# switch to engineer mode with Shift+Tab, then enter <run_id>
+```
+
+Direct:
+
+```bash
+reverse-api-engineer engineer <run_id>
+```
+
+Find the `run_id` of a previous run with:
+
+```bash
+reverse-api-engineer list
+```
+
+Or `--json` for a machine-parseable list:
+
+```bash
+reverse-api-engineer list --json | jq
+```
+
+## What gets regenerated
+
+Everything the AI emits gets rebuilt: `api_client.*`, `example_usage.*`,
+`README.md`. The HAR itself is unchanged. Engineer mode writes back to the
+same run's scripts directory, so use version control or copy the output first
+if you want to compare iterations side by side.

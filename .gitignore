@@ -92,7 +92,7 @@ test_env/
 test_env*/
 
 FEATURES.md
-docs/
+/docs/
 collected/
 collector_mode_plan.md
 

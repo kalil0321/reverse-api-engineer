@@ -1,0 +1,68 @@
+---
+title: Model selection
+description: Pick between Claude Sonnet, Opus, and Haiku for API generation.
+---
+
+## Available models
+
+| Model         | When to pick it                                                          |
+|---------------|--------------------------------------------------------------------------|
+| **Sonnet 4.6** *(default)* | Balanced cost and quality. Right answer for most captures.    |
+| **Opus 4.6**  | Complex APIs (many endpoints, nested auth, polymorphic responses).       |
+| **Haiku 4.5** | Cheapest and fastest. Good for simple endpoints or quick iterations.     |
+
+## Change the model
+
+In the CLI:
+
+```text
+/settings then "Claude Code Model"
+```
+
+Or pass at launch:
+
+```bash
+reverse-api-engineer manual --model claude-sonnet-4-6
+```
+
+Or edit `~/.reverse-api/config.json` directly:
+
+```json
+{
+  "claude_code_model": "claude-opus-4-6"
+}
+```
+
+## Config file reference
+
+The full default config:
+
+```json
+{
+  "agent_provider": "auto",
+  "claude_code_model": "claude-sonnet-4-6",
+  "collector_model": "claude-sonnet-4-6",
+  "cursor_model": "composer-2",
+  "cursor_web_search": true,
+  "cursor_setting_sources": null,
+  "copilot_model": "gpt-5",
+  "opencode_model": "claude-opus-4-6",
+  "opencode_provider": "anthropic",
+  "output_dir": null,
+  "output_language": "python",
+  "real_time_sync": true,
+  "sdk": "claude"
+}
+```
+
+## OpenCode users
+
+If you've configured the OpenCode SDK, see [models.dev](https://models.dev)
+for the available model IDs. Set them via the `opencode_model` and
+`opencode_provider` keys in the config.
+
+## Copilot and Cursor users
+
+Copilot uses `copilot_model` (default `gpt-5`). Cursor uses `cursor_model`
+(default `composer-2`) plus `cursor_web_search` / `cursor_setting_sources`
+for controlling which Cursor settings layers are loaded.
