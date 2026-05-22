@@ -1,3 +1,4 @@
+import { ChevronDownIcon } from 'lucide-react';
 import { getDocTree } from '@/lib/docs';
 import { SiteNav } from '@/components/site-nav';
 import { DocsSidebar } from '@/components/docs/sidebar';
@@ -9,27 +10,40 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     <>
       <SiteNav />
 
-      {/* Fixed sidebar — true viewport vertical centring, left edge
-          aligned with the docs container's content edge. Stays fully
-          visible while scrolling. */}
+      {/* lg+ : fixed sidebar, vertically centred against the viewport, left
+          edge aligned with the docs container.  < lg: hidden via CSS — the
+          mobile <details> menu below takes over. */}
       <aside className="docs-sidebar-fixed">
-        <nav
-          className="w-full max-h-full overflow-y-auto pr-3"
+        <div
+          className="h-full overflow-y-auto"
           style={{ pointerEvents: 'auto' }}
         >
-          <DocsSidebar tree={tree} />
-        </nav>
+          {/* `safe center` falls back to `flex-start` when the nav overflows,
+              so the scrollbar stays usable instead of pushing content off the
+              top of the scroll container. */}
+          <nav className="min-h-full flex flex-col [justify-content:safe_center] px-3 py-2">
+            <DocsSidebar tree={tree} />
+          </nav>
+        </div>
       </aside>
 
       <div className="mx-auto max-w-7xl px-6 lg:px-10 w-full">
-        <div
-          className="grid gap-12 lg:gap-16"
-          style={{ gridTemplateColumns: '240px minmax(0, 1fr)' }}
-        >
-          {/* Placeholder — preserves the main content's horizontal position
-              now that the sidebar is fixed (out of flow). */}
-          <div aria-hidden />
-          <main className="min-w-0 pt-6 pb-16 md:pt-8">{children}</main>
+        {/* Mobile docs menu — collapsible, no JS needed. Hidden on lg+. */}
+        <details className="lg:hidden mt-4 mx-auto max-w-[740px] group rounded-xl border border-ink/10">
+          <summary className="flex items-center justify-between px-4 py-3 cursor-pointer list-none font-mono text-xs uppercase tracking-widest text-ink-soft">
+            <span>Documentation</span>
+            <ChevronDownIcon className="size-4 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="px-3 pb-3 pt-1 border-t border-ink/10 max-h-[60vh] overflow-y-auto">
+            <DocsSidebar tree={tree} />
+          </div>
+        </details>
+
+        <div className="lg:grid lg:gap-8 xl:gap-0 lg:[grid-template-columns:240px_minmax(0,1fr)]">
+          {/* Placeholder — preserves main's horizontal position next to the
+              fixed sidebar on lg+. Hidden under lg. */}
+          <div aria-hidden className="hidden lg:block" />
+          <main className="min-w-0 pt-6 pb-4 md:pt-8">{children}</main>
         </div>
       </div>
     </>

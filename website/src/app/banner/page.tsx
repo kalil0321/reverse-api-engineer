@@ -14,6 +14,31 @@ export default function BannerPage() {
         <div
           className="relative w-full h-full bg-color-mesh overflow-hidden flex items-center justify-center"
         >
+          {/* Logo — top-left corner */}
+          <div className="absolute top-10 left-12 flex items-baseline gap-2">
+            <span
+              className="font-display select-none leading-none inline-block italic"
+              style={{
+                fontSize: 56,
+                color: 'var(--color-fd-primary)',
+                fontVariationSettings: "'opsz' 144, 'SOFT' 100, 'WONK' 1",
+              }}
+              aria-hidden="true"
+            >
+              *
+            </span>
+            <span
+              className="font-display italic text-ink leading-none"
+              style={{
+                fontSize: 64,
+                letterSpacing: '-0.05em',
+                fontVariationSettings: "'opsz' 144, 'SOFT' 100, 'WONK' 1",
+              }}
+            >
+              rae
+            </span>
+          </div>
+
           {/* Ambient asterisks */}
           <span
             aria-hidden="true"
@@ -30,55 +55,40 @@ export default function BannerPage() {
             *
           </span>
 
-          {/* Headline + logo, vertically stacked, centered */}
-          <div className="relative flex flex-col items-center text-center gap-12">
-            <h1
-              className="font-display text-ink leading-[0.95]"
+          {/* Headline — centered */}
+          <h1
+            className="relative font-display text-ink leading-[0.95] text-center"
+            style={{
+              fontSize: 104,
+              fontVariationSettings: "'opsz' 144, 'SOFT' 30, 'WONK' 1",
+              fontWeight: 500,
+              letterSpacing: '-0.045em',
+            }}
+          >
+            Turn websites<br />
+            <em
+              className="italic relative inline-block text-ink"
               style={{
-                fontSize: 96,
-                fontVariationSettings: "'opsz' 144, 'SOFT' 30, 'WONK' 1",
-                fontWeight: 500,
-                letterSpacing: '-0.045em',
+                fontVariationSettings: "'opsz' 144, 'SOFT' 100, 'WONK' 1",
+                fontWeight: 400,
+                paddingBottom: '0.08em',
               }}
             >
-              Turn any website<br />
-              <em
-                className="italic"
-                style={{
-                  fontVariationSettings: "'opsz' 144, 'SOFT' 100, 'WONK' 1",
-                  fontWeight: 400,
-                  color: 'var(--color-fd-primary)',
-                }}
-              >
-                into an API.
-              </em>
-            </h1>
-
-            {/* rae logo — large, centered under the headline */}
-            <div className="flex items-baseline gap-3">
+              into APIs.
               <span
-                className="font-display select-none leading-none inline-block italic"
-                style={{
-                  fontSize: 88,
-                  color: 'var(--color-fd-primary)',
-                  fontVariationSettings: "'opsz' 144, 'SOFT' 100, 'WONK' 1",
-                }}
                 aria-hidden="true"
-              >
-                *
-              </span>
-              <span
-                className="font-display italic text-ink leading-none"
                 style={{
-                  fontSize: 96,
-                  letterSpacing: '-0.05em',
-                  fontVariationSettings: "'opsz' 144, 'SOFT' 100, 'WONK' 1",
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  bottom: '-0.02em',
+                  height: 6,
+                  background: 'var(--color-fd-primary)',
+                  borderRadius: 2,
                 }}
-              >
-                rae
-              </span>
-            </div>
-          </div>
+              />
+            </em>
+          </h1>
         </div>
 
         {/* Tiny caption under the frame — tells the user what to do */}

@@ -1,22 +1,23 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { ArrowRightIcon } from 'lucide-react';
-import { githubUrl } from '@/lib/shared';
+import { appName, appTagline, gitConfig, githubUrl, pypiUrl, siteUrl } from '@/lib/shared';
 import { HeroCyclingPhrase } from '@/components/hero-cycling-phrase';
 import { InstallCommand } from '@/components/install-command';
 import { BuiltInTheOpen } from '@/components/built-in-the-open';
+import { JsonLd } from '@/components/json-ld';
 
 export const metadata: Metadata = {
-  title: 'Generate API Clients from Browser Traffic',
+  title: 'Turn websites into APIs',
   description:
-    'Capture browser traffic with Playwright or Chrome DevTools MCP and generate typed Python, JavaScript, or TypeScript API clients.',
+    'Capture browser traffic and generate typed Python, JavaScript, or TypeScript API clients.',
   alternates: {
     canonical: '/',
   },
   openGraph: {
-    title: 'Generate API Clients from Browser Traffic',
+    title: 'Turn websites into APIs',
     description:
-      'Capture browser traffic and turn HAR recordings into typed API clients.',
+      'Capture browser traffic and generate typed Python, JavaScript, or TypeScript API clients.',
     url: '/',
   },
 };
@@ -29,9 +30,34 @@ function GithubIcon({ className }: { className?: string }) {
   );
 }
 
+const softwareJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: appName,
+  description: appTagline,
+  applicationCategory: 'DeveloperApplication',
+  operatingSystem: 'macOS, Linux, Windows',
+  url: siteUrl,
+  downloadUrl: pypiUrl,
+  codeRepository: githubUrl,
+  license: 'https://opensource.org/licenses/MIT',
+  programmingLanguage: ['Python', 'JavaScript', 'TypeScript'],
+  offers: {
+    '@type': 'Offer',
+    price: '0',
+    priceCurrency: 'USD',
+  },
+  author: {
+    '@type': 'Person',
+    name: gitConfig.user,
+    url: `https://github.com/${gitConfig.user}`,
+  },
+};
+
 export default function HomePage() {
   return (
     <main className="flex-1">
+      <JsonLd data={softwareJsonLd} />
       <div className="flex flex-col h-[calc(100svh-3.5rem)] min-h-[640px]">
         <Hero />
         <Marquee />

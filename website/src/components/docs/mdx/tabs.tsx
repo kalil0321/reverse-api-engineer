@@ -39,7 +39,7 @@ export function Tabs({ items, children }: TabsProps) {
     <div className="mt-5">
       <div
         role="tablist"
-        className="flex items-center gap-5 border-b border-ink/10 overflow-x-auto"
+        className="flex items-center gap-5 border-b border-ink/10 overflow-x-auto overflow-y-hidden"
       >
         {tabs.map((t) => {
           const isActive = t.value === active;

@@ -1,5 +1,5 @@
 export const appName = 'Reverse API Engineer';
-export const appTagline = 'Generate typed API clients from browser traffic.';
+export const appTagline = 'Turn websites into APIs.';
 export const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://reverseapi.dev';
 export const docsRoute = '/docs';
 export const docsImageRoute = '/og/docs';

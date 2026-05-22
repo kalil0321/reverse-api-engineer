@@ -13,7 +13,8 @@ import {
   flattenTree,
 } from '@/lib/docs';
 import { getDocsMdxComponents } from '@/components/docs/mdx-components';
-import { appName } from '@/lib/shared';
+import { JsonLd } from '@/components/json-ld';
+import { appName, siteUrl } from '@/lib/shared';
 
 interface PageProps {
   params: Promise<{ slug?: string[] }>;
@@ -48,8 +49,32 @@ export default async function Page({ params }: PageProps) {
   const idx = flat.findIndex((p) => p.url === page.url);
   const prev = idx > 0 ? flat[idx - 1] : null;
   const next = idx >= 0 && idx < flat.length - 1 ? flat[idx + 1] : null;
+
+  const breadcrumbItems = [
+    { name: 'Docs', url: new URL('/docs', siteUrl).toString() },
+    ...page.slug.map((seg, i) => {
+      const segUrl = `/docs/${page.slug.slice(0, i + 1).join('/')}`;
+      const node = flat.find((p) => p.url === segUrl);
+      return {
+        name: node?.title ?? seg,
+        url: new URL(segUrl, siteUrl).toString(),
+      };
+    }),
+  ];
+  const breadcrumbJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: breadcrumbItems.map((it, i) => ({
+      '@type': 'ListItem',
+      position: i + 1,
+      name: it.name,
+      item: it.url,
+    })),
+  };
+
   return (
-    <article className="max-w-[740px] flex flex-col">
+    <article className="max-w-[740px] mx-auto flex flex-col">
+      {page.slug.length > 0 ? <JsonLd data={breadcrumbJsonLd} /> : null}
       {/* Header — title + description, tight rhythm before the body */}
       <header className="pb-4">
         <h1 className="font-display text-4xl md:text-5xl tracking-[-0.04em] text-ink leading-[1.05]">

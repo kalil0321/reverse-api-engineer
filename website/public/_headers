@@ -1,0 +1,11 @@
+# RFC 8288 Link response headers for agent discovery.
+# - service-doc → human-readable docs (IANA registered)
+# - describedby → /llms.txt machine-readable site summary (IANA registered)
+# Applied per-path via Cloudflare Pages' _headers file.
+
+/
+  Link: </docs>; rel="service-doc"
+  Link: </llms.txt>; rel="describedby"
+
+/docs/*
+  Link: </llms.txt>; rel="describedby"

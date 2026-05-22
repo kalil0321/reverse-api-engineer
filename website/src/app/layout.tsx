@@ -1,14 +1,14 @@
 import './global.css';
 import { Inter, JetBrains_Mono, Fraunces } from 'next/font/google';
 import type { Metadata } from 'next';
-import { appName, appTagline, githubUrl, siteUrl } from '@/lib/shared';
+import { appName, appTagline, gitConfig, siteUrl } from '@/lib/shared';
 import { Providers } from '@/components/providers';
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   applicationName: appName,
   title: {
-    default: `${appName} · Generate API Clients from Browser Traffic`,
+    default: `${appName} · Turn websites into APIs`,
     template: `%s · ${appName}`,
   },
   description: appTagline,
@@ -25,23 +25,23 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     siteName: appName,
-    title: `${appName} · Generate API Clients from Browser Traffic`,
+    title: `${appName} · Turn websites into APIs`,
     description: appTagline,
     url: '/',
     images: [
       {
-        url: `${githubUrl}/raw/main/assets/reverse-api-banner.jpg`,
-        width: 1200,
-        height: 630,
+        url: `https://raw.githubusercontent.com/${gitConfig.user}/${gitConfig.repo}/main/assets/reverse-api-banner.jpg`,
+        width: 2564,
+        height: 1284,
         alt: `${appName} banner`,
       },
     ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: `${appName} · Generate API Clients from Browser Traffic`,
+    title: `${appName} · Turn websites into APIs`,
     description: appTagline,
-    images: [`${githubUrl}/raw/main/assets/reverse-api-banner.jpg`],
+    images: [`https://raw.githubusercontent.com/${gitConfig.user}/${gitConfig.repo}/main/assets/reverse-api-banner.jpg`],
   },
   robots: {
     index: true,

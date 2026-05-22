@@ -388,21 +388,23 @@ body {
 
 .docs-sidebar-fixed {
   position: fixed;
-  top: 50%;
-  transform: translateY(-50%);
+  /* SiteNav is 3.5rem; leave 1.5rem of breathing room above + 1.5rem
+     below the viewport. */
+  top: 5rem;
+  bottom: 1.5rem;
   width: 240px;
-  max-height: calc(100vh - 6rem);
-  /* 40rem = half of max-w-7xl (80rem). 1.5rem = px-6 default. */
-  left: max(1.5rem, calc(50vw - 40rem + 1.5rem));
   z-index: 10;
-  display: flex;
-  align-items: center;
   pointer-events: none;
+  /* Hidden below lg; the mobile <details> menu takes over. */
+  display: none;
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 64rem) {
+  /* 64rem matches Tailwind v4's lg: breakpoint so this stays in lockstep
+     with `lg:hidden` / `lg:grid` / `lg:block` regardless of root font size. */
   .docs-sidebar-fixed {
-    /* lg: px-10 = 2.5rem */
+    display: block;
+    /* lg: container px-10 = 2.5rem.  40rem = half of max-w-7xl (80rem). */
     left: max(2.5rem, calc(50vw - 40rem + 2.5rem));
   }
 }
