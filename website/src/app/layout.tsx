@@ -30,9 +30,9 @@ export const metadata: Metadata = {
     url: '/',
     images: [
       {
-        url: `https://raw.githubusercontent.com/${gitConfig.user}/${gitConfig.repo}/main/assets/reverse-api-banner.jpg`,
-        width: 2564,
-        height: 1284,
+        url: `https://raw.githubusercontent.com/${gitConfig.user}/${gitConfig.repo}/main/assets/reverse-api-banner.png`,
+        width: 2566,
+        height: 1290,
         alt: `${appName} banner`,
       },
     ],
@@ -41,7 +41,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: `${appName} · Turn websites into APIs`,
     description: appTagline,
-    images: [`https://raw.githubusercontent.com/${gitConfig.user}/${gitConfig.repo}/main/assets/reverse-api-banner.jpg`],
+    images: [`https://raw.githubusercontent.com/${gitConfig.user}/${gitConfig.repo}/main/assets/reverse-api-banner.png`],
   },
   robots: {
     index: true,
