@@ -63,6 +63,8 @@ Agent mode providers:
 - **auto** (default): Playwright MCP, single workflow for browsing + reverse engineering.
 - **chrome-mcp**: drives your real Chrome so you keep existing sessions/cookies. Requires Chrome 146+ and Node.js 20.19+.
 
+With **`sdk: "cursor"`**, agent mode still uses the **same** stdio MCP processes (`rae-playwright-mcp` or `chrome-devtools-mcp`) started by the Cursor Agent API bridge—not Cursor Desktop’s built-in “Browser Tab” tools. Expect the usual agent requirements: **`CURSOR_API_KEY`**, Node.js with **`npx`**, Playwright/Chromium setup for **`auto`**, and Chrome remote debugging / headless Chrome for **`chrome-mcp`** as above.
+
 ## Configuration
 
 Settings live in `~/.reverse-api/config.json` and can be edited via `/settings` in the CLI:
