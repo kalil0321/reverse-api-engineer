@@ -7,6 +7,7 @@ from rich.console import Console
 from rich.padding import Padding
 from rich.text import Text
 
+from .branding import print_cli_logo
 from .theme import (
     APP_TAGLINE,
     BANNER_INNER_WIDTH,
@@ -407,13 +408,7 @@ def display_banner(console: Console, sdk: str | None = None, model: str | None =
         f"  [{THEME_DIM}]│[/{THEME_DIM}]"
     )
     console.print(f"  [{THEME_DIM}]├{rule}┤[/{THEME_DIM}]")
-    brand_pad = " " * (BANNER_INNER_WIDTH - len(BRAND_MARK) - 1 - len(BRAND_WORDMARK))
-    console.print(
-        f"  [{THEME_DIM}]│[/{THEME_DIM}] "
-        f"[{THEME_PRIMARY}]{BRAND_MARK}[/{THEME_PRIMARY}] "
-        f"[{THEME_SECONDARY}]{BRAND_WORDMARK}[/{THEME_SECONDARY}]"
-        f"{brand_pad} [{THEME_DIM}]│[/{THEME_DIM}]"
-    )
+    print_cli_logo(console, inner_width=BANNER_INNER_WIDTH)
     _banner_plain_row(console, APP_TAGLINE)
     if sdk and model:
         sdk_line = f"sdk {sdk} · model {model}"
