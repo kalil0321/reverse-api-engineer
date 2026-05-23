@@ -9,10 +9,12 @@ from __future__ import annotations
 
 from rich.console import Console
 
-from .theme import THEME_PRIMARY, THEME_SECONDARY
+from .theme import BRAND_MARK, BRAND_WORDMARK, THEME_PRIMARY, THEME_SECONDARY
 
 
 def print_cli_logo(console: Console) -> None:
-    """Print the bundled text logo (evokes site * rae lockup)."""
-    console.print(f"  [{THEME_PRIMARY}]*[/{THEME_PRIMARY}]")
-    console.print(f"  [{THEME_SECONDARY}]rae[/{THEME_SECONDARY}]")
+    """Print the bundled text logo: pink * followed by rae (site lockup)."""
+    console.print(
+        f"  [{THEME_PRIMARY}]{BRAND_MARK}[/{THEME_PRIMARY}]"
+        f" [{THEME_SECONDARY}]{BRAND_WORDMARK}[/{THEME_SECONDARY}]"
+    )

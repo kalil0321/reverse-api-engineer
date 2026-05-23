@@ -410,7 +410,7 @@ def display_footer(console: Console):
     time_str = datetime.now().strftime("%H:%M")
 
     console.print(
-        f"\n [{THEME_DIM}][{THEME_PRIMARY}]*[/{THEME_PRIMARY}]"
+        f"\n [{THEME_DIM}][{THEME_PRIMARY}]{BRAND_MARK}[/{THEME_PRIMARY}]"
         f" v{__version__} {time_str} via cli[/{THEME_DIM}]"
     )
     console.print()
