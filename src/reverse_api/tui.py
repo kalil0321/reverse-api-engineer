@@ -7,22 +7,20 @@ from rich.console import Console
 from rich.padding import Padding
 from rich.text import Text
 
-# Theme configuration
-THEME_PRIMARY = "#ff5f50"  # Coral Red
-THEME_SECONDARY = "white"
-THEME_DIM = "#555555"
-THEME_SUCCESS = "#ff5f50"
-THEME_ERROR = "bold white on #ff5f50"
+from .branding import print_cli_logo
+from .theme import (
+    APP_TAGLINE,
+    BRAND_MARK,
+    BRAND_WORDMARK,
+    MODE_COLORS,
+    THEME_DIM,
+    THEME_ERROR,
+    THEME_PRIMARY,
+    THEME_SECONDARY,
+    THEME_SUCCESS,
+)
 
 ERROR_CTA = "If an unexpected error occurred, please create an issue at https://github.com/kalil0321/reverse-api-engineer/issues/new"
-
-
-MODE_COLORS = {
-    "agent": "#ff5f50",  # Coral Red
-    "manual": "#50ff9f",  # Green/Cyan
-    "engineer": "#5f9fff",  # Blue
-    "collector": "#ffd700",  # Gold
-}
 
 
 # Tool icons for visual clarity (minimalist text)
@@ -73,19 +71,7 @@ class ClaudeUI:
 
     def header(self, run_id: str, prompt: str, model: str | None = None, sdk: str | None = None, mode: str | None = None) -> None:
         """Display the session header."""
-        from . import __version__
-
-        mode_color = MODE_COLORS.get(mode or "", THEME_PRIMARY)
-
-        self.console.print()
-        self.console.print(f" [white]reverse-api[/white] [{mode_color}]v{__version__}[/{mode_color}]")
-        self.console.print(f" [dim]━[/dim] [white]{run_id}[/white]")
-        if sdk:
-            self.console.print(f" [dim]sdk[/dim]    [white]{sdk}[/white] [dim]|[/dim] [dim]model[/dim] [white]{model or '---'}[/white]")
-        else:
-            self.console.print(f" [dim]model[/dim]  [white]{model or '---'}[/white]")
-        self.console.print(f" [{mode_color}]task[/{mode_color}]   [white]{prompt}[/white]")
-        self.console.print()
+        print_session_header(self.console, run_id, prompt, model=model, sdk=sdk, mode=mode)
 
     def start_analysis(self) -> None:
         """Display analysis start message."""
@@ -358,15 +344,60 @@ def get_model_choices() -> list[dict]:
     ]
 
 
-def display_banner(console: Console, sdk: str | None = None, model: str | None = None):
-    """Display ultra-minimalist banner."""
+def print_brand_line(console: Console, *, version: str | None = None, version_color: str | None = None) -> None:
+    """Print the * rae wordmark (optional version suffix)."""
+    line = f" [{THEME_PRIMARY}]{BRAND_MARK}[/{THEME_PRIMARY}] [{THEME_SECONDARY}]{BRAND_WORDMARK}[/{THEME_SECONDARY}]"
+    if version is not None:
+        color = version_color or THEME_PRIMARY
+        line += f" [{color}]v{version}[/{color}]"
+    console.print(line)
+
+
+def print_session_header(
+    console: Console,
+    run_id: str,
+    prompt: str,
+    model: str | None = None,
+    sdk: str | None = None,
+    mode: str | None = None,
+    *,
+    mode_label: str = "task",
+) -> None:
+    """Session header matching the site terminal-window pattern."""
+    from . import __version__
+
+    mode_color = MODE_COLORS.get(mode or "", THEME_PRIMARY)
+
     console.print()
-    console.print("  [bold white]reverse-api[/bold white]")
+    print_brand_line(console, version=__version__, version_color=mode_color)
+    console.print(f" [{THEME_DIM}]━[/{THEME_DIM}] [{THEME_SECONDARY}]{run_id}[/{THEME_SECONDARY}]")
+    if sdk:
+        console.print(
+            f" [{THEME_DIM}]sdk[/{THEME_DIM}]    [{THEME_SECONDARY}]{sdk}[/{THEME_SECONDARY}]"
+            f" [{THEME_DIM}]|[/{THEME_DIM}] [{THEME_DIM}]model[/{THEME_DIM}]"
+            f" [{THEME_SECONDARY}]{model or '---'}[/{THEME_SECONDARY}]"
+        )
+    else:
+        console.print(
+            f" [{THEME_DIM}]model[/{THEME_DIM}]  [{THEME_SECONDARY}]{model or '---'}[/{THEME_SECONDARY}]"
+        )
+    console.print(f" [{mode_color}]{mode_label}[/{mode_color}]   [{THEME_SECONDARY}]{prompt}[/{THEME_SECONDARY}]")
+    console.print()
+
+
+def display_banner(console: Console, sdk: str | None = None, model: str | None = None):
+    """Display minimalist startup banner with * rae branding."""
+    console.print()
+    print_cli_logo(console)
     console.print(f"  [bold {THEME_PRIMARY}]━━[/bold {THEME_PRIMARY}]")
     if sdk and model:
-        console.print(f"  [red]sdk[/red] [red]{sdk}[/red] [red]|[/red] [red]model[/red] [red]{model}[/red]")
+        console.print(
+            f"  [{THEME_DIM}]sdk[/{THEME_DIM}] [{THEME_SECONDARY}]{sdk}[/{THEME_SECONDARY}]"
+            f" [{THEME_DIM}]·[/{THEME_DIM}] [{THEME_DIM}]model[/{THEME_DIM}]"
+            f" [{THEME_SECONDARY}]{model}[/{THEME_SECONDARY}]"
+        )
     console.print()
-    console.print("  [dim white]AI agents for API reverse engineering.[/dim white]")
+    console.print(f"  [{THEME_DIM}]{APP_TAGLINE}[/{THEME_DIM}]")
     console.print()
 
 
@@ -378,10 +409,8 @@ def display_footer(console: Console):
 
     time_str = datetime.now().strftime("%H:%M")
 
-    footer = Text()
-    footer.append(f"\n v{__version__} ", style=THEME_DIM)
-    footer.append(f" {time_str} ", style=THEME_DIM)
-    footer.append(" VIA CLI ", style=THEME_DIM)
-
-    console.print(footer)
+    console.print(
+        f"\n [{THEME_DIM}][{THEME_PRIMARY}]{BRAND_MARK}[/{THEME_PRIMARY}]"
+        f" v{__version__} {time_str} via cli[/{THEME_DIM}]"
+    )
     console.print()

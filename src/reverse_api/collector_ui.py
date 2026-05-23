@@ -2,9 +2,10 @@
 
 from rich.console import Console
 
-from .tui import THEME_DIM
+from .theme import MODE_COLORS, THEME_DIM
+from .tui import print_session_header
 
-COLLECTOR_COLOR = "#ffd700"  # Gold
+COLLECTOR_COLOR = MODE_COLORS["collector"]
 
 
 class CollectorUI:
@@ -17,14 +18,15 @@ class CollectorUI:
 
     def header(self, run_id: str, prompt: str, model: str | None = None, **kwargs) -> None:
         """Display the collector session header."""
-        from . import __version__
-
-        self.console.print()
-        self.console.print(f" [white]reverse-api[/white] [{COLLECTOR_COLOR}]v{__version__}[/{COLLECTOR_COLOR}]")
-        self.console.print(f" [dim]━[/dim] [white]{run_id}[/white]")
-        self.console.print(f" [{COLLECTOR_COLOR}]collector[/{COLLECTOR_COLOR}] [dim]|[/dim] [dim]model[/dim] [white]{model or '---'}[/white]")
-        self.console.print(f" [{COLLECTOR_COLOR}]task[/{COLLECTOR_COLOR}]      [white]{prompt[:80]}{'...' if len(prompt) > 80 else ''}[/white]")
-        self.console.print()
+        task = prompt[:80] + ("..." if len(prompt) > 80 else "")
+        print_session_header(
+            self.console,
+            run_id,
+            task,
+            model=model,
+            mode="collector",
+            mode_label="collector",
+        )
 
     def start_collecting(self) -> None:
         """Display collection start message."""

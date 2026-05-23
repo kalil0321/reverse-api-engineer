@@ -7,13 +7,8 @@ from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 
-from .tui import ERROR_CTA, MODE_COLORS
-
-# Theme configuration (matching tui.py)
-THEME_PRIMARY = "#ff5f50"
-THEME_SECONDARY = "white"
-THEME_DIM = "#555555"
-THEME_SUCCESS = "#ff5f50"
+from .theme import MODE_COLORS, THEME_DIM, THEME_PRIMARY, THEME_SUCCESS
+from .tui import ERROR_CTA, print_session_header
 
 
 class OpenCodeUI:
@@ -38,19 +33,7 @@ class OpenCodeUI:
         mode: str | None = None,
     ) -> None:
         """Display the session header."""
-        from . import __version__
-
-        mode_color = MODE_COLORS.get(mode or "", THEME_PRIMARY)
-
-        self.console.print()
-        self.console.print(f" [white]reverse-api[/white] [{mode_color}]v{__version__}[/{mode_color}]")
-        self.console.print(f" [dim]━[/dim] [white]{run_id}[/white]")
-        if sdk:
-            self.console.print(f" [dim]sdk[/dim]    [white]{sdk}[/white] [dim]|[/dim] [dim]model[/dim] [white]{model or '---'}[/white]")
-        else:
-            self.console.print(f" [dim]model[/dim]  [white]{model or '---'}[/white]")
-        self.console.print(f" [{mode_color}]task[/{mode_color}]   [white]{prompt}[/white]")
-        self.console.print()
+        print_session_header(self.console, run_id, prompt, model=model, sdk=sdk, mode=mode)
 
     def start_analysis(self) -> None:
         """Display analysis start message."""
