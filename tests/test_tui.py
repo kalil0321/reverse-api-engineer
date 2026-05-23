@@ -353,7 +353,8 @@ class TestDisplayBanner:
         console = Console(file=StringIO(), no_color=True)
         display_banner(console)
         output = console.file.getvalue()
-        assert "reverse-api" in output
+        assert "rae" in output
+        assert "Turn websites into APIs" in output
 
     def test_banner_with_sdk_and_model(self):
         """Banner with SDK and model info."""
@@ -371,4 +372,5 @@ class TestDisplayFooter:
         console = Console(file=StringIO(), no_color=True)
         display_footer(console)
         output = console.file.getvalue()
-        assert "VIA CLI" in output
+        assert "via cli" in output
+        assert "*" in output
