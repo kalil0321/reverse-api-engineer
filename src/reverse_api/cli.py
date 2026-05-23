@@ -209,6 +209,8 @@ def _build_dry_run_payload(
     import shutil
     import subprocess
 
+    from .agent_browser_bundle import agent_browser_bundle_error
+
     checks: list[dict] = []
 
     # 1. Prompt
@@ -232,13 +234,13 @@ def _build_dry_run_payload(
 
     # 3. Agent provider
     agent_provider = config_manager.get("agent_provider", "auto")
-    if agent_provider in ("auto", "chrome-mcp"):
+    if agent_provider in ("auto", "chrome-mcp", "agent-browser"):
         checks.append({"name": "agent_provider", "status": "ok", "message": agent_provider})
     else:
         checks.append({
             "name": "agent_provider",
             "status": "error",
-            "message": f"unknown agent_provider {agent_provider!r}; expected 'auto' or 'chrome-mcp'",
+            "message": f"unknown agent_provider {agent_provider!r}; expected 'auto', 'chrome-mcp', or 'agent-browser'",
         })
 
     # 4. SDK + API key presence (we only check env var existence, not validity)
@@ -264,15 +266,14 @@ def _build_dry_run_payload(
     else:
         checks.append({"name": f"sdk:{sdk}", "status": "ok", "message": f"{sdk_env_var} present"})
 
-    # 5. Node.js + npx for MCP servers (both auto and chrome-mcp shell out to
-    # `npx <package>`; minimal Docker images sometimes ship `node` without
-    # `npx`, so checking only `node` would lull dry-run into a false ok).
+    # 5. Node.js + npx for MCP servers (Playwright MCP, bundled agent-browser MCP,
+    # chrome-mcp wrapper, etc.).
     node = shutil.which("node")
     if node is None:
         checks.append({
             "name": "node",
             "status": "error",
-            "message": "node not found in PATH; required by both auto (rae-playwright-mcp) and chrome-mcp",
+            "message": "node not found in PATH; required for MCP-based agent modes",
         })
     else:
         try:
@@ -288,7 +289,7 @@ def _build_dry_run_payload(
         checks.append({
             "name": "npx",
             "status": "error",
-            "message": "npx not found in PATH; both MCP servers are launched via `npx <package>`",
+            "message": "npx not found in PATH; required for MCP-based agent tooling (downloads packages on demand)",
         })
     else:
         checks.append({"name": "npx", "status": "ok", "message": npx})
@@ -301,7 +302,16 @@ def _build_dry_run_payload(
             "message": "chrome-mcp without --headless requires Chrome 146+ with auto-connect enabled at chrome://inspect/#remote-debugging — this is not auto-checkable",
         })
 
-    # 7. Output dir writability — probe with a unique filename so we never
+    # 7. Bundled MCP for agent-browser
+    if agent_provider == "agent-browser":
+        berr = agent_browser_bundle_error()
+        checks.append({
+            "name": "agent-browser:MCP-bundle",
+            "status": "error" if berr else "ok",
+            "message": berr or "bundled agent-browser MCP (npm deps in agent_browser_mcp/)",
+        })
+
+    # 8. Output dir writability — probe with a unique filename so we never
     # clobber a real user file (a fixed name like `.dry_run_write_probe`
     # could legitimately exist in someone's output dir).
     import secrets
@@ -1009,6 +1019,7 @@ def handle_settings(mode_color=THEME_PRIMARY):
         provider_choices = [
             Choice(title="auto (Playwright MCP)", value="auto"),
             Choice(title="chrome-mcp (Chrome DevTools MCP)", value="chrome-mcp"),
+            Choice(title="agent-browser (Vercel CLI via bundled MCP)", value="agent-browser"),
             Choice(title="back", value="back"),
         ]
         provider = questionary.select(
@@ -1026,7 +1037,18 @@ def handle_settings(mode_color=THEME_PRIMARY):
         if provider and provider != "back":
             config_manager.set("agent_provider", provider)
             console.print(f" [dim]updated[/dim] agent provider: {provider}")
-            if provider == "chrome-mcp":
+            if provider == "agent-browser":
+                from pathlib import Path
+
+                import reverse_api
+
+                bundle = Path(reverse_api.__file__).resolve().parent / "agent_browser_mcp"
+                console.print()
+                console.print(f" [dim]install bundled MCP deps (once): npm install --prefix {bundle}[/dim]")
+                console.print(" [dim]install Chromium helper CLI: npm i -g agent-browser && agent-browser install[/dim]")
+                console.print(" [dim]Linux servers: agent-browser install --with-deps[/dim]")
+                console.print()
+            elif provider == "chrome-mcp":
                 console.print()
                 console.print(" [dim]chrome devtools mcp setup:[/dim]")
                 console.print(" [dim] 1. open chrome (version 146 or newer)[/dim]")
@@ -1422,7 +1444,7 @@ JSON output schema (--json):
     "run_id": "<id>" | null,
     "prompt": "...",
     "url": "..." | null,
-    "mode": "auto" | "chrome-mcp" | null,
+    "mode": "auto" | "chrome-mcp" | "agent-browser" | null,
     "har_path": "/abs/path/recording.har" | null,
     "script_path": "/abs/path/api_client.py" | null,
     "usage": { "input_tokens": ..., "output_tokens": ..., "total_cost": ... },
@@ -1726,6 +1748,18 @@ def run_auto_capture(
         console.print(" [dim]auto-connect disabled — mcp will spawn its own headless chrome[/dim]")
         console.print()
 
+    elif agent_provider == "agent-browser":
+        from pathlib import Path
+
+        import reverse_api
+
+        bundle = Path(reverse_api.__file__).resolve().parent / "agent_browser_mcp"
+        console.print()
+        console.print(" [dim]agent-browser: MCP bridge to Vercel's agent-browser CLI (strong default for VPS/headless hosts).[/dim]")
+        console.print(f" [dim]install MCP bundle deps:[/dim] npm install --prefix [cyan]{bundle}[/cyan]")
+        console.print(" [dim]install chromium helper:[/dim] npm i -g agent-browser && agent-browser install  [dim]# add --with-deps on Linux[/dim]")
+        console.print()
+
     sdk = config_manager.get("sdk", "claude")
     if model is None:
         model = default_model_for_configured_sdk(sdk)
@@ -1733,7 +1767,12 @@ def run_auto_capture(
     run_id = generate_run_id()
     timestamp = get_timestamp()
 
-    mode_label = "chrome-mcp" if agent_provider == "chrome-mcp" else "auto"
+    if agent_provider == "chrome-mcp":
+        mode_label = "chrome-mcp"
+    elif agent_provider == "agent-browser":
+        mode_label = "agent-browser"
+    else:
+        mode_label = "auto"
     session_manager.add_run(
         run_id=run_id,
         prompt=prompt,

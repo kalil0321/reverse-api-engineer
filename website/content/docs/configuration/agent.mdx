@@ -31,6 +31,18 @@ profile.
 - Node.js 20.19+
 - Auto-connect enabled at `chrome://inspect/#remote-debugging`
 
+### `agent-browser`
+
+Controls **Chrome via [Vercel agent-browser](https://github.com/vercel-labs/agent-browser)** through a bundled MCP shim. Tune this profile when you primarily run on VPS/CI and want deterministic headless tooling without depending on Cursor’s embedded Browser tab.
+
+**Bootstrap checklist**
+
+1. `npm install --prefix <python-site-packages>/reverse_api/agent_browser_mcp`
+2. `npm install -g agent-browser && agent-browser install` (`--with-deps` on bare Linux hosts)
+3. Set `"agent_provider": "agent-browser"` (settings UI or JSON)
+
+Operational notes and backlog live in `src/reverse_api/agent_browser_mcp/README.md`.
+
 ## How to switch providers
 
 In the CLI:

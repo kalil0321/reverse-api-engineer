@@ -45,7 +45,7 @@ codes).
 
 Pick the provider in `/settings` then "agent provider".
 
-<Tabs items={['auto (default)', 'chrome-mcp']}>
+<Tabs items={['auto (default)', 'chrome-mcp', 'agent-browser']}>
   <Tab value="auto (default)">
     **Playwright MCP** browser automation with your configured SDK. Combines
     browser control and real-time reverse-engineering in a single workflow.
@@ -61,6 +61,16 @@ Pick the provider in `/settings` then "agent provider".
     - Chrome 146+
     - Node.js 20.19+
     - Auto-connect enabled at `chrome://inspect/#remote-debugging`
+  </Tab>
+  <Tab value="agent-browser">
+    **Vercel [agent-browser](https://github.com/vercel-labs/agent-browser)** via a
+    small bundled MCP shim. Targets headless VPS/CI workflows: installs its own
+    Chromium channel through `npm i -g agent-browser && agent-browser install`
+    (`--with-deps` on Linux) and persists traffic to `recording.har`.
+
+    Requires **npm install** inside `reverse_api/agent_browser_mcp/` once per
+    install (CLI prints the path). See **`src/reverse_api/agent_browser_mcp/README.md`**
+    in this repository for the checklist and roadmap notes.
   </Tab>
 </Tabs>
 

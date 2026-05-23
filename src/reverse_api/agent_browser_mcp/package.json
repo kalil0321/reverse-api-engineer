@@ -1,0 +1,14 @@
+{
+  "name": "rae-agent-browser-mcp-bundle",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Stdio MCP server that wraps Vercel agent-browser for reverse-api-engineer agent mode.",
+  "type": "module",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.76"
+  }
+}

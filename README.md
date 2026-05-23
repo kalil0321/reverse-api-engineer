@@ -55,13 +55,22 @@ Cycle modes with **Shift+Tab**:
 | Mode | What it does |
 |------|--------------|
 | `manual` | You drive the browser; AI generates the client from captured traffic. |
-| `agent` | An AI agent drives the browser autonomously (Playwright MCP or Chrome DevTools MCP). |
+| `agent` | An AI agent drives the browser autonomously (Playwright MCP, Chrome DevTools MCP, or Vercel agent-browser). |
 | `engineer` | Re-run generation on a previous capture (`engineer <run_id>`). |
 | `collector` | Agent collects structured data (JSON/CSV) using web search + fetch. |
 
 Agent mode providers:
 - **auto** (default): Playwright MCP, single workflow for browsing + reverse engineering.
 - **chrome-mcp**: drives your real Chrome so you keep existing sessions/cookies. Requires Chrome 146+ and Node.js 20.19+.
+- **agent-browser**: MCP bridge around [Vercel agent-browser](https://github.com/vercel-labs/agent-browser)—great for VPS/CI/headless where you want snapshots + refs without Playwright MCP. Requires **Node**, **npx**, the bundled MCP dependencies (`npm install --prefix …/agent_browser_mcp`), and **`agent-browser install`** for Chromium. See **`src/reverse_api/agent_browser_mcp/README.md`** in this repo for the checklist and roadmap.
+
+After installing/upgrading the Python package:
+
+```bash
+npm install --prefix "$(python -c 'from pathlib import Path; import reverse_api; print(Path(reverse_api.__file__).parent / \"agent_browser_mcp\")')"
+npm install -g agent-browser && agent-browser install
+# Linux VPS: append --with-deps to the installer when prompted
+```
 
 ## Configuration
 
@@ -119,7 +128,7 @@ Pass `--no-interactive` (and/or `--json`) to skip prompts. With `--json`, stdout
 | `run_id`         | `string` \| `null`  | Use with `show` / `engineer` / `run`.                                  |
 | `prompt`         | `string`            |                                                                        |
 | `url`            | `string` \| `null`  |                                                                        |
-| `mode`           | `string` \| `null`  | `"auto"` or `"chrome-mcp"`.                                            |
+| `mode`           | `string` \| `null`  | `"auto"`, `"chrome-mcp"`, or `"agent-browser"`.                                        |
 | `har_path`       | `string` \| `null`  | Captured HAR.                                                          |
 | `script_path`    | `string` \| `null`  | Generated client.                                                      |
 | `usage`          | `object`            | `{input_tokens, output_tokens, total_cost}`.                           |

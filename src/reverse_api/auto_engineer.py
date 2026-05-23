@@ -15,6 +15,7 @@ from claude_agent_sdk import (
     ToolPermissionContext,
 )
 
+from .agent_browser_bundle import agent_browser_bundle_error, agent_browser_stdio_mcp_config
 from .engineer import ClaudeEngineer
 from .opencode_engineer import OpenCodeEngineer, debug_log, format_error
 from .utils import get_har_dir
@@ -73,7 +74,7 @@ class ClaudeAutoEngineer(ClaudeEngineer):
         browser_tool_label = (
             "Chrome DevTools MCP"
             if self.agent_provider == "chrome-mcp"
-            else "MCP"
+            else ("agent-browser (Vercel) via MCP" if self.agent_provider == "agent-browser" else "MCP")
         )
 
         system_prompt = load(
@@ -84,11 +85,12 @@ class ClaudeAutoEngineer(ClaudeEngineer):
             output_files=output_files,
         )
 
-        template = (
-            "auto/user_chrome_mcp"
-            if self.agent_provider == "chrome-mcp"
-            else "auto/user_playwright"
-        )
+        if self.agent_provider == "chrome-mcp":
+            template = "auto/user_chrome_mcp"
+        elif self.agent_provider == "agent-browser":
+            template = "auto/user_agent_browser"
+        else:
+            template = "auto/user_playwright"
 
         template_kwargs = {
             "prompt": self.prompt,
@@ -122,6 +124,12 @@ class ClaudeAutoEngineer(ClaudeEngineer):
         debugging server, so it is dropped in headless mode and the MCP
         spawns its own headless Chromium instead.
         """
+        if self.agent_provider == "agent-browser":
+            return agent_browser_stdio_mcp_config(
+                har_path=self.har_path,
+                run_id=self.mcp_run_id,
+                headless=self.headless,
+            )
         if self.agent_provider == "chrome-mcp":
             args = ["chrome-devtools-mcp@latest", "--no-usage-statistics"]
             if self.headless:
@@ -154,6 +162,13 @@ class ClaudeAutoEngineer(ClaudeEngineer):
         """
         self.ui.header(self.run_id, self.prompt, self.model, mode="agent")
         self.ui.start_analysis()
+
+        if self.agent_provider == "agent-browser":
+            berr = agent_browser_bundle_error()
+            if berr:
+                self.ui.error(berr)
+                self.message_store.save_error(berr)
+                return None
 
         system_prompt, user_message = self._get_active_prompts()
         self.message_store.save_prompt(user_message)
@@ -215,6 +230,9 @@ class ClaudeAutoEngineer(ClaudeEngineer):
                 if self.agent_provider == "chrome-mcp":
                     self.ui.console.print("\n[dim]Make sure chrome-devtools-mcp is available: npx chrome-devtools-mcp@latest[/dim]")
                     self.ui.console.print("[dim]Chrome 146+ required with auto-connect enabled at chrome://inspect/#remote-debugging[/dim]")
+                elif self.agent_provider == "agent-browser":
+                    self.ui.console.print("\n[dim]Bundled MCP: npm install --prefix <reverse_api_package>/agent_browser_mcp[/dim]")
+                    self.ui.console.print("[dim]Global CLI Chromium setup: npm i -g agent-browser && agent-browser install[/dim]")
                 else:
                     self.ui.console.print("\n[dim]Make sure rae-playwright-mcp is installed: npm install -g rae-playwright-mcp[/dim]")
             else:
@@ -253,6 +271,24 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
         so it is dropped in headless mode in favor of an MCP-spawned headless
         Chromium.
         """
+        if self.agent_provider == "agent-browser":
+            self.mcp_name = f"agent-browser-{self._session_id}"
+            from .agent_browser_bundle import agent_browser_command_list
+
+            cmd = agent_browser_command_list(
+                har_path=self.har_path,
+                run_id=self.mcp_run_id,
+                headless=self.headless,
+            )
+            return {
+                "name": self.mcp_name,
+                "config": {
+                    "type": "local",
+                    "command": cmd,
+                    "enabled": True,
+                    "timeout": 30000,
+                },
+            }
         if self.agent_provider == "chrome-mcp":
             self.mcp_name = f"chrome-devtools-{self._session_id}"
             cmd = ["npx", "-y", "chrome-devtools-mcp@latest", "--no-usage-statistics"]
@@ -294,6 +330,13 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
         """Run auto mode with OpenCode MCP integration."""
         self.opencode_ui.header(self.run_id, self.prompt, self.opencode_model, mode="agent")
         self.opencode_ui.start_analysis()
+
+        if self.agent_provider == "agent-browser":
+            berr = agent_browser_bundle_error()
+            if berr:
+                self.opencode_ui.error(berr)
+                self.message_store.save_error(berr)
+                return None
 
         system_prompt, user_message = self._get_active_prompts()
         active_prompt = f"{system_prompt}\n\n{user_message}"
@@ -569,6 +612,28 @@ class CopilotAutoEngineer:
                     "type": "local",
                     "command": "npx",
                     "args": chrome_args,
+                    "tools": ["*"],
+                    "timeout": 30000,
+                }
+            elif self.agent_provider == "agent-browser":
+                berr = agent_browser_bundle_error()
+                if berr:
+                    eng.ui.error(berr)
+                    eng.message_store.save_error(berr)
+                    return None
+
+                from .agent_browser_bundle import agent_browser_command_list
+
+                argv = agent_browser_command_list(
+                    har_path=self._engineer.har_path,
+                    run_id=self.mcp_run_id,
+                    headless=self.headless,
+                )
+                mcp_server_name = "agent-browser"
+                mcp_config = {
+                    "type": "local",
+                    "command": argv[0],
+                    "args": argv[1:],
                     "tools": ["*"],
                     "timeout": 30000,
                 }

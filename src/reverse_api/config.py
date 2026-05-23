@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_CONFIG = {
-    "agent_provider": "auto",  # "auto" (Playwright MCP) or "chrome-mcp" (Chrome DevTools MCP)
+    "agent_provider": "auto",  # "auto" | "chrome-mcp" | "agent-browser"
     "claude_code_model": "claude-sonnet-4-6",
     "collector_model": "claude-sonnet-4-6",  # Model for collector mode
     "cursor_model": "composer-2",  # Model id for Cursor SDK (see Cursor.models.list())

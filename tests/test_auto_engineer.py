@@ -238,6 +238,52 @@ class TestChromeMcpPrompt:
         assert "browser_navigate" in user_p
 
 
+class TestAgentBrowserPrompt:
+    """Prompts for bundled agent-browser MCP provider."""
+
+    def _make_engineer(self, tmp_path, **kwargs):
+        defaults = {
+            "run_id": "test123",
+            "prompt": "browse and capture",
+            "model": "claude-sonnet-4-6",
+            "output_dir": str(tmp_path),
+            "agent_provider": "agent-browser",
+        }
+        defaults.update(kwargs)
+        with patch("reverse_api.auto_engineer.get_har_dir", return_value=tmp_path / "har"):
+            with patch("reverse_api.base_engineer.get_scripts_dir", return_value=tmp_path / "scripts"):
+                with patch("reverse_api.base_engineer.MessageStore"):
+                    return ClaudeAutoEngineer(**defaults)
+
+    def test_system_labels_tooling(self, tmp_path):
+        eng = self._make_engineer(tmp_path)
+        sys_p, _user_p = eng._build_auto_prompts()
+        assert "agent-browser" in sys_p
+
+    def test_user_template_covers_close_and_har(self, tmp_path):
+        eng = self._make_engineer(tmp_path)
+        _sys_p, user_p = eng._build_auto_prompts()
+        assert "browser_close" in user_p
+        assert "recording.har" in user_p
+        assert str(eng.har_path) in user_p
+
+    def test_opencode_delegates_prompts(self, tmp_path):
+        with patch("reverse_api.auto_engineer.get_har_dir", return_value=tmp_path / "har"):
+            with patch("reverse_api.base_engineer.get_scripts_dir", return_value=tmp_path / "scripts"):
+                with patch("reverse_api.base_engineer.MessageStore"):
+                    with patch("reverse_api.opencode_engineer.OpenCodeUI"):
+                        eng = OpenCodeAutoEngineer(
+                            run_id="test123",
+                            prompt="browse and capture",
+                            output_dir=str(tmp_path),
+                            agent_provider="agent-browser",
+                            opencode_provider="anthropic",
+                            opencode_model="claude-opus-4-6",
+                        )
+                        sys_p, user_p = eng._get_active_prompts()
+                        assert "agent-browser" in sys_p
+
+
 class TestChromeMcpConfig:
     """Test MCP configuration selection."""
 
@@ -269,6 +315,21 @@ class TestChromeMcpConfig:
         assert name == "playwright"
         assert "rae-playwright-mcp@latest" in config["args"]
         assert "--run-id" in config["args"]
+
+    def test_agent_browser_mcp_config(self, tmp_path):
+        """agent-browser bundles node stdio shim with har + session wiring."""
+        eng = self._make_engineer(tmp_path, agent_provider="agent-browser")
+        name, config = eng._get_mcp_config()
+        assert name == "agent-browser"
+        assert config["type"] == "stdio"
+        assert config["command"] == "node"
+        ss = "--session"
+        hh = "--har-out"
+        assert hh in config["args"] and ss in config["args"]
+        hi = config["args"].index(hh)
+        si = config["args"].index(ss)
+        assert config["args"][hi + 1].endswith("recording.har")
+        assert config["args"][si + 1] == "test123"
 
 
 class TestOpenCodeChromeMcpConfig:
@@ -304,6 +365,16 @@ class TestOpenCodeChromeMcpConfig:
         config = eng._get_opencode_mcp_config()
         assert "playwright" in eng.mcp_name
         assert "rae-playwright-mcp@latest" in config["config"]["command"]
+
+    def test_opencode_agent_browser_mcp_config(self, tmp_path):
+        """OpenCode agent-browser mounts bundled node MCP as a flat command."""
+        eng = self._make_engineer(tmp_path, agent_provider="agent-browser")
+        oc = eng._get_opencode_mcp_config()
+        assert "agent-browser" in eng.mcp_name
+        cmd = oc["config"]["command"]
+        assert cmd[0] == "node"
+        assert "--har-out" in cmd
+        assert "--session" in cmd
 
     def test_opencode_chrome_mcp_prompt(self, tmp_path):
         """OpenCode chrome-mcp uses Chrome DevTools prompt."""
