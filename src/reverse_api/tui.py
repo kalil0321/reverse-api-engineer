@@ -10,7 +10,6 @@ from rich.text import Text
 from .branding import print_cli_logo
 from .theme import (
     APP_TAGLINE,
-    BANNER_INNER_WIDTH,
     BRAND_MARK,
     BRAND_WORDMARK,
     MODE_COLORS,
@@ -345,15 +344,6 @@ def get_model_choices() -> list[dict]:
     ]
 
 
-def _banner_plain_row(console: Console, text: str, *, style: str = THEME_DIM) -> None:
-    """Print a plain-text row inside the terminal-style banner frame."""
-    visible = text[:BANNER_INNER_WIDTH]
-    pad = " " * (BANNER_INNER_WIDTH - len(visible))
-    console.print(
-        f"  [{THEME_DIM}]│[/{THEME_DIM}] [{style}]{visible}[/{style}]{pad} [{THEME_DIM}]│[/{THEME_DIM}]"
-    )
-
-
 def print_brand_line(console: Console, *, version: str | None = None, version_color: str | None = None) -> None:
     """Print the * rae wordmark (optional version suffix)."""
     line = f" [{THEME_PRIMARY}]{BRAND_MARK}[/{THEME_PRIMARY}] [{THEME_SECONDARY}]{BRAND_WORDMARK}[/{THEME_SECONDARY}]"
@@ -396,24 +386,18 @@ def print_session_header(
 
 
 def display_banner(console: Console, sdk: str | None = None, model: str | None = None):
-    """Display startup banner (terminal-window chrome + * rae branding)."""
-    w = BANNER_INNER_WIDTH
-    rule = "─" * w
-
+    """Display minimalist startup banner with * rae branding."""
     console.print()
-    console.print(f"  [{THEME_DIM}]╭{rule}╮[/{THEME_DIM}]")
-    console.print(
-        f"  [{THEME_DIM}]│[/{THEME_DIM}] [{THEME_DIM}]○ ○ ○[/{THEME_DIM}]"
-        f"  [{THEME_SECONDARY}]reverse-api-engineer[/{THEME_SECONDARY}]"
-        f"  [{THEME_DIM}]│[/{THEME_DIM}]"
-    )
-    console.print(f"  [{THEME_DIM}]├{rule}┤[/{THEME_DIM}]")
-    print_cli_logo(console, inner_width=BANNER_INNER_WIDTH)
-    _banner_plain_row(console, APP_TAGLINE)
+    print_cli_logo(console)
+    console.print(f"  [bold {THEME_PRIMARY}]━━[/bold {THEME_PRIMARY}]")
     if sdk and model:
-        sdk_line = f"sdk {sdk} · model {model}"
-        _banner_plain_row(console, sdk_line, style=THEME_SECONDARY)
-    console.print(f"  [{THEME_DIM}]╰{rule}╯[/{THEME_DIM}]")
+        console.print(
+            f"  [{THEME_DIM}]sdk[/{THEME_DIM}] [{THEME_SECONDARY}]{sdk}[/{THEME_SECONDARY}]"
+            f" [{THEME_DIM}]·[/{THEME_DIM}] [{THEME_DIM}]model[/{THEME_DIM}]"
+            f" [{THEME_SECONDARY}]{model}[/{THEME_SECONDARY}]"
+        )
+    console.print()
+    console.print(f"  [{THEME_DIM}]{APP_TAGLINE}[/{THEME_DIM}]")
     console.print()
 
 

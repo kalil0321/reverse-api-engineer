@@ -29,5 +29,3 @@ MODE_COLORS = {
 BRAND_MARK = "*"
 BRAND_WORDMARK = "rae"
 APP_TAGLINE = "Turn websites into APIs."
-
-BANNER_INNER_WIDTH = 38
