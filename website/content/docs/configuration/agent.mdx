@@ -3,7 +3,7 @@ title: Agent configuration
 description: Configure the AI agent that drives the browser in agent mode.
 ---
 
-Agent mode runs an AI loop. Depending on agent provider this may attach **browser MCP**, or—in **`agent-browser` mode—instruct the model to invoke the **[Vercel agent-browser CLI](https://github.com/vercel-labs/agent-browser)** directly from terminal tools.
+Agent mode runs an AI loop. **`auto`** and **`chrome-mcp`** attach browser automation via **MCP**. **`agent-browser`** instead delegates browsing to the **[Vercel agent-browser CLI](https://github.com/vercel-labs/agent-browser)**; Reverse API Engineer runs **`npx -y … --help`** before streaming so npm resolves/caches the package and obvious misconfigurations fail fast, while prompts cover skills + cloud backends.
 
 ## Agent providers
 
@@ -32,9 +32,9 @@ profile.
 
 ### `agent-browser`
 
-Uses **[Vercel agent-browser](https://github.com/vercel-labs/agent-browser)** as a standalone CLI—there is **no** bundled browser MCP shim in Reverse API Engineer for this slot.
+Uses **[Vercel agent-browser](https://github.com/vercel-labs/agent-browser)** as a standalone CLI—not a Reverse API Engineer MCP shim.
 
-Reverse API Engineer prefetch-checks `npx` so the pinned package can hydrate from the registry/cache, emits prompts referencing `skills get …`, and configures Claude-backed runs with **terminal-friendly tool allow-lists**. Other SDKs omit auxiliary browser MCP registration for `agent-browser` and leave shell access to whichever capabilities their upstream runtimes expose.
+Startup runs **`npx -y … --help`** against your pin so npm **downloads into its cache when needed**, then verifies the toolchain before streaming. Prompts steer the model through **`skills get core --full`** (retry with **`skills list`** / matching bundles when the operator names a cloud/runtime backend via config `agent_browser_notes`). Claude SDK runs widen the tool allow-list for Bash-heavy flows; OpenCode/Copilot/Cursor omit Reverse API Engineer browser MCP registration for `agent-browser` and rely on their own shell primitives.
 
 Suggested JSON knobs:
 

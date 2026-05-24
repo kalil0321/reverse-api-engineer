@@ -1,6 +1,8 @@
-"""Auto mode engineers: LLM-controlled browser automation with real-time reverse engineering.
+"""Auto mode engineers: LLM-controlled browsing with real-time reverse engineering.
 
-Combines browser automation via MCP with simultaneous API reverse engineering.
+Providers **auto** and **chrome-mcp** attach a browser MCP server to the SDK. Provider
+**agent-browser** shells the upstream Vercel ``agent-browser`` CLI (validated with an
+``npx`` prefetch) instead of attaching browser MCP here.
 """
 
 import asyncio
@@ -30,7 +32,7 @@ logging.getLogger("claude_agent_sdk._internal.transport.subprocess_cli").setLeve
 
 
 class ClaudeAutoEngineer(ClaudeEngineer):
-    """Auto mode using Claude SDK: LLM controls browser via MCP while reverse engineering."""
+    """Auto mode using Claude SDK: LLM-led browsing plus reverse-engineering codegen."""
 
     def __init__(
         self,
@@ -41,9 +43,9 @@ class ClaudeAutoEngineer(ClaudeEngineer):
         agent_provider: str = "auto",
         **kwargs,
     ):
-        """Initialize auto engineer with expected HAR path (created by MCP)."""
-        # `headless` is auto-engineer specific (controls the MCP-spawned browser),
-        # not BaseEngineer concept; pop before super() to avoid an unknown kwarg.
+        """Initialize Claude-backed agent engineer (HAR path derives from ``run_id``)."""
+        # `headless` is auto-engineer specific: for MCP providers it configures the MCP
+        # server's browser launch; for `agent-browser` it only adjusts prompt wording.
         headless = kwargs.pop("headless", False)
         har_dir = get_har_dir(run_id, output_dir)
         har_path = har_dir / "recording.har"
@@ -126,14 +128,16 @@ class ClaudeAutoEngineer(ClaudeEngineer):
         return PermissionResultAllow(updated_input=input_data)
 
     def _get_mcp_config(self) -> tuple[str, dict]:
-        """Return (server_name, mcp_config) based on agent_provider.
+        """Return ``(server_name, mcp_config)`` for Playwright or Chrome MCP providers.
 
-        Auto-connect requires a real headed Chrome instance with a remote
-        debugging server, so it is dropped in headless mode and the MCP
-        spawns its own headless Chromium instead.
+        Not applicable to ``agent-browser`` (calling this raises). Auto-connect Chrome
+        requires a headed instance with remote debugging unless ``headless`` is set.
         """
         if self.agent_provider == "agent-browser":
-            raise RuntimeError("browser MCP disabled for agent-browser provider")
+            raise RuntimeError(
+                "agent-browser uses the Vercel agent-browser CLI from the shell, not a "
+                "registered browser MCP server (this helper only builds configs for MCP providers)"
+            )
         if self.agent_provider == "chrome-mcp":
             args = ["chrome-devtools-mcp@latest", "--no-usage-statistics"]
             if self.headless:
@@ -160,7 +164,7 @@ class ClaudeAutoEngineer(ClaudeEngineer):
         }
 
     async def analyze_and_generate(self) -> dict[str, Any] | None:
-        """Run auto mode with MCP browser integration.
+        """Run agent mode with browser automation appropriate to ``agent_provider``.
 
         Reuses _process_streaming_response and follow-up loop from ClaudeEngineer.
         """
@@ -256,10 +260,10 @@ class ClaudeAutoEngineer(ClaudeEngineer):
 
 
 class OpenCodeAutoEngineer(OpenCodeEngineer):
-    """Auto mode using OpenCode SDK: Register MCP server dynamically."""
+    """Agent mode via OpenCode: registers a browser MCP server when the provider uses MCP."""
 
     def __init__(self, run_id: str, prompt: str, output_dir: str | None = None, agent_provider: str = "auto", **kwargs):
-        """Initialize auto engineer with expected HAR path (created by MCP)."""
+        """Initialize OpenCode-backed agent engineer."""
         headless = kwargs.pop("headless", False)
         har_dir = get_har_dir(run_id, output_dir)
         har_path = har_dir / "recording.har"
@@ -329,7 +333,7 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
         }
 
     async def analyze_and_generate(self) -> dict[str, Any] | None:
-        """Run auto mode with OpenCode MCP integration."""
+        """Run agent mode via OpenCode (browser MCP registration only for MCP-backed providers)."""
         self.opencode_ui.header(self.run_id, self.prompt, self.opencode_model, mode="agent")
         self.opencode_ui.start_analysis()
 
@@ -511,10 +515,11 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
 
 
 class CopilotAutoEngineer:
-    """Auto mode using Copilot SDK: LLM controls browser via MCP while reverse engineering.
+    """Agent mode via Copilot SDK.
 
-    Uses composition rather than inheritance since CopilotEngineer requires lazy imports.
-    Delegates to CopilotEngineer for the core logic and adds MCP browser integration.
+    Delegates to ``CopilotEngineer`` while wiring browser tooling: MCP for ``auto`` /
+    ``chrome-mcp``, validated ``agent-browser`` CLI bootstrap for ``agent-browser``.
+    Uses composition because ``CopilotEngineer`` relies on lazy imports.
     """
 
     def __init__(
@@ -551,7 +556,7 @@ class CopilotAutoEngineer:
         self._engineer.stop_sync()
 
     async def analyze_and_generate(self) -> dict[str, Any] | None:
-        """Run auto mode with Copilot SDK and MCP browser integration."""
+        """Run agent mode with Copilot SDK (MCP browsers or agent-browser CLI per provider)."""
         try:
             from copilot import CopilotClient, PermissionHandler
         except ImportError:

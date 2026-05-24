@@ -1,7 +1,9 @@
 """Helpers for agent-browser provider: bootstrap + prompt context.
 
-This mode avoids a custom MCP shim. Agents drive Vercel's ``agent-browser`` CLI directly
-via their shell tooling (e.g. Bash), after we verify ``npx`` can fetch the CLI.
+Reverse API Engineer wires the upstream Vercel ``agent-browser`` **CLI** (not a bundled
+browser MCP server). Models invoke it via shell tooling such as Bash. Before a session
+we probe ``npx -y <pkg> --help`` so npm resolves the package (typically downloading into
+the cache when it has not run before) and configuration errors surface early.
 """
 
 from __future__ import annotations
@@ -59,7 +61,14 @@ def agent_browser_extra_notes() -> str:
 
 
 def ensure_agent_browser_runtime() -> str | None:
-    """Return None if agent-browser CLI is fetchable via npx; otherwise a short error."""
+    """Verify the configured package is runnable via ``npx`` (download/cache + early failure).
+
+    Runs ``npx -y <package> --help``. On a fresh machine npm may fetch the tarball into
+    its cache; on repeat runs npm reuses cached bits. ``None`` means the probe succeeded.
+
+    Otherwise returns a short human-readable failure string (missing ``node``/``npx``,
+    timeouts, nonzero exit).
+    """
 
     if shutil.which("node") is None:
         return "node not found in PATH (needed to run agent-browser via npx)."
@@ -94,7 +103,7 @@ def ensure_agent_browser_runtime() -> str | None:
 
 
 def allowed_tools_agent_browser_agent_mode() -> list[str]:
-    """Tool allow-list for Claude auto engineer when MCP browser is omitted."""
+    """Tool allow-list for Claude SDK runs when browsing is delegated to agent-browser."""
 
     return sorted(_AGENT_BROWSER_TOOLS)
 

@@ -55,14 +55,14 @@ Cycle modes with **Shift+Tab**:
 | Mode | What it does |
 |------|--------------|
 | `manual` | You drive the browser; AI generates the client from captured traffic. |
-| `agent` | An AI agent drives the browser autonomously (Playwright MCP, Chrome DevTools MCP, or Vercel agent-browser). |
+| `agent` | An AI agent drives capture autonomously (Playwright or Chrome MCP, or Vercel agent-browser CLI). |
 | `engineer` | Re-run generation on a previous capture (`engineer <run_id>`). |
 | `collector` | Agent collects structured data (JSON/CSV) using web search + fetch. |
 
 Agent mode providers:
 - **auto** (default): Playwright MCP, single workflow for browsing + reverse engineering.
 - **chrome-mcp**: drives your real Chrome so you keep existing sessions/cookies. Requires Chrome 146+ and Node.js 20.19+.
-- **agent-browser**: [Vercel agent-browser](https://github.com/vercel-labs/agent-browser) as a **pure CLI**. No bundled browser MCP—the agent shells `npx -y <pin> …`, loads upstream **skills**, and captures HAR manually. Strong default for VPS/CI. Tune with `agent_browser_npx_package`, `agent_browser_notes` (optional), env `RAE_AGENT_BROWSER_PACKAGE` / `RAE_AGENT_BROWSER_NOTES`. First-time Chromium bootstrap: `npx -y agent-browser install` (`--with-deps` on bare Linux).
+- **agent-browser**: [Vercel agent-browser](https://github.com/vercel-labs/agent-browser) **CLI** (not a Reverse API Engineer browser MCP server). Before capture the host runs **`npx -y <pin> --help`** so npm resolves/caches the package; the prompt instructs **`skills get core --full`**, **`skills list`** when cloud backends apply, and manual HAR capture. Strong default for VPS/CI. Tune with `agent_browser_npx_package`, `agent_browser_notes` (optional), env `RAE_AGENT_BROWSER_PACKAGE` / `RAE_AGENT_BROWSER_NOTES`. First-time Chromium bootstrap: `npx -y agent-browser install` (`--with-deps` on bare Linux).
 
 
 Optionally prefetch for faster runs:

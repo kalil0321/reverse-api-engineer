@@ -325,10 +325,10 @@ class TestChromeMcpConfig:
         assert "rae-playwright-mcp@latest" in config["args"]
         assert "--run-id" in config["args"]
 
-    def test_agent_browser_disables_mcp_helpers(self, tmp_path):
-        """Browser MCP shim is deliberately absent for agent-browser."""
+    def test_agent_browser_no_mcp_config_path(self, tmp_path):
+        """`_get_mcp_config` is only for MCP-backed providers."""
         eng = self._make_engineer(tmp_path, agent_provider="agent-browser")
-        with pytest.raises(RuntimeError, match="browser MCP disabled"):
+        with pytest.raises(RuntimeError, match="agent-browser uses the Vercel agent-browser CLI"):
             eng._get_mcp_config()
 
 

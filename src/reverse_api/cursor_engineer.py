@@ -407,7 +407,7 @@ class CursorEngineer(BaseEngineer):
 
 
 class CursorAutoEngineer(CursorEngineer):
-    """Agent capture using Cursor SDK; browser via MCP unless provider is CLI-only."""
+    """Agent capture using Cursor SDK—browser via MCP for auto/chrome-mcp or Vercel agent-browser CLI prompts for agent-browser."""
 
     def __init__(
         self,
