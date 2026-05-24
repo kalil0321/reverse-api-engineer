@@ -1,8 +1,7 @@
 """Auto mode engineers: LLM-controlled browsing with real-time reverse engineering.
 
 Providers **auto** and **chrome-mcp** attach a browser MCP server to the SDK. Provider
-**agent-browser** shells the upstream Vercel ``agent-browser`` CLI (validated with an
-``npx`` prefetch) instead of attaching browser MCP here.
+**agent-browser** shells the upstream Vercel ``agent-browser`` CLI (auto-install via npm when missing, validated with ``--help``) instead of attaching browser MCP here.
 """
 
 import asyncio
@@ -21,6 +20,7 @@ from .agent_browser import (
     agent_browser_prompt_fields,
     allowed_tools_agent_browser_agent_mode,
     ensure_agent_browser_runtime,
+    print_agent_browser_setup_notices,
 )
 from .engineer import ClaudeEngineer
 from .opencode_engineer import OpenCodeEngineer, debug_log, format_error
@@ -172,10 +172,11 @@ class ClaudeAutoEngineer(ClaudeEngineer):
         self.ui.start_analysis()
 
         if self.agent_provider == "agent-browser":
-            abe = ensure_agent_browser_runtime()
-            if abe:
-                self.ui.error(abe)
-                self.message_store.save_error(abe)
+            ab_setup = ensure_agent_browser_runtime()
+            print_agent_browser_setup_notices(self.ui.console, ab_setup)
+            if not ab_setup.ok:
+                self.ui.error(ab_setup.error or "agent-browser setup failed")
+                self.message_store.save_error(ab_setup.error or "agent-browser setup failed")
                 return None
 
         system_prompt, user_message = self._get_active_prompts()
@@ -251,7 +252,10 @@ class ClaudeAutoEngineer(ClaudeEngineer):
                     self.ui.console.print("\n[dim]Make sure chrome-devtools-mcp is available: npx chrome-devtools-mcp@latest[/dim]")
                     self.ui.console.print("[dim]Chrome 146+ required with auto-connect enabled at chrome://inspect/#remote-debugging[/dim]")
                 elif self.agent_provider == "agent-browser":
-                    self.ui.console.print("\n[dim]agent-browser: verify `npx` can run the configured package; adjust RAE_AGENT_BROWSER_PACKAGE env or agent_browser_npx_package in ~/.reverse-api/config.json[/dim]")
+                    self.ui.console.print(
+                        "\n[dim]agent-browser: ensure `agent-browser` is global (`npm install -g`) or pinned "
+                        "via agent_browser_npx_package / RAE_AGENT_BROWSER_PACKAGE, and rerun `reverse-api-engineer`.[/dim]"
+                    )
                 else:
                     self.ui.console.print("\n[dim]Make sure rae-playwright-mcp is installed: npm install -g rae-playwright-mcp[/dim]")
             else:
@@ -338,10 +342,12 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
         self.opencode_ui.start_analysis()
 
         if self.agent_provider == "agent-browser":
-            abe = ensure_agent_browser_runtime()
-            if abe:
-                self.opencode_ui.error(abe)
-                self.message_store.save_error(abe)
+            ab_setup = ensure_agent_browser_runtime()
+            print_agent_browser_setup_notices(self.opencode_ui.console, ab_setup)
+            if not ab_setup.ok:
+                msg = ab_setup.error or "agent-browser setup failed"
+                self.opencode_ui.error(msg)
+                self.message_store.save_error(msg)
                 return None
 
         system_prompt, user_message = self._get_active_prompts()
@@ -625,10 +631,12 @@ class CopilotAutoEngineer:
                     },
                 }
             elif self.agent_provider == "agent-browser":
-                abe = ensure_agent_browser_runtime()
-                if abe:
-                    eng.ui.error(abe)
-                    eng.message_store.save_error(abe)
+                ab_setup = ensure_agent_browser_runtime()
+                print_agent_browser_setup_notices(eng.ui.console, ab_setup)
+                if not ab_setup.ok:
+                    err = ab_setup.error or "agent-browser setup failed"
+                    eng.ui.error(err)
+                    eng.message_store.save_error(err)
                     return None
                 mcp_servers_payload = {}
             else:

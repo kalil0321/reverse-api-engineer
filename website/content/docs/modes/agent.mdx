@@ -4,7 +4,7 @@ description: Fully autonomous browser interaction. The AI browses, captures, and
 ---
 
 Agent mode hands the steering wheel to the AI. Describe the goal in plain
-English; providers such as Playwright MCP or Chrome DevTools MCP route browser actions over MCP, whereas **`agent-browser`** shells upstream's CLI directly after Reverse API Engineer **`npx -y … --help`** preflight and prompt-injected skill workflows.
+English; providers such as Playwright MCP or Chrome DevTools MCP route browser actions over MCP, whereas **`agent-browser`** shells upstream's CLI directly after Reverse API Engineer resolves the binary (PATH **`agent-browser`**, else **`npm install -g <pin>`**, else **`npx -y`**) and prompt-injected skill workflows.
 
 <Demo
   src="https://raw.githubusercontent.com/kalil0321/reverse-api-engineer/main/assets/rae-autoscout.gif"
@@ -62,7 +62,7 @@ Pick the provider in `/settings` then "agent provider".
     - Auto-connect enabled at `chrome://inspect/#remote-debugging`
   </Tab>
   <Tab value="agent-browser">
-    **`agent-browser`** is the standalone [Vercel CLI](https://github.com/vercel-labs/agent-browser). Reverse API Engineer runs **`npx -y … --help`** up front so the package lands in npm's cache on first use, injects prompts for **`skills get core --full`**, **`network har …`**, `@eN` snapshots, and documents **`skills list` / `skills get …`** when operators point at cloud-hosted browsers. Pin via **`agent_browser_npx_package`** / **`RAE_AGENT_BROWSER_PACKAGE`**; add operator-only guidance with **`agent_browser_notes`** for remote stacks (AgentCore, Vercel Sandbox, …). Shell access is Bash-first on Claude SDK runs.
+    **`agent-browser`** is the standalone [Vercel CLI](https://github.com/vercel-labs/agent-browser). Reverse API Engineer publishes a banner when it **`npm install -g`'s** the pin, verifies **`--help`**, prefers the PATH shim across runs, falls back to **`npx`** only when npm fails, injects **`skills get core --full`**, **`network har …`**, `@eN` snapshots, and **`skills list` / `skills get`** when clouds come up (see **`agent_browser_notes`**). Pins live in **`agent_browser_npx_package`** / **`RAE_AGENT_BROWSER_PACKAGE`**. Shell access is Bash-first on Claude SDK runs.
   </Tab>
 </Tabs>
 

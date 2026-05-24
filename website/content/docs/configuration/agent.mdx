@@ -3,7 +3,7 @@ title: Agent configuration
 description: Configure the AI agent that drives the browser in agent mode.
 ---
 
-Agent mode runs an AI loop. **`auto`** and **`chrome-mcp`** attach browser automation via **MCP**. **`agent-browser`** instead delegates browsing to the **[Vercel agent-browser CLI](https://github.com/vercel-labs/agent-browser)**; Reverse API Engineer runs **`npx -y … --help`** before streaming so npm resolves/caches the package and obvious misconfigurations fail fast, while prompts cover skills + cloud backends.
+Agent mode runs an AI loop. **`auto`** and **`chrome-mcp`** attach browser automation via **MCP**. **`agent-browser`** instead delegates browsing to the **[Vercel agent-browser CLI](https://github.com/vercel-labs/agent-browser)**; Reverse API Engineer looks for `agent-browser` on `PATH`, otherwise runs **`npm install -g …`** (using the same pin as config), surfaces a console notice, verifies **`--help`**, and only falls back to **`npx -y …`** if npm cannot complete the install.
 
 ## Agent providers
 
@@ -34,7 +34,7 @@ profile.
 
 Uses **[Vercel agent-browser](https://github.com/vercel-labs/agent-browser)** as a standalone CLI—not a Reverse API Engineer MCP shim.
 
-Startup runs **`npx -y … --help`** against your pin so npm **downloads into its cache when needed**, then verifies the toolchain before streaming. Prompts steer the model through **`skills get core --full`** (retry with **`skills list`** / matching bundles when the operator names a cloud/runtime backend via config `agent_browser_notes`). Claude SDK runs widen the tool allow-list for Bash-heavy flows; OpenCode/Copilot/Cursor omit Reverse API Engineer browser MCP registration for `agent-browser` and rely on their own shell primitives.
+After the CLI is available, Reverse API Engineer embeds the resolved shell prefix in the user prompt (**`agent-browser …`** vs **`npx -y <pin> …`**) and validates with **`--help`**. Prompts steer the model through **`skills get core --full`** (retry with **`skills list`** / matching bundles when operators name a cloud/runtime backend via `agent_browser_notes`). Claude SDK runs widen the tool allow-list for Bash-heavy flows; OpenCode/Copilot/Cursor omit Reverse API Engineer browser MCP registration for `agent-browser` and rely on their own shell primitives.
 
 Suggested JSON knobs:
 
@@ -48,7 +48,7 @@ Suggested JSON knobs:
 
 You can alternatively drive the same knobs with **`RAE_AGENT_BROWSER_PACKAGE`** or **`RAE_AGENT_BROWSER_NOTES`**.
 
-First-time infra still needs Chromium bits just like upstream docs describe (`npm i -g agent-browser && agent-browser install`, `--with-deps` on trimmed Linux VMs).
+First-time infra still needs Chromium bits just like upstream docs describe (`agent-browser install`, `--with-deps` on trimmed Linux VMs).
 
 ## How to switch providers
 

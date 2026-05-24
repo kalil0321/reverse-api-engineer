@@ -62,14 +62,14 @@ Cycle modes with **Shift+Tab**:
 Agent mode providers:
 - **auto** (default): Playwright MCP, single workflow for browsing + reverse engineering.
 - **chrome-mcp**: drives your real Chrome so you keep existing sessions/cookies. Requires Chrome 146+ and Node.js 20.19+.
-- **agent-browser**: [Vercel agent-browser](https://github.com/vercel-labs/agent-browser) **CLI** (not a Reverse API Engineer browser MCP server). Before capture the host runs **`npx -y <pin> --help`** so npm resolves/caches the package; the prompt instructs **`skills get core --full`**, **`skills list`** when cloud backends apply, and manual HAR capture. Strong default for VPS/CI. Tune with `agent_browser_npx_package`, `agent_browser_notes` (optional), env `RAE_AGENT_BROWSER_PACKAGE` / `RAE_AGENT_BROWSER_NOTES`. First-time Chromium bootstrap: `npx -y agent-browser install` (`--with-deps` on bare Linux).
+- **agent-browser**: [Vercel agent-browser](https://github.com/vercel-labs/agent-browser) **CLI** (not a Reverse API Engineer browser MCP server). At session start RAE uses whatever `agent-browser` is already on `PATH`, otherwise runs **`npm install -g <pin>`** (same pin as config / `RAE_AGENT_BROWSER_PACKAGE`), prints a yellow notice, validates with **`--help`**, and only then falls back to **`npx -y <pin>`** if npm cannot install. Prompts embed the resolved shell prefix alongside **`skills get core --full`**, **`skills list`**, HAR phases, cloud notes from `agent_browser_notes`. Tune with `agent_browser_npx_package` (optional), env `RAE_AGENT_BROWSER_*`. First Chromium fetch: **`agent-browser install`** (add `--with-deps` on trimmed Linux).
 
 
-Optionally prefetch for faster runs:
+Optional sanity checks:
 
 ```bash
-npx -y agent-browser@0 --help >/dev/null
-npx -y agent-browser@0 doctor --offline --quick || true
+agent-browser doctor --offline --quick || true
+agent-browser skills list >/dev/null
 ```
 
 ## Configuration

@@ -304,14 +304,20 @@ def _build_dry_run_payload(
             "message": "chrome-mcp without --headless requires Chrome 146+ with auto-connect enabled at chrome://inspect/#remote-debugging — this is not auto-checkable",
         })
 
-    # 7. agent-browser CLI bootstrap (npx prefetch)
+    # 7. agent-browser CLI: PATH binary preferred; npm global install fallback.
     if agent_provider == "agent-browser":
-        abe = ensure_agent_browser_runtime()
+        ab_setup = ensure_agent_browser_runtime()
+        parts: list[str] = []
+        if ab_setup.error:
+            parts.append(ab_setup.error)
+        elif ab_setup.ok:
+            parts.append("`agent-browser` CLI reachable (`--help` OK)")
+        if ab_setup.notices:
+            parts.extend(ab_setup.notices)
         checks.append({
             "name": "agent-browser:cli",
-            "status": "error" if abe else "ok",
-            "message": abe
-            or "npx successfully ran --help against the pinned package (npm caches downloads after first fetch)",
+            "status": "error" if not ab_setup.ok else "ok",
+            "message": " | ".join(parts) if parts else "configured",
         })
 
     # 8. Output dir writability — probe with a unique filename so we never
@@ -1046,18 +1052,18 @@ def handle_settings(mode_color=THEME_PRIMARY):
                     " [dim]Browsing runs through Vercel's agent-browser CLI (not an MCP shim).[/dim]"
                 )
                 console.print(
-                    " [dim]The host already ran an `npx -y … --help` probe so npm resolves/caches "
-                    "the package before streaming starts.[/dim]"
+                    " [dim]On first agent run RAE installs the CLI with `npm install -g <pin>` when "
+                    "`agent-browser` is missing (you’ll see a banner), then reuses the global shim.[/dim]"
                 )
                 console.print(
-                    " [dim]Pin with `agent_browser_npx_package` in config or `RAE_AGENT_BROWSER_PACKAGE` env.[/dim]"
+                    " [dim]Pin via `agent_browser_npx_package` in config or `RAE_AGENT_BROWSER_PACKAGE` env.[/dim]"
                 )
                 console.print(
                     " [dim]Extra operator hints (cloud backends, corp proxy…): "
                     "`agent_browser_notes` or `RAE_AGENT_BROWSER_NOTES`.[/dim]"
                 )
                 console.print(
-                    " [dim]First-time chromium: `npx -y agent-browser@0 install` (add --with-deps on Linux).[/dim]"
+                    " [dim]Chrome download: `agent-browser install` once (add `--with-deps` on Linux).[/dim]"
                 )
                 console.print()
             elif provider == "chrome-mcp":
@@ -1767,12 +1773,12 @@ def run_auto_capture(
             "Playwright/Chrome browser MCP for this provider).[/dim]"
         )
         console.print(
-            " [dim]Startup runs `npx -y <pin> --help` so npm resolves/caches the CLI; "
-            "the model prompt covers `skills get …` and cloud backend flows.[/dim]"
+            " [dim]Startup prefers PATH `agent-browser`, otherwise installs via "
+            "`npm install -g <pin>` so Chromium pairs with a stable shim (with a banner); "
+            "only falls back to `npx -y` if npm cannot run.[/dim]"
         )
         console.print(
-            " [dim]Chromium install: `npm i -g agent-browser && agent-browser install` if you prefer "
-            "globals over on-demand npx.[/dim]"
+            " [dim]First-time Chrome download: `agent-browser install` (add `--with-deps` on Linux).[/dim]"
         )
         console.print()
 

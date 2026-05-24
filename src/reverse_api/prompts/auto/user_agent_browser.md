@@ -13,25 +13,25 @@ Reverse engineering relies on **`recording.har`** at **`{har_path}`**. You MUST 
 
 ### Host bootstrap (runs before the streaming session)
 
-Reverse API Engineer probes **`npx -y {agent_browser_npx_package} --help`**. That command forces npm/`npx` to **resolve the pinned package**, which usually **downloads it into npm's cache when it never ran on this disk before**, and repeats quickly afterwards. Failures surfaced there block the session so you don't discover a broken toolchain mid-flight.
+Reverse API Engineer prefers an **`agent-browser` binary already on PATH** and validates it with **`{agent_browser_shell} --help`**. When nothing is installed it runs **`npm install -g {agent_browser_npx_package}`** (pin from config or **`RAE_AGENT_BROWSER_PACKAGE`**), notifies you, then re-checks PATH. Only if npm/global installs cannot run does it transparently reuse **`{agent_browser_shell}`** wired through **`npx -y`** for that session—which can mean extra registry traffic on cold machines.
 
 Warm up upstream context locally once you start:
 
 ```bash
 export AGENT_BROWSER_SESSION="{agent_browser_session}"
-npx -y {agent_browser_npx_package} skills get core --full
+{agent_browser_shell} skills get core --full
 ```
 
-Treat **`skills get core --full`** as mandatory for default/local flows. Confirm it exits cleanly; if commands error, rerun with `skills list`, pick the documented bundle (`core` ships with upstream), or escalate with **`npx … doctor`**.
+Treat **`skills get core --full`** as mandatory for default/local flows. Confirm it exits cleanly; if commands error, run **`skills list`** (per upstream), pick the documented bundle (`core` ships with upstream), or escalate with **`{agent_browser_shell} doctor`**.
 
 {agent_browser_headed_hint}### Session + package
 
 - Stable session env: **`AGENT_BROWSER_SESSION={agent_browser_session}`** before every invocation (isolates refs/HAR for this run).
-- Package pin: **`npx -y {agent_browser_npx_package}`**. Users can override via `RAE_AGENT_BROWSER_PACKAGE` or config `agent_browser_npx_package`.
+- Invocation prefix (**exactly how the host resolved the CLI):** **`{agent_browser_shell}`**. Pin for installs is **`{agent_browser_npx_package}`** (config / **`RAE_AGENT_BROWSER_PACKAGE`**).
 
 ### Cloud / remote browsers
 
-Upstream documents SaaS-hosted and remote backends. When the operator hints at cloud targets (Bedrock AgentCore, Vercel Sandbox, …), run **`skills list`** first to see what bundles ship with this CLI revision, **`skills get <matching bundle>`**, then adopt the workflow packaged inside so flags stay lined up with **`npx -y {agent_browser_npx_package}`**.
+Upstream documents SaaS-hosted and remote backends. When the operator hints at cloud targets (Bedrock AgentCore, Vercel Sandbox, …), run **`skills list`** first so you fetch bundles that ship with **this CLI copy**, **`skills get <matching bundle>`**, then adopt workflow files inside—the flags stay paired with **`{agent_browser_shell}`**.
 {agent_browser_notes_block}
 
 ## Workflow
@@ -45,9 +45,9 @@ Use shell commands shaped like:
 
 ```bash
 export AGENT_BROWSER_SESSION="{agent_browser_session}"
-npx -y {agent_browser_npx_package} network har start
-npx -y {agent_browser_npx_package} open https://example.com
-npx -y {agent_browser_npx_package} snapshot -i --json
+{agent_browser_shell} network har start
+{agent_browser_shell} open https://example.com
+{agent_browser_shell} snapshot -i --json
 # … iterate …
 ```
 
@@ -62,12 +62,12 @@ Before reverse engineering MUST flush HAR to the canonical file **exact path** b
 
 ```bash
 export AGENT_BROWSER_SESSION="{agent_browser_session}"
-npx -y {agent_browser_npx_package} network har stop {har_path}
-npx -y {agent_browser_npx_package} close
+{agent_browser_shell} network har stop {har_path}
+{agent_browser_shell} close
 ```
 
 ### Phase 4: REVERSE ENGINEER
 
 Read **`{har_path}`** and emit code under **`{scripts_dir}`** per the system prompt.
 
-**VPS tips:** first-time hosts run `npx -y {agent_browser_npx_package} install` (add `--with-deps` on Linux). `doctor` diagnoses missing Chrome or permissions.
+**VPS tips:** first-time hosts run `{agent_browser_shell} install` (add `--with-deps` on Linux). `doctor` diagnoses missing Chrome or permissions.

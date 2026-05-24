@@ -10,7 +10,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from .agent_browser import ensure_agent_browser_runtime
+from .agent_browser import ensure_agent_browser_runtime, print_agent_browser_setup_notices
 from .base_engineer import BaseEngineer
 from .tui import ClaudeUI
 
@@ -487,10 +487,12 @@ class CursorAutoEngineer(CursorEngineer):
             return None
 
         if self.agent_provider == "agent-browser":
-            abe = ensure_agent_browser_runtime()
-            if abe:
-                self.ui.error(abe)
-                self.message_store.save_error(abe)
+            ab_setup = ensure_agent_browser_runtime()
+            print_agent_browser_setup_notices(self.ui.console, ab_setup)
+            if not ab_setup.ok:
+                err = ab_setup.error or "agent-browser setup failed"
+                self.ui.error(err)
+                self.message_store.save_error(err)
                 return None
 
         system_prompt, user_message = ClaudeAutoEngineer._build_auto_prompts(self)
