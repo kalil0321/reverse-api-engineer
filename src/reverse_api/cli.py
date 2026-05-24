@@ -64,7 +64,7 @@ def default_model_for_configured_sdk(sdk: str | None = None) -> str:
     if s == "copilot":
         return config_manager.get("copilot_model", "gpt-5")
     if s == "cursor":
-        return config_manager.get("cursor_model", "composer-2")
+        return config_manager.get("cursor_model", "composer-2.5")
     return config_manager.get("claude_code_model", "claude-sonnet-4-6")
 
 
@@ -187,6 +187,13 @@ def _quiet_consoles_for_json():
         sys.stdout = real_stdout
         for c, original_inner in redirected_consoles:
             c._file = original_inner
+
+
+def _write_json_stdout(real_stdout, payload: dict, *, json_stream: bool) -> None:
+    """Write final CLI JSON payload (single doc or NDJSON terminal event)."""
+    out = {"event": "result", **payload} if json_stream else payload
+    real_stdout.write(json.dumps(out) + "\n")
+    real_stdout.flush()
 
 
 def _build_dry_run_payload(
@@ -346,7 +353,7 @@ def _build_dry_run_payload(
         "claude": "claude-sonnet-4-6",
         "opencode": "claude-opus-4-6",
         "copilot": "gpt-5",
-        "cursor": "composer-2",
+        "cursor": "composer-2.5",
     }.get(sdk, "claude-sonnet-4-6")
     resolved_model = model or config_manager.get(sdk_model_key, sdk_default_model)
 
@@ -1084,11 +1091,11 @@ def handle_settings(mode_color=THEME_PRIMARY):
                 console.print(f" [dim]updated[/dim] copilot model: {new_model}\n")
 
     elif action == "cursor_model":
-        current = config_manager.get("cursor_model", "composer-2")
+        current = config_manager.get("cursor_model", "composer-2.5")
         new_model = questionary.text(
             " > cursor model",
-            default=current or "composer-2",
-            instruction="(e.g., 'composer-2', 'auto' — see Cursor SDK docs)",
+            default=current or "composer-2.5",
+            instruction="(e.g., 'composer-2.5', 'composer-2' — see Cursor SDK docs)",
             qmark="",
             style=questionary.Style(
                 [
@@ -1457,6 +1464,12 @@ Exit codes:
     help="Emit a single JSON result on stdout (logs go to stderr). Implies --no-interactive.",
 )
 @click.option(
+    "--json-stream",
+    "json_stream",
+    is_flag=True,
+    help="Emit NDJSON progress events on stdout during the run, then a final {\"event\":\"result\",...} line. Implies --no-interactive.",
+)
+@click.option(
     "--headless",
     is_flag=True,
     help="Launch the MCP-controlled browser in headless mode (required on machines without an X server). For chrome-mcp this drops --autoConnect since auto-connect requires a headed Chrome instance.",
@@ -1466,7 +1479,7 @@ Exit codes:
     is_flag=True,
     help="Validate prompt/url/config/env without launching the browser. Emits a manifest of what would run + check results. Implies --json. Exits 0 if all checks pass, 1 if any error.",
 )
-def agent(prompt, url, model, output_dir, no_interactive, as_json, headless, dry_run):
+def agent(prompt, url, model, output_dir, no_interactive, as_json, json_stream, headless, dry_run):
     """Run autonomous agent browser session.
 
     Agent mode runs an integrated capture + reverse-engineering pipeline; if you
@@ -1483,10 +1496,11 @@ def agent(prompt, url, model, output_dir, no_interactive, as_json, headless, dry
         real_stdout.flush()
         sys.exit(0 if payload["status"] == "ok" else 1)
 
-    no_interactive = no_interactive or as_json
+    no_interactive = no_interactive or as_json or json_stream
+    machine_output = as_json or json_stream
 
     if no_interactive and not (prompt and prompt.strip()):
-        if as_json:
+        if machine_output:
             misuse = _build_agent_payload(
                 {},
                 prompt=prompt,
@@ -1495,6 +1509,8 @@ def agent(prompt, url, model, output_dir, no_interactive, as_json, headless, dry
                 error="--prompt is required in non-interactive/--json mode",
                 error_kind_hint="misuse",
             )
+            if json_stream:
+                misuse = {"event": "result", **misuse}
             click.echo(json.dumps(misuse))
         else:
             click.echo("error: --prompt is required when --no-interactive is set", err=True)
@@ -1502,9 +1518,9 @@ def agent(prompt, url, model, output_dir, no_interactive, as_json, headless, dry
 
     # Either flag must suppress the post-generation follow-up prompt that would
     # otherwise block on stdin (`input("  > ")`) inside ClaudeAutoEngineer.
-    interactive = not (as_json or no_interactive)
+    interactive = not no_interactive
 
-    if not as_json:
+    if not machine_output:
         run_agent_capture(
             prompt=prompt,
             url=url,
@@ -1515,8 +1531,15 @@ def agent(prompt, url, model, output_dir, no_interactive, as_json, headless, dry
         )
         return
 
+    from .json_stream import make_json_stream_sink
+
     payload: dict
     with _quiet_consoles_for_json() as real_stdout:
+        sink = (
+            make_json_stream_sink(lambda line: (real_stdout.write(line + "\n"), real_stdout.flush()))
+            if json_stream
+            else None
+        )
         try:
             result = run_agent_capture(
                 prompt=prompt,
@@ -1525,6 +1548,7 @@ def agent(prompt, url, model, output_dir, no_interactive, as_json, headless, dry
                 output_dir=output_dir,
                 interactive=interactive,
                 headless=headless,
+                json_event_sink=sink,
             )
             payload = _build_agent_payload(result, prompt=prompt, url=url, output_dir=output_dir)
         except KeyboardInterrupt as e:
@@ -1538,8 +1562,7 @@ def agent(prompt, url, model, output_dir, no_interactive, as_json, headless, dry
                 {}, prompt=prompt, url=url, output_dir=output_dir, error=e
             )
 
-    real_stdout.write(json.dumps(payload) + "\n")
-    real_stdout.flush()
+        _write_json_stdout(real_stdout, payload, json_stream=json_stream)
     sys.exit(0 if payload["status"] == "ok" else 1)
 
 
@@ -1602,7 +1625,15 @@ def run_manual_capture(prompt=None, url=None, reverse_engineer=True, model=None,
         console.print(f" [dim]>[/dim] [dim]use 'reverse-api-engineer engineer {run_id}' to engineer later[/dim]\n")
 
 
-def run_agent_capture(prompt=None, url=None, model=None, output_dir=None, interactive=True, headless=False):
+def run_agent_capture(
+    prompt=None,
+    url=None,
+    model=None,
+    output_dir=None,
+    interactive=True,
+    headless=False,
+    json_event_sink=None,
+):
     """Shared logic for agent capture mode."""
     output_dir = output_dir or config_manager.get("output_dir")
 
@@ -1628,6 +1659,7 @@ def run_agent_capture(prompt=None, url=None, model=None, output_dir=None, intera
         agent_provider=agent_provider,
         interactive=interactive,
         headless=headless,
+        json_event_sink=json_event_sink,
     )
 
 
@@ -1688,6 +1720,7 @@ def run_auto_capture(
     agent_provider="auto",
     interactive=True,
     headless=False,
+    json_event_sink=None,
 ):
     """Auto mode: LLM-driven browser automation + real-time reverse engineering."""
     output_dir = output_dir or config_manager.get("output_dir")
@@ -1792,7 +1825,7 @@ def run_auto_capture(
                 output_language=output_language,
                 interactive=interactive,
                 headless=headless,
-                cursor_model=model or config_manager.get("cursor_model", "composer-2"),
+                cursor_model=model or config_manager.get("cursor_model", "composer-2.5"),
                 cursor_web_search=bool(config_manager.get("cursor_web_search", True)),
                 cursor_setting_sources=_cursor_src,
             )
@@ -1811,6 +1844,12 @@ def run_auto_capture(
                 interactive=interactive,
                 headless=headless,
             )
+
+        if json_event_sink is not None:
+            from .json_stream import attach_json_stream_to_engineer
+
+            attach_json_stream_to_engineer(engineer, json_event_sink)
+            json_event_sink({"event": "agent_started", "mode": mode_label, "url": url})
 
         # Start sync before analysis
         engineer.start_sync()
@@ -1918,7 +1957,13 @@ Exit codes:
     is_flag=True,
     help="Emit a single JSON result on stdout (logs go to stderr). Implies --no-interactive.",
 )
-def engineer(run_id, prompt, fresh, model, output_dir, no_interactive, as_json):
+@click.option(
+    "--json-stream",
+    "json_stream",
+    is_flag=True,
+    help="Emit NDJSON progress events on stdout during the run, then a final {\"event\":\"result\",...} line. Implies --no-interactive.",
+)
+def engineer(run_id, prompt, fresh, model, output_dir, no_interactive, as_json, json_stream):
     """Run reverse engineering on a previous run."""
     # `run_id` is declared optional at the click level so that wrappers using
     # --json get a JSON misuse payload instead of Click's plain-text "missing
@@ -1946,9 +1991,11 @@ def engineer(run_id, prompt, fresh, model, output_dir, no_interactive, as_json):
     additional = prompt if (prompt and not fresh) else None
     # Either flag must suppress the post-generation follow-up prompt that
     # would otherwise block on stdin (`input("  > ")`) inside ClaudeEngineer.
-    interactive = not (as_json or no_interactive)
+    no_interactive = no_interactive or as_json or json_stream
+    interactive = not no_interactive
+    machine_output = as_json or json_stream
 
-    if not as_json:
+    if not machine_output:
         run_engineer(
             run_id,
             prompt=main_prompt,
@@ -1960,8 +2007,15 @@ def engineer(run_id, prompt, fresh, model, output_dir, no_interactive, as_json):
         )
         return
 
+    from .json_stream import make_json_stream_sink
+
     payload: dict
     with _quiet_consoles_for_json() as real_stdout:
+        sink = (
+            make_json_stream_sink(lambda line: (real_stdout.write(line + "\n"), real_stdout.flush()))
+            if json_stream
+            else None
+        )
         try:
             result = run_engineer(
                 run_id,
@@ -1971,6 +2025,7 @@ def engineer(run_id, prompt, fresh, model, output_dir, no_interactive, as_json):
                 output_dir=output_dir,
                 is_fresh=fresh,
                 interactive=interactive,
+                json_event_sink=sink,
             )
             payload = _build_engineer_payload(result, run_id=run_id, prompt=prompt, fresh=fresh)
         except KeyboardInterrupt as e:
@@ -1983,8 +2038,7 @@ def engineer(run_id, prompt, fresh, model, output_dir, no_interactive, as_json):
                 None, run_id=run_id, prompt=prompt, fresh=fresh, error=e
             )
 
-    real_stdout.write(json.dumps(payload) + "\n")
-    real_stdout.flush()
+        _write_json_stdout(real_stdout, payload, json_stream=json_stream)
     sys.exit(0 if payload["status"] == "ok" else 1)
 
 
@@ -1998,6 +2052,7 @@ def run_engineer(
     is_fresh=False,
     output_mode="client",
     interactive=True,
+    json_event_sink=None,
 ):
     """Shared logic for reverse engineering."""
     if not har_path or not prompt:
@@ -2040,6 +2095,7 @@ def run_engineer(
             output_language=output_language,
             output_mode=output_mode,
             interactive=interactive,
+            json_event_sink=json_event_sink,
         )
     elif sdk == "copilot":
         result = run_reverse_engineering(
@@ -2056,11 +2112,12 @@ def run_engineer(
             output_language=output_language,
             output_mode=output_mode,
             interactive=interactive,
+            json_event_sink=json_event_sink,
         )
     elif sdk == "cursor":
         _cs = config_manager.get("cursor_setting_sources")
         _cursor_src = _cs if isinstance(_cs, list) and all(isinstance(x, str) for x in _cs) else None
-        _cm = model or config_manager.get("cursor_model", "composer-2")
+        _cm = model or config_manager.get("cursor_model", "composer-2.5")
         result = run_reverse_engineering(
             run_id=run_id,
             har_path=har_path,
@@ -2077,6 +2134,7 @@ def run_engineer(
             output_language=output_language,
             output_mode=output_mode,
             interactive=interactive,
+            json_event_sink=json_event_sink,
         )
     else:
         result = run_reverse_engineering(
@@ -2092,6 +2150,7 @@ def run_engineer(
             output_language=output_language,
             output_mode=output_mode,
             interactive=interactive,
+            json_event_sink=json_event_sink,
         )
 
     if result:

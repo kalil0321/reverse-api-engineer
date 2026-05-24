@@ -402,6 +402,51 @@ class TestHandleToolPermission:
             )
             assert result.updated_input["answers"]["What?"] == "user answer"
 
+    @pytest.mark.asyncio
+    async def test_ask_user_question_non_interactive_stub(self, tmp_path):
+        """AskUserQuestion returns a fixed message when interactive=False."""
+        from reverse_api.base_engineer import NON_INTERACTIVE_ASK_USER_MESSAGE
+
+        eng = self._make_engineer(tmp_path)
+        eng.interactive = False
+
+        with patch("reverse_api.base_engineer.questionary.text") as mock_text:
+            result = await eng._handle_tool_permission(
+                "AskUserQuestion",
+                {"questions": [{"question": "What?", "header": "", "multiSelect": False, "options": []}]},
+                None,
+            )
+            mock_text.assert_not_called()
+            assert result.updated_input["answers"]["What?"] == NON_INTERACTIVE_ASK_USER_MESSAGE
+
+
+class TestAskUserQuestions:
+    """Test _ask_user_questions routing."""
+
+    def _make_engineer(self, tmp_path, *, interactive: bool = True):
+        har_path = tmp_path / "test.har"
+        har_path.touch()
+        with patch("reverse_api.base_engineer.get_scripts_dir", return_value=tmp_path / "scripts"):
+            with patch("reverse_api.base_engineer.MessageStore"):
+                eng = ClaudeEngineer(
+                    run_id="test123",
+                    har_path=har_path,
+                    prompt="test prompt",
+                    output_dir=str(tmp_path),
+                    interactive=interactive,
+                )
+                return eng
+
+    @pytest.mark.asyncio
+    async def test_non_interactive_no_questionary(self, tmp_path):
+        from reverse_api.base_engineer import NON_INTERACTIVE_ASK_USER_MESSAGE
+
+        eng = self._make_engineer(tmp_path, interactive=False)
+        answers = await eng._ask_user_questions(
+            [{"question": "Pick auth?", "header": "", "multiSelect": False, "options": []}]
+        )
+        assert answers["Pick auth?"] == NON_INTERACTIVE_ASK_USER_MESSAGE
+
 
 class TestClaudeEngineerAnalyzeAndGenerate:
     """Test analyze_and_generate method."""

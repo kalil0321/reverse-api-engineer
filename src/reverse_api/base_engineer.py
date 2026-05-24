@@ -18,6 +18,13 @@ DEBUG = os.environ.get("DEBUG", "0") == "1"
 
 OTHER_OPTION = "Other (type your answer)"
 
+NON_INTERACTIVE_ASK_USER_MESSAGE = (
+    "The user is running the CLI in non-interactive mode and cannot answer. "
+    "Assume the best reasonable answer from context and continue. "
+    "If you truly cannot proceed without a human choice, stop and instruct the caller "
+    "to start a new session with a clearer, more specific prompt."
+)
+
 
 class BaseEngineer(ABC):
     """Abstract base class for API reverse engineering implementations."""
@@ -72,6 +79,19 @@ class BaseEngineer(ABC):
         # conversation loop in subclasses ends after the first generation.
         # Set this from --json / --no-interactive entry points.
         self.interactive = interactive
+        self._json_event_sink: Any = None
+
+    def _emit_json_event(self, event: dict[str, Any]) -> None:
+        sink = self._json_event_sink
+        if sink:
+            sink(event)
+
+    @staticmethod
+    def _is_ask_user_tool_name(tool_name: str) -> bool:
+        n = tool_name.lower().replace("-", "_")
+        if n == "askuserquestion":
+            return True
+        return "ask" in n and "user" in n and "question" in n
 
     def _handle_cli_stderr(self, line: str) -> None:
         """Filter CLI subprocess stderr. Shows full output in DEBUG mode, otherwise shows a single clean error."""
@@ -146,6 +166,25 @@ class BaseEngineer(ABC):
         if self.sync_watcher:
             return self.sync_watcher.get_status()
         return None
+
+    async def _ask_user_questions(self, questions: list[dict[str, Any]]) -> dict[str, str]:
+        """Resolve AskUserQuestion prompts (interactive UI or non-interactive stub)."""
+        if not self.interactive:
+            answers: dict[str, str] = {}
+            count = 0
+            for q in questions:
+                question_text = q.get("question", "") if isinstance(q, dict) else getattr(q, "question", "")
+                if not question_text:
+                    continue
+                answers[question_text] = NON_INTERACTIVE_ASK_USER_MESSAGE
+                count += 1
+            if count:
+                self.ui.console.print(
+                    f"  [dim]AskUserQuestion skipped ({count} question(s); non-interactive mode)[/dim]"
+                )
+                self._emit_json_event({"event": "ask_user_skipped", "count": count})
+            return answers
+        return await self._ask_user_interactive(questions)
 
     async def _ask_user_interactive(self, questions: list[dict[str, Any]]) -> dict[str, str]:
         """Prompt the user interactively for answers to questions.

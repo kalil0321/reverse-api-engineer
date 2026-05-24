@@ -73,7 +73,7 @@ class CursorEngineer(BaseEngineer):
         cursor_setting_sources: list[str] | None = None,
         **kwargs: Any,
     ):
-        cm = cursor_model or model or "composer-2"
+        cm = cursor_model or model or "composer-2.5"
         super().__init__(run_id=run_id, har_path=har_path, prompt=prompt, model=cm, **kwargs)
         self.cursor_model = cm
         self.cursor_web_search = cursor_web_search
@@ -165,6 +165,11 @@ class CursorEngineer(BaseEngineer):
                 self._cursor_flush_narrative()
                 args = self._cursor_coerce_args(event.get("args"))
                 self._cursor_emit_todo_ui(name, args)
+                if not self.interactive and self._is_ask_user_tool_name(name):
+                    self._emit_json_event({"event": "ask_user_skipped", "count": 1, "tool": name})
+                    self.ui.console.print(
+                        f"  [dim]AskUserQuestion skipped ({name}; non-interactive mode)[/dim]"
+                    )
                 self.ui.tool_start(name, args)
                 self.message_store.save_tool_start(name, args)
             else:

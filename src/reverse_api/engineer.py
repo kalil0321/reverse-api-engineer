@@ -31,7 +31,7 @@ class ClaudeEngineer(BaseEngineer):
         """Handle tool permission requests, with interactive UI for AskUserQuestion."""
         if tool_name == "AskUserQuestion":
             questions = input_data.get("questions", [])
-            answers = await self._ask_user_interactive(questions)
+            answers = await self._ask_user_questions(questions)
             return PermissionResultAllow(
                 updated_input={"questions": questions, "answers": answers},
             )
@@ -218,6 +218,7 @@ def run_reverse_engineering(
     output_language: str = "python",
     output_mode: str = "client",
     interactive: bool = True,
+    json_event_sink: Any = None,
 ) -> dict[str, Any] | None:
     """Run reverse engineering with the specified SDK.
 
@@ -226,7 +227,7 @@ def run_reverse_engineering(
         opencode_provider: Provider ID for OpenCode (e.g., "anthropic")
         opencode_model: Model ID for OpenCode (e.g., "claude-sonnet-4-6")
         copilot_model: Model ID for Copilot (e.g., "gpt-5")
-        cursor_model: Model id for Cursor SDK (e.g., "composer-2")
+        cursor_model: Model id for Cursor SDK (e.g., "composer-2.5")
         cursor_web_search: When True, load extra Cursor setting layers so WebFetch/WebSearch and plugins apply.
         cursor_setting_sources: Optional explicit list (overrides cursor_web_search), e.g. ["project","user","all"].
         enable_sync: Enable real-time file syncing during engineering
@@ -310,6 +311,11 @@ def run_reverse_engineering(
             output_mode=output_mode,
             interactive=interactive,
         )
+
+    if json_event_sink is not None:
+        from .json_stream import attach_json_stream_to_engineer
+
+        attach_json_stream_to_engineer(engineer, json_event_sink)
 
     # Start sync before analysis
     engineer.start_sync()

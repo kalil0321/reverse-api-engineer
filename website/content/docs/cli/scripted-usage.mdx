@@ -14,6 +14,12 @@ When `--json` is set:
 - **stderr** receives Rich logs and progress updates.
 - The process exits with a **stable exit code**.
 
+When `--json-stream` is set (on `agent` and `engineer`):
+
+- **stdout** receives **NDJSON**: one JSON object per line while the run progresses, then a final `{"event":"result",...}` line with the same fields as `--json`.
+- **stderr** receives Rich logs (same as `--json`).
+- Implies **non-interactive** mode; `AskUserQuestion` is auto-answered with a fixed message instead of prompting on stdin.
+
 ## Examples
 
 ### Run an autonomous capture and read the result as JSON
@@ -24,6 +30,17 @@ reverse-api-engineer agent \
   --url https://example.com/jobs \
   --json | jq
 ```
+
+### Stream progress as NDJSON (wrapper agents)
+
+```bash
+reverse-api-engineer agent \
+  --prompt "capture the public jobs api" \
+  --url https://example.com/jobs \
+  --json-stream
+```
+
+Common event types: `run_started`, `tool_start`, `tool_end`, `thinking`, `ask_user_skipped`, `result`.
 
 ### List and inspect runs
 

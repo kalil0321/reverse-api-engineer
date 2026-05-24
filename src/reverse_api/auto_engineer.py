@@ -108,7 +108,7 @@ class ClaudeAutoEngineer(ClaudeEngineer):
         """Handle tool permission requests, with interactive UI for AskUserQuestion."""
         if tool_name == "AskUserQuestion":
             questions = input_data.get("questions", [])
-            answers = await self._ask_user_interactive(questions)
+            answers = await self._ask_user_questions(questions)
             return PermissionResultAllow(
                 updated_input={"questions": questions, "answers": answers},
             )

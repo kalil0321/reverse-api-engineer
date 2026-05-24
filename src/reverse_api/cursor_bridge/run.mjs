@@ -64,7 +64,7 @@ if (!cwd || typeof cwd !== "string") {
   process.exit(1);
 }
 
-const modelId = input.modelId || "composer-2";
+const modelId = input.modelId || "composer-2.5";
 const mcpServers = input.mcpServers && typeof input.mcpServers === "object" ? input.mcpServers : undefined;
 const resumeAgentId = input.resumeAgentId || null;
 const prompt = input.prompt;
