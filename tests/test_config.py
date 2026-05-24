@@ -143,6 +143,8 @@ class TestDefaultConfig:
         """DEFAULT_CONFIG contains all expected keys."""
         expected_keys = {
             "agent_provider",
+            "agent_browser_notes",
+            "agent_browser_npx_package",
             "claude_code_model",
             "collector_model",
             "copilot_model",

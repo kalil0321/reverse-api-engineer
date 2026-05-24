@@ -62,14 +62,14 @@ Cycle modes with **Shift+Tab**:
 Agent mode providers:
 - **auto** (default): Playwright MCP, single workflow for browsing + reverse engineering.
 - **chrome-mcp**: drives your real Chrome so you keep existing sessions/cookies. Requires Chrome 146+ and Node.js 20.19+.
-- **agent-browser**: MCP bridge around [Vercel agent-browser](https://github.com/vercel-labs/agent-browser)—great for VPS/CI/headless where you want snapshots + refs without Playwright MCP. Requires **Node**, **npx**, the bundled MCP dependencies (`npm install --prefix …/agent_browser_mcp`), and **`agent-browser install`** for Chromium. See **`src/reverse_api/agent_browser_mcp/README.md`** in this repo for the checklist and roadmap.
+- **agent-browser**: [Vercel agent-browser](https://github.com/vercel-labs/agent-browser) as a **pure CLI**. No bundled browser MCP—the agent shells `npx -y <pin> …`, loads upstream **skills**, and captures HAR manually. Strong default for VPS/CI. Tune with `agent_browser_npx_package`, `agent_browser_notes` (optional), env `RAE_AGENT_BROWSER_PACKAGE` / `RAE_AGENT_BROWSER_NOTES`. First-time Chromium bootstrap: `npx -y agent-browser install` (`--with-deps` on bare Linux).
 
-After installing/upgrading the Python package:
+
+Optionally prefetch for faster runs:
 
 ```bash
-npm install --prefix "$(python -c 'from pathlib import Path; import reverse_api; print(Path(reverse_api.__file__).parent / \"agent_browser_mcp\")')"
-npm install -g agent-browser && agent-browser install
-# Linux VPS: append --with-deps to the installer when prompted
+npx -y agent-browser@0 --help >/dev/null
+npx -y agent-browser@0 doctor --offline --quick || true
 ```
 
 ## Configuration
@@ -79,6 +79,8 @@ Settings live in `~/.reverse-api/config.json` and can be edited via `/settings` 
 ```json
 {
   "agent_provider": "auto",
+  "agent_browser_npx_package": "agent-browser@0",
+  "agent_browser_notes": "",
   "claude_code_model": "claude-sonnet-4-6",
   "collector_model": "claude-sonnet-4-6",
   "opencode_model": "claude-sonnet-4-6",

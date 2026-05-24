@@ -209,7 +209,7 @@ def _build_dry_run_payload(
     import shutil
     import subprocess
 
-    from .agent_browser_bundle import agent_browser_bundle_error
+    from .agent_browser import ensure_agent_browser_runtime
 
     checks: list[dict] = []
 
@@ -266,8 +266,7 @@ def _build_dry_run_payload(
     else:
         checks.append({"name": f"sdk:{sdk}", "status": "ok", "message": f"{sdk_env_var} present"})
 
-    # 5. Node.js + npx for MCP servers (Playwright MCP, bundled agent-browser MCP,
-    # chrome-mcp wrapper, etc.).
+    # 5. Node.js + npx for MCP servers (Playwright MCP, chrome-mcp, agent-browser via npx, …).
     node = shutil.which("node")
     if node is None:
         checks.append({
@@ -302,13 +301,13 @@ def _build_dry_run_payload(
             "message": "chrome-mcp without --headless requires Chrome 146+ with auto-connect enabled at chrome://inspect/#remote-debugging — this is not auto-checkable",
         })
 
-    # 7. Bundled MCP for agent-browser
+    # 7. agent-browser CLI bootstrap (npx prefetch)
     if agent_provider == "agent-browser":
-        berr = agent_browser_bundle_error()
+        abe = ensure_agent_browser_runtime()
         checks.append({
-            "name": "agent-browser:MCP-bundle",
-            "status": "error" if berr else "ok",
-            "message": berr or "bundled agent-browser MCP (npm deps in agent_browser_mcp/)",
+            "name": "agent-browser:cli",
+            "status": "error" if abe else "ok",
+            "message": abe or "npx can resolve agent_browser_npx_package / RAE_AGENT_BROWSER_PACKAGE",
         })
 
     # 8. Output dir writability — probe with a unique filename so we never
@@ -1019,7 +1018,7 @@ def handle_settings(mode_color=THEME_PRIMARY):
         provider_choices = [
             Choice(title="auto (Playwright MCP)", value="auto"),
             Choice(title="chrome-mcp (Chrome DevTools MCP)", value="chrome-mcp"),
-            Choice(title="agent-browser (Vercel CLI via bundled MCP)", value="agent-browser"),
+            Choice(title="agent-browser (Vercel CLI — shell only, no browser MCP)", value="agent-browser"),
             Choice(title="back", value="back"),
         ]
         provider = questionary.select(
@@ -1038,15 +1037,11 @@ def handle_settings(mode_color=THEME_PRIMARY):
             config_manager.set("agent_provider", provider)
             console.print(f" [dim]updated[/dim] agent provider: {provider}")
             if provider == "agent-browser":
-                from pathlib import Path
-
-                import reverse_api
-
-                bundle = Path(reverse_api.__file__).resolve().parent / "agent_browser_mcp"
                 console.print()
-                console.print(f" [dim]install bundled MCP deps (once): npm install --prefix {bundle}[/dim]")
-                console.print(" [dim]install Chromium helper CLI: npm i -g agent-browser && agent-browser install[/dim]")
-                console.print(" [dim]Linux servers: agent-browser install --with-deps[/dim]")
+                console.print(" [dim]no bundled MCP: the model runs `npx -y <package> agent-browser …` via Bash.[/dim]")
+                console.print(" [dim]pin with `agent_browser_npx_package` in config or `RAE_AGENT_BROWSER_PACKAGE` env.[/dim]")
+                console.print(" [dim]optional extra instructions: `agent_browser_notes` (or RAE_AGENT_BROWSER_NOTES).[/dim]")
+                console.print(" [dim]first-time chromium: `npx -y agent-browser@0 install` (add --with-deps on Linux).[/dim]")
                 console.print()
             elif provider == "chrome-mcp":
                 console.print()
@@ -1749,15 +1744,9 @@ def run_auto_capture(
         console.print()
 
     elif agent_provider == "agent-browser":
-        from pathlib import Path
-
-        import reverse_api
-
-        bundle = Path(reverse_api.__file__).resolve().parent / "agent_browser_mcp"
         console.print()
-        console.print(" [dim]agent-browser: MCP bridge to Vercel's agent-browser CLI (strong default for VPS/headless hosts).[/dim]")
-        console.print(f" [dim]install MCP bundle deps:[/dim] npm install --prefix [cyan]{bundle}[/cyan]")
-        console.print(" [dim]install chromium helper:[/dim] npm i -g agent-browser && agent-browser install  [dim]# add --with-deps on Linux[/dim]")
+        console.print(" [dim]agent-browser: no Playwright/Chrome MCP — the SDK agent shells Vercel's CLI (`npx -y …`).[/dim]")
+        console.print(" [dim]We prefetch with npx once; chromium bytes: global `npm i -g agent-browser && agent-browser install` if preferred.[/dim]")
         console.print()
 
     sdk = config_manager.get("sdk", "claude")

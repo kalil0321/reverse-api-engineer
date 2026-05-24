@@ -1,5 +1,6 @@
 """Tests for auto_engineer.py - Auto mode engineers."""
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -239,9 +240,10 @@ class TestChromeMcpPrompt:
 
 
 class TestAgentBrowserPrompt:
-    """Prompts for bundled agent-browser MCP provider."""
+    """Prompts for shell-driven agent-browser provider."""
 
-    def _make_engineer(self, tmp_path, **kwargs):
+    @contextmanager
+    def _engineer_with_pkg_mock(self, tmp_path, pkg="agent-browser@test", **kwargs):
         defaults = {
             "run_id": "test123",
             "prompt": "browse and capture",
@@ -253,35 +255,42 @@ class TestAgentBrowserPrompt:
         with patch("reverse_api.auto_engineer.get_har_dir", return_value=tmp_path / "har"):
             with patch("reverse_api.base_engineer.get_scripts_dir", return_value=tmp_path / "scripts"):
                 with patch("reverse_api.base_engineer.MessageStore"):
-                    return ClaudeAutoEngineer(**defaults)
+                    with patch("reverse_api.agent_browser.agent_browser_npx_package", return_value=pkg):
+                        yield ClaudeAutoEngineer(**defaults)
 
-    def test_system_labels_tooling(self, tmp_path):
-        eng = self._make_engineer(tmp_path)
-        sys_p, _user_p = eng._build_auto_prompts()
-        assert "agent-browser" in sys_p
+    def test_system_labels_shell_cli(self, tmp_path):
+        with self._engineer_with_pkg_mock(tmp_path) as eng:
+            sys_p, _user_p = eng._build_auto_prompts()
+            assert "shell CLI" in sys_p
 
-    def test_user_template_covers_close_and_har(self, tmp_path):
-        eng = self._make_engineer(tmp_path)
-        _sys_p, user_p = eng._build_auto_prompts()
-        assert "browser_close" in user_p
-        assert "recording.har" in user_p
-        assert str(eng.har_path) in user_p
+    def test_user_prompt_uses_ag_cli_session_and_har(self, tmp_path):
+        with self._engineer_with_pkg_mock(tmp_path) as eng:
+            _sys_p, user_p = eng._build_auto_prompts()
+            assert "skills get core" in user_p
+            assert "AGENT_BROWSER_SESSION" in user_p
+            assert "npx -y agent-browser@test" in user_p
+            assert str(eng.har_path) in user_p
 
     def test_opencode_delegates_prompts(self, tmp_path):
         with patch("reverse_api.auto_engineer.get_har_dir", return_value=tmp_path / "har"):
             with patch("reverse_api.base_engineer.get_scripts_dir", return_value=tmp_path / "scripts"):
                 with patch("reverse_api.base_engineer.MessageStore"):
                     with patch("reverse_api.opencode_engineer.OpenCodeUI"):
-                        eng = OpenCodeAutoEngineer(
-                            run_id="test123",
-                            prompt="browse and capture",
-                            output_dir=str(tmp_path),
-                            agent_provider="agent-browser",
-                            opencode_provider="anthropic",
-                            opencode_model="claude-opus-4-6",
-                        )
-                        sys_p, user_p = eng._get_active_prompts()
-                        assert "agent-browser" in sys_p
+                        with patch(
+                            "reverse_api.agent_browser.agent_browser_npx_package",
+                            return_value="agent-browser@test",
+                        ):
+                            eng = OpenCodeAutoEngineer(
+                                run_id="test123",
+                                prompt="browse and capture",
+                                output_dir=str(tmp_path),
+                                agent_provider="agent-browser",
+                                opencode_provider="anthropic",
+                                opencode_model="claude-opus-4-6",
+                            )
+                            sys_p, user_p = eng._get_active_prompts()
+                            assert "shell CLI" in sys_p
+                            assert "npx" in user_p
 
 
 class TestChromeMcpConfig:
@@ -316,20 +325,11 @@ class TestChromeMcpConfig:
         assert "rae-playwright-mcp@latest" in config["args"]
         assert "--run-id" in config["args"]
 
-    def test_agent_browser_mcp_config(self, tmp_path):
-        """agent-browser bundles node stdio shim with har + session wiring."""
+    def test_agent_browser_disables_mcp_helpers(self, tmp_path):
+        """Browser MCP shim is deliberately absent for agent-browser."""
         eng = self._make_engineer(tmp_path, agent_provider="agent-browser")
-        name, config = eng._get_mcp_config()
-        assert name == "agent-browser"
-        assert config["type"] == "stdio"
-        assert config["command"] == "node"
-        ss = "--session"
-        hh = "--har-out"
-        assert hh in config["args"] and ss in config["args"]
-        hi = config["args"].index(hh)
-        si = config["args"].index(ss)
-        assert config["args"][hi + 1].endswith("recording.har")
-        assert config["args"][si + 1] == "test123"
+        with pytest.raises(RuntimeError, match="browser MCP disabled"):
+            eng._get_mcp_config()
 
 
 class TestOpenCodeChromeMcpConfig:
@@ -366,15 +366,11 @@ class TestOpenCodeChromeMcpConfig:
         assert "playwright" in eng.mcp_name
         assert "rae-playwright-mcp@latest" in config["config"]["command"]
 
-    def test_opencode_agent_browser_mcp_config(self, tmp_path):
-        """OpenCode agent-browser mounts bundled node MCP as a flat command."""
+    def test_opencode_agent_browser_skips_mcp(self, tmp_path):
+        """CLI-only agent-browser mode does not register OpenCode MCP."""
         eng = self._make_engineer(tmp_path, agent_provider="agent-browser")
-        oc = eng._get_opencode_mcp_config()
-        assert "agent-browser" in eng.mcp_name
-        cmd = oc["config"]["command"]
-        assert cmd[0] == "node"
-        assert "--har-out" in cmd
-        assert "--session" in cmd
+        assert eng._get_opencode_mcp_config() is None
+        assert eng.mcp_name is None
 
     def test_opencode_chrome_mcp_prompt(self, tmp_path):
         """OpenCode chrome-mcp uses Chrome DevTools prompt."""

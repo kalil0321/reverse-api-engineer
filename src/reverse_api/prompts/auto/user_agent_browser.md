@@ -7,31 +7,61 @@
 </output_directory>
 
 
+## Mandatory tooling
+
+Reverse engineering relies on **`recording.har`** at **`{har_path}`**. You MUST drive browsing **only through the Vercel [agent-browser](https://github.com/vercel-labs/agent-browser) CLI** invoked from the shell (**Bash** / terminal MCP). Do **not** claim you used browser MCP tools — none are attached in this provider.
+
+Warm up context once:
+
+```bash
+export AGENT_BROWSER_SESSION="{agent_browser_session}"
+npx -y {agent_browser_npx_package} skills get core --full
+```
+
+{agent_browser_headed_hint}### Session + package
+
+- Stable session env: **`AGENT_BROWSER_SESSION={agent_browser_session}`** before every invocation (isolates refs/HAR for this run).
+- Package pin: **`npx -y {agent_browser_npx_package}`** (already verified by the host). Users can override via `RAE_AGENT_BROWSER_PACKAGE` or config `agent_browser_npx_package`.
+
+### Cloud / remote browsers
+
+If the operator hints at cloud backends (Bedrock AgentCore, Vercel Sandbox, …), run `skills list` then `skills get <name>` for the relevant skill bundle and prefer those flows—they stay version-matched to the CLI.
+{agent_browser_notes_block}
+
 ## Workflow
 
-Uses **Vercel [agent-browser](https://github.com/vercel-labs/agent-browser)** (Rust CLI invoked through MCP). Interaction model: take an accessibility **snapshot** to obtain `@eN` element refs, then **click**, **fill**, or **type** using those refs. Run `snapshot` again after navigations before assuming refs are valid.
+Interaction model identical to upstream docs: **`snapshot`** for `@eN` refs → **`click` / `fill` / …** → **`snapshot`** after navigation.
+
 
 ### Phase 1: BROWSE
-Use MCP tools (names mirror the Playwright MCP style for familiarity):
 
-| Tool | Role |
-|------|------|
-| `browser_navigate` | Open URLs |
-| `browser_snapshot` | Accessibility tree (`-i` by default); use refs like `@e1` |
-| `browser_click`, `browser_fill`, `browser_type`, `browser_press_key` | Interactions |
-| `browser_wait_for` | Wait by selector **or** milliseconds **or** visible text substring |
-| `browser_scroll` | Scroll the page |
-| `browser_evaluate` | Execute JavaScript in the page |
-| `browser_take_screenshot` | Optional visual aid (prefer snapshots to save tokens and avoid large images) |
+Use shell commands shaped like:
+
+```bash
+export AGENT_BROWSER_SESSION="{agent_browser_session}"
+npx -y {agent_browser_npx_package} network har start
+npx -y {agent_browser_npx_package} open https://example.com
+npx -y {agent_browser_npx_package} snapshot -i --json
+# … iterate …
+```
+
 
 ### Phase 2: MONITOR
-Call `browser_network_requests` periodically. Watch for APIs, tokens, cookies, redirects, CORS quirks, and graph-style endpoints (`/graphql`, protobuf, etc.).
 
-### Phase 3: CAPTURE
-When you have explored enough traffic, call `browser_close` once to **flush HAR JSON** into the canonical path `{har_path}` and shut down Chromium. Omitting this prevents reverse engineering later.
+Use **`network requests --json`** (with filters when noisy) plus occasional snapshots.
+
+### Phase 3: CAPTURE → `recording.har`
+
+Before reverse engineering MUST flush HAR to the canonical file **exact path** below (create parent dirs if needed):
+
+```bash
+export AGENT_BROWSER_SESSION="{agent_browser_session}"
+npx -y {agent_browser_npx_package} network har stop {har_path}
+npx -y {agent_browser_npx_package} close
+```
 
 ### Phase 4: REVERSE ENGINEER
-Analyze `recording.har` at `{har_path}` and emit the scripted client/source files under `{scripts_dir}` using the codegen rules from the system prompt.
 
-**Headless VPS tips:** Provider default is usually headless. First-time setups run `npm install -g agent-browser && agent-browser install` so Chrome/Chromium for Testing downloads; Linux may need `agent-browser install --with-deps`. `agent-browser doctor` diagnoses environment issues.
+Read **`{har_path}`** and emit code under **`{scripts_dir}`** per the system prompt.
 
+**VPS tips:** first-time hosts run `npx -y {agent_browser_npx_package} install` (add `--with-deps` on Linux). `doctor` diagnoses missing Chrome or permissions.

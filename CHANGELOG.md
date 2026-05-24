@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`agent_provider: "agent-browser"`**: MCP bridge bundled under `reverse_api/agent_browser_mcp/` that shells Vercel’s `agent-browser` CLI (via `npx`) for VPS/CI-friendly headless capture with HAR export to `recording.har`; see `src/reverse_api/agent_browser_mcp/README.md` for rollout notes.
+- **`agent_provider: "agent-browser"`**: Prompt-only CLI mode—agents run **`npx -y … agent-browser`** (plus bundled **skills**) from their shell tooling; Reverse API Engineer prefetch-checks **`npx`**, skips browser MCP surfaces, exposes optional `agent_browser_npx_package` / `agent_browser_notes` knobs.
 
 ### Added
 - **Cursor SDK support**: Added `sdk=cursor` / `--sdk cursor` engineering support through a bundled Node bridge around the Cursor TypeScript SDK. Cursor runs use the configured Cursor model (default `composer-2`), accept MCP server configuration, resume Cursor agents across follow-up turns, and normalize streamed tool output plus token usage into the existing TUI/message-store flow

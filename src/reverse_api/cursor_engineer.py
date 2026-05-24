@@ -10,7 +10,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from .agent_browser_bundle import agent_browser_bundle_error
+from .agent_browser import ensure_agent_browser_runtime
 from .base_engineer import BaseEngineer
 from .tui import ClaudeUI
 
@@ -407,7 +407,7 @@ class CursorEngineer(BaseEngineer):
 
 
 class CursorAutoEngineer(CursorEngineer):
-    """Agent + capture using Cursor SDK with MCP browser servers."""
+    """Agent capture using Cursor SDK; browser via MCP unless provider is CLI-only."""
 
     def __init__(
         self,
@@ -436,14 +436,7 @@ class CursorAutoEngineer(CursorEngineer):
 
     def _cursor_mcp_servers(self) -> dict[str, Any]:
         if self.agent_provider == "agent-browser":
-            from .agent_browser_bundle import agent_browser_stdio_mcp_config
-
-            name, cfg = agent_browser_stdio_mcp_config(
-                har_path=self.har_path,
-                run_id=self.mcp_run_id,
-                headless=self.headless,
-            )
-            return {name: cfg}
+            return {}
         if self.agent_provider == "chrome-mcp":
             args = ["-y", "chrome-devtools-mcp@latest", "--no-usage-statistics"]
             if self.headless:
@@ -494,10 +487,10 @@ class CursorAutoEngineer(CursorEngineer):
             return None
 
         if self.agent_provider == "agent-browser":
-            berr = agent_browser_bundle_error()
-            if berr:
-                self.ui.error(berr)
-                self.message_store.save_error(berr)
+            abe = ensure_agent_browser_runtime()
+            if abe:
+                self.ui.error(abe)
+                self.message_store.save_error(abe)
                 return None
 
         system_prompt, user_message = ClaudeAutoEngineer._build_auto_prompts(self)

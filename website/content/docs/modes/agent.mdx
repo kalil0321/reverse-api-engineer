@@ -4,8 +4,7 @@ description: Fully autonomous browser interaction. The AI browses, captures, and
 ---
 
 Agent mode hands the steering wheel to the AI. Describe the goal in plain
-English and the agent drives a browser through MCP while reverse-engineering
-the API in real time.
+English; providers such as Playwright MCP or Chrome DevTools MCP route browser actions over MCP surfaces, whereas **`agent-browser`** mode describes shell-driven flows that call upstream's CLI (`npx`) directly.
 
 <Demo
   src="https://raw.githubusercontent.com/kalil0321/reverse-api-engineer/main/assets/rae-autoscout.gif"
@@ -63,14 +62,7 @@ Pick the provider in `/settings` then "agent provider".
     - Auto-connect enabled at `chrome://inspect/#remote-debugging`
   </Tab>
   <Tab value="agent-browser">
-    **Vercel [agent-browser](https://github.com/vercel-labs/agent-browser)** via a
-    small bundled MCP shim. Targets headless VPS/CI workflows: installs its own
-    Chromium channel through `npm i -g agent-browser && agent-browser install`
-    (`--with-deps` on Linux) and persists traffic to `recording.har`.
-
-    Requires **npm install** inside `reverse_api/agent_browser_mcp/` once per
-    install (CLI prints the path). See **`src/reverse_api/agent_browser_mcp/README.md`**
-    in this repository for the checklist and roadmap notes.
+    **`agent-browser`** is the standalone [Vercel CLI](https://github.com/vercel-labs/agent-browser). Reverse API Engineer prefetch-checks `npx`, injects workflows that call **`skills get core --full`**, **`network har`** capture, `@eN` snapshot ergonomics, and optional cloud-browser skill bundles—all via the shell primitives your SDK exposes (Bash-first on Claude SDK runs). Pin versions with **`agent_browser_npx_package`** or **`RAE_AGENT_BROWSER_PACKAGE`** and pass operator-only guidance through **`agent_browser_notes`** when you rely on SaaS-hosted browsers.
   </Tab>
 </Tabs>
 

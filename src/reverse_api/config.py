@@ -6,6 +6,8 @@ from typing import Any
 
 DEFAULT_CONFIG = {
     "agent_provider": "auto",  # "auto" | "chrome-mcp" | "agent-browser"
+    "agent_browser_notes": "",  # extra instructions merged into agent-browser prompt / RAE_AGENT_BROWSER_NOTES env
+    "agent_browser_npx_package": "agent-browser@0",
     "claude_code_model": "claude-sonnet-4-6",
     "collector_model": "claude-sonnet-4-6",  # Model for collector mode
     "cursor_model": "composer-2",  # Model id for Cursor SDK (see Cursor.models.list())

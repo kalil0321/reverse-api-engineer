@@ -106,6 +106,5 @@ store-assets/
 
 .playwright-mcp/
 
-# Node deps for bundled MCP shims (installed per README; never commit)
 src/reverse_api/cursor_bridge/node_modules/
-src/reverse_api/agent_browser_mcp/node_modules/
+

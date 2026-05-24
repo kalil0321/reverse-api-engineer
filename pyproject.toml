@@ -63,7 +63,6 @@ allow-direct-references = true
 packages = ["src/reverse_api"]
 exclude = [
     "src/reverse_api/cursor_bridge/node_modules/**",
-    "src/reverse_api/agent_browser_mcp/node_modules/**",
 ]
 
 [tool.hatch.build.targets.sdist]
@@ -74,7 +73,6 @@ exclude = [
     ".claude/worktrees/**",
     ".claude/plans/**",
     "src/reverse_api/cursor_bridge/node_modules/**",
-    "src/reverse_api/agent_browser_mcp/node_modules/**",
 ]
 
 [dependency-groups]
