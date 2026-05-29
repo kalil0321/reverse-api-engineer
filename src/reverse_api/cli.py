@@ -1848,8 +1848,13 @@ def run_auto_capture(
         if json_event_sink is not None:
             from .json_stream import attach_json_stream_to_engineer
 
-            attach_json_stream_to_engineer(engineer, json_event_sink)
-            json_event_sink({"event": "agent_started", "mode": mode_label, "url": url})
+            attach_json_stream_to_engineer(
+                engineer,
+                json_event_sink,
+                mode=mode_label,
+                url=url,
+                command="agent",
+            )
 
         # Start sync before analysis
         engineer.start_sync()
@@ -1970,7 +1975,8 @@ def engineer(run_id, prompt, fresh, model, output_dir, no_interactive, as_json, 
     # argument" error. We re-validate inline to preserve the same exit-2 UX
     # for non-JSON invocations.
     if not run_id:
-        if as_json:
+        machine_output = as_json or json_stream
+        if machine_output:
             misuse = _build_engineer_payload(
                 None,
                 run_id="",
@@ -1979,7 +1985,11 @@ def engineer(run_id, prompt, fresh, model, output_dir, no_interactive, as_json, 
                 error="RUN_ID is required",
                 error_kind_hint="misuse",
             )
-            click.echo(json.dumps(misuse))
+            if json_stream:
+                with _quiet_consoles_for_json() as real_stdout:
+                    _write_json_stdout(real_stdout, misuse, json_stream=True)
+            else:
+                click.echo(json.dumps(misuse))
         else:
             click.echo("Usage: reverse-api-engineer engineer [OPTIONS] RUN_ID", err=True)
             click.echo("\nError: Missing argument 'RUN_ID'.", err=True)

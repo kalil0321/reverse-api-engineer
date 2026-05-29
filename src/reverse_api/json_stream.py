@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
 from typing import Any
 
@@ -73,9 +74,10 @@ class StreamingUIWrapper:
         if preview.strip():
             self._sink({"event": "thinking", "text": preview})
         if hasattr(self._inner, "thinking"):
-            try:
+            sig = inspect.signature(self._inner.thinking)
+            if "max_length" in sig.parameters:
                 self._inner.thinking(text, max_length=max_length)
-            except TypeError:
+            else:
                 self._inner.thinking(text)
         else:
             self._inner.thinking(text)
@@ -95,14 +97,20 @@ class StreamingUIWrapper:
         self._inner.error(message)
 
 
-def attach_json_stream_to_engineer(engineer: Any, sink: Callable[[dict[str, Any]], None]) -> None:
+def attach_json_stream_to_engineer(
+    engineer: Any,
+    sink: Callable[[dict[str, Any]], None],
+    **run_started_extra: Any,
+) -> None:
     """Enable NDJSON UI events on an engineer instance."""
     engineer._json_event_sink = sink
     engineer.ui = StreamingUIWrapper(engineer.ui, sink)
-    sink(
-        {
-            "event": "run_started",
-            "run_id": engineer.run_id,
-            "sdk": getattr(engineer, "sdk", None),
-        }
-    )
+    started: dict[str, Any] = {
+        "event": "run_started",
+        "run_id": engineer.run_id,
+        "sdk": getattr(engineer, "sdk", None),
+    }
+    for key, value in run_started_extra.items():
+        if value is not None:
+            started[key] = value
+    sink(started)

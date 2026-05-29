@@ -69,3 +69,13 @@ class TestJsonStreamEngineer:
         runner = CliRunner()
         result = runner.invoke(main, ["agent", "--help"])
         assert "--json-stream" in result.output
+
+    def test_engineer_json_stream_missing_run_id_emits_result_event(self):
+        runner = CliRunner()
+        result = runner.invoke(engineer, ["--json-stream"])
+        assert result.exit_code == 2
+        payload = json.loads(result.output.strip())
+        assert payload["event"] == "result"
+        assert payload["status"] == "error"
+        assert payload["error_kind"] == "misuse"
+        assert "RUN_ID" in payload["error"]
