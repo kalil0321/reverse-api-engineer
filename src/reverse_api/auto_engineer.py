@@ -106,7 +106,10 @@ class ClaudeAutoEngineer(ClaudeEngineer):
             template_kwargs["har_path"] = str(self.har_path)
         if self.agent_provider == "agent-browser":
             template_kwargs.update(
-                agent_browser_prompt_fields(run_id=self.mcp_run_id, headless=self.headless),
+                agent_browser_prompt_fields(
+                    run_id=getattr(self, "mcp_run_id", self.run_id),
+                    headless=getattr(self, "headless", False),
+                ),
             )
 
         user_message = load(template, **template_kwargs)
@@ -575,8 +578,19 @@ class CopilotAutoEngineer:
         eng.ui.header(eng.run_id, eng.prompt, eng.copilot_model, eng.sdk, mode="agent")
         eng.ui.start_analysis()
 
-        # CopilotEngineer doesn't have agent_provider; set it temporarily for prompt building
         eng.agent_provider = self.agent_provider
+        eng.mcp_run_id = self.mcp_run_id
+        eng.headless = self.headless
+
+        if self.agent_provider == "agent-browser":
+            ab_setup = ensure_agent_browser_runtime()
+            print_agent_browser_setup_notices(eng.ui.console, ab_setup)
+            if not ab_setup.ok:
+                err = ab_setup.error or "agent-browser setup failed"
+                eng.ui.error(err)
+                eng.message_store.save_error(err)
+                return None
+
         system_prompt, user_message = ClaudeAutoEngineer._build_auto_prompts(eng)
         auto_prompt = f"{system_prompt}\n\n{user_message}"
         eng.message_store.save_prompt(user_message)
@@ -631,13 +645,6 @@ class CopilotAutoEngineer:
                     },
                 }
             elif self.agent_provider == "agent-browser":
-                ab_setup = ensure_agent_browser_runtime()
-                print_agent_browser_setup_notices(eng.ui.console, ab_setup)
-                if not ab_setup.ok:
-                    err = ab_setup.error or "agent-browser setup failed"
-                    eng.ui.error(err)
-                    eng.message_store.save_error(err)
-                    return None
                 mcp_servers_payload = {}
             else:
                 pw_args = [

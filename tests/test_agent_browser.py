@@ -126,3 +126,55 @@ def test_prompt_fields_includes_shell_and_notes():
     assert fields["agent_browser_npx_package"] == "pkg@x"
     assert fields["agent_browser_shell"] == "agent-browser"
     assert "cloud hint" in fields["agent_browser_notes_block"]
+
+
+def test_extra_notes_env_overrides_config(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("RAE_AGENT_BROWSER_NOTES", "from env")
+    with patch("reverse_api.agent_browser._config_manager_snapshot", return_value={"agent_browser_notes": "from config"}):
+        assert agent_browser.agent_browser_extra_notes() == "from env"
+
+
+def test_global_install_missing_path_falls_back_npx():
+    help_ok = MagicMock(returncode=0, stderr="", stdout="usage")
+
+    def which_side(cmd: str) -> str | None:
+        if cmd == "agent-browser":
+            return None
+        if cmd == "node":
+            return "/bin/node"
+        if cmd == "npm":
+            return "/bin/npm"
+        if cmd == "npx":
+            return "/bin/npx"
+        return None
+
+    with patch.object(agent_browser.shutil, "which", side_effect=which_side):
+        with patch.object(agent_browser.subprocess, "run", side_effect=[MagicMock(returncode=0), help_ok]) as run:
+            with patch("reverse_api.agent_browser.agent_browser_npx_package", return_value="agent-browser@pin"):
+                st = agent_browser.ensure_agent_browser_runtime()
+    assert st.ok
+    assert agent_browser.agent_browser_shell_invoker() == "npx -y agent-browser@pin"
+    assert any("not on PATH" in n for n in st.notices)
+    assert run.call_args_list[0][0][0][1] == "install"
+
+
+def test_check_only_skips_npm_install():
+    help_ok = MagicMock(returncode=0, stderr="", stdout="usage")
+
+    def which_side(cmd: str) -> str | None:
+        if cmd == "agent-browser":
+            return None
+        if cmd == "npm":
+            return "/bin/npm"
+        if cmd == "npx":
+            return "/bin/npx"
+        return None
+
+    with patch.object(agent_browser.shutil, "which", side_effect=which_side):
+        with patch.object(agent_browser.subprocess, "run", return_value=help_ok) as run:
+            st = agent_browser.check_agent_browser_runtime()
+    assert st.ok
+    assert any("npm install -g" in n for n in st.notices)
+    run.assert_not_called()
+    assert agent_browser.agent_browser_shell_invoker().startswith("npx")
+

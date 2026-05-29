@@ -209,9 +209,11 @@ def _build_dry_run_payload(
     import shutil
     import subprocess
 
-    from .agent_browser import ensure_agent_browser_runtime
+    from .agent_browser import check_agent_browser_runtime
 
     checks: list[dict] = []
+    agent_provider = config_manager.get("agent_provider", "auto")
+    global_agent_browser = shutil.which("agent-browser")
 
     # 1. Prompt
     if not prompt or not prompt.strip():
@@ -233,7 +235,6 @@ def _build_dry_run_payload(
         checks.append({"name": "url", "status": "ok", "message": "(none — agent will pick a start)"})
 
     # 3. Agent provider
-    agent_provider = config_manager.get("agent_provider", "auto")
     if agent_provider in ("auto", "chrome-mcp", "agent-browser"):
         checks.append({"name": "agent_provider", "status": "ok", "message": agent_provider})
     else:
@@ -266,16 +267,23 @@ def _build_dry_run_payload(
     else:
         checks.append({"name": f"sdk:{sdk}", "status": "ok", "message": f"{sdk_env_var} present"})
 
-    # 5. Node.js + npx — browser MCP subprocesses (`auto`, `chrome-mcp`) and the
-    # agent-browser CLI (`npx -y …`) all require Node + npx in PATH.
+    # 5. Node.js + npx — MCP providers need both; agent-browser with a global binary does not.
     node = shutil.which("node")
+    needs_node_for_browser = agent_provider != "agent-browser" or global_agent_browser is None
     if node is None:
-        checks.append({
-            "name": "node",
-            "status": "error",
-            "message": "node not found in PATH; required for agent-mode browser tooling "
-            "(MCP browser servers plus Vercel agent-browser via npx)",
-        })
+        if needs_node_for_browser:
+            checks.append({
+                "name": "node",
+                "status": "error",
+                "message": "node not found in PATH; required for agent-mode browser tooling "
+                "(MCP browser servers plus Vercel agent-browser install/bootstrap)",
+            })
+        else:
+            checks.append({
+                "name": "node",
+                "status": "ok",
+                "message": "not on PATH (optional while global `agent-browser` is installed)",
+            })
     else:
         try:
             ver = subprocess.run(
@@ -286,13 +294,23 @@ def _build_dry_run_payload(
             checks.append({"name": "node", "status": "warn", "message": f"could not query version: {e}"})
 
     npx = shutil.which("npx")
+    needs_npx_for_browser = agent_provider in ("auto", "chrome-mcp") or (
+        agent_provider == "agent-browser" and global_agent_browser is None
+    )
     if npx is None:
-        checks.append({
-            "name": "npx",
-            "status": "error",
-            "message": "npx not found in PATH; required so npm can spawn MCP helpers and "
-            "fetch/run the pinned agent-browser CLI on demand",
-        })
+        if needs_npx_for_browser:
+            checks.append({
+                "name": "npx",
+                "status": "error",
+                "message": "npx not found in PATH; required so npm can spawn MCP helpers and "
+                "fetch/run the pinned agent-browser CLI when no global binary is present",
+            })
+        else:
+            checks.append({
+                "name": "npx",
+                "status": "ok",
+                "message": "not on PATH (optional while global `agent-browser` is installed)",
+            })
     else:
         checks.append({"name": "npx", "status": "ok", "message": npx})
 
@@ -304,9 +322,9 @@ def _build_dry_run_payload(
             "message": "chrome-mcp without --headless requires Chrome 146+ with auto-connect enabled at chrome://inspect/#remote-debugging — this is not auto-checkable",
         })
 
-    # 7. agent-browser CLI: PATH binary preferred; npm global install fallback.
+    # 7. agent-browser CLI: read-only validation (no npm install during dry-run).
     if agent_provider == "agent-browser":
-        ab_setup = ensure_agent_browser_runtime()
+        ab_setup = check_agent_browser_runtime()
         parts: list[str] = []
         if ab_setup.error:
             parts.append(ab_setup.error)

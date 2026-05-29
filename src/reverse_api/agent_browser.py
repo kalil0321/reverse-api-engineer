@@ -84,12 +84,12 @@ def agent_browser_npx_package() -> str:
 
 
 def agent_browser_extra_notes() -> str:
-    """Optional user guidance from ``agent_browser_notes``."""
+    """Optional user guidance; env ``RAE_AGENT_BROWSER_NOTES`` overrides config."""
 
-    txt = (_config_manager_snapshot().get("agent_browser_notes") or "").strip()
-    if txt:
-        return txt
-    return os.environ.get("RAE_AGENT_BROWSER_NOTES", "").strip()
+    env = os.environ.get("RAE_AGENT_BROWSER_NOTES", "").strip()
+    if env:
+        return env
+    return (_config_manager_snapshot().get("agent_browser_notes") or "").strip()
 
 
 def _probe_help_argv(argv_without_help: list[str]) -> str | None:
@@ -154,6 +154,44 @@ def _finalize_npx_invoker(notices: list[str]) -> AgentBrowserSetup:
     return AgentBrowserSetup(notices=tuple(notices))
 
 
+def check_agent_browser_runtime() -> AgentBrowserSetup:
+    """Validate agent-browser readiness without installing packages or caching invokers.
+
+    Used by ``agent --dry-run`` so validation stays read-only.
+    """
+
+    notices: list[str] = []
+
+    if shutil.which("agent-browser"):
+        err = _probe_help_argv(["agent-browser"])
+        if err:
+            return AgentBrowserSetup(error=err, notices=tuple(notices))
+        return AgentBrowserSetup(
+            notices=("global `agent-browser` on PATH (`--help` OK)",),
+        )
+
+    pkg = agent_browser_npx_package()
+    have_npm = shutil.which("npm") is not None
+    have_npx = shutil.which("npx") is not None
+
+    if not have_npm and not have_npx:
+        return AgentBrowserSetup(
+            error=(
+                "`agent-browser` not on PATH and neither npm nor npx is available to "
+                "install or run the pinned package."
+            ),
+        )
+
+    if have_npm:
+        notices.append(f"live run would `npm install -g {pkg}` when the binary is missing")
+    if have_npx:
+        notices.append(f"live run can fall back to `npx -y {pkg}` if global install fails")
+    if shutil.which("node") is None and not have_npm:
+        notices.append("node not on PATH (needed for npm global install on live runs)")
+
+    return AgentBrowserSetup(notices=tuple(notices))
+
+
 def ensure_agent_browser_runtime() -> AgentBrowserSetup:
     """Resolve ``agent-browser`` on PATH or install globally, else fall back to ``npx -y``.
 
@@ -210,13 +248,10 @@ def ensure_agent_browser_runtime() -> AgentBrowserSetup:
     )
 
     if not shutil.which("agent-browser"):
-        return AgentBrowserSetup(
-            error=(
-                "Installed via npm but `agent-browser` is still not on PATH. "
-                "Append `npm bin -g` to PATH or reinstall with a toolchain that exposes the global shim."
-            ),
-            notices=tuple(notices),
+        notices.append(
+            "Global install finished but `agent-browser` is not on PATH; trying `npx -y …` for this session."
         )
+        return _finalize_npx_invoker(notices)
 
     err = _probe_help_argv(["agent-browser"])
     if err:
