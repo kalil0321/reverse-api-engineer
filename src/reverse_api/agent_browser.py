@@ -28,6 +28,7 @@ _AGENT_BROWSER_TOOLS = frozenset(
         "Bash",
         "WebFetch",
         "WebSearch",
+        "AskUserQuestion",
     },
 )
 
@@ -181,12 +182,15 @@ def check_agent_browser_runtime() -> AgentBrowserSetup:
             ),
         )
 
+    if shutil.which("node") is None:
+        return AgentBrowserSetup(
+            error="node not found in PATH (needed to install/run agent-browser when the binary is missing).",
+        )
+
     if have_npm:
         notices.append(f"live run would `npm install -g {pkg}` when the binary is missing")
     if have_npx:
         notices.append(f"live run can fall back to `npx -y {pkg}` if global install fails")
-    if shutil.which("node") is None and not have_npm:
-        notices.append("node not on PATH (needed for npm global install on live runs)")
 
     return AgentBrowserSetup(notices=tuple(notices))
 

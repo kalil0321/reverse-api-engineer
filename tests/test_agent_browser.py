@@ -19,7 +19,7 @@ def clear_setup_cache():
 def test_allowed_tools_contains_bash():
     tools = agent_browser.allowed_tools_agent_browser_agent_mode()
     assert "Bash" in tools
-    assert "AskUserQuestion" not in tools
+    assert "AskUserQuestion" in tools
 
 
 def test_ensure_missing_node():
@@ -165,6 +165,8 @@ def test_check_only_skips_npm_install():
     def which_side(cmd: str) -> str | None:
         if cmd == "agent-browser":
             return None
+        if cmd == "node":
+            return "/bin/node"
         if cmd == "npm":
             return "/bin/npm"
         if cmd == "npx":
@@ -178,4 +180,20 @@ def test_check_only_skips_npm_install():
     assert any("npm install -g" in n for n in st.notices)
     run.assert_not_called()
     assert agent_browser.agent_browser_shell_invoker().startswith("npx")
+
+
+def test_check_missing_node_is_error():
+    def which_side(cmd: str) -> str | None:
+        if cmd == "agent-browser":
+            return None
+        if cmd == "npm":
+            return "/bin/npm"
+        if cmd == "npx":
+            return "/bin/npx"
+        return None
+
+    with patch.object(agent_browser.shutil, "which", side_effect=which_side):
+        st = agent_browser.check_agent_browser_runtime()
+    assert not st.ok
+    assert st.error and "node" in st.error.lower()
 

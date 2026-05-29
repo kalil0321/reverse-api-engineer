@@ -31,6 +31,19 @@ logging.getLogger("claude_agent_sdk").setLevel(logging.WARNING)
 logging.getLogger("claude_agent_sdk._internal.transport.subprocess_cli").setLevel(logging.WARNING)
 
 
+def _agent_browser_prompt_context(engineer: Any) -> tuple[str, bool]:
+    """Resolve run id + headless for agent-browser prompts without fragile getattr defaults."""
+
+    if hasattr(engineer, "mcp_run_id"):
+        run_id = engineer.mcp_run_id
+    elif hasattr(engineer, "run_id"):
+        run_id = engineer.run_id
+    else:
+        run_id = "unknown"
+    headless = engineer.headless if hasattr(engineer, "headless") else False
+    return run_id, headless
+
+
 class ClaudeAutoEngineer(ClaudeEngineer):
     """Auto mode using Claude SDK: LLM-led browsing plus reverse-engineering codegen."""
 
@@ -105,11 +118,9 @@ class ClaudeAutoEngineer(ClaudeEngineer):
         if self.agent_provider != "chrome-mcp":
             template_kwargs["har_path"] = str(self.har_path)
         if self.agent_provider == "agent-browser":
+            ab_run_id, ab_headless = _agent_browser_prompt_context(self)
             template_kwargs.update(
-                agent_browser_prompt_fields(
-                    run_id=getattr(self, "mcp_run_id", self.run_id),
-                    headless=getattr(self, "headless", False),
-                ),
+                agent_browser_prompt_fields(run_id=ab_run_id, headless=ab_headless),
             )
 
         user_message = load(template, **template_kwargs)
