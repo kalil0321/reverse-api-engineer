@@ -45,28 +45,36 @@ class StreamingUIWrapper:
         self._sink({"event": "progress", "message": "analysis_started"})
         self._inner.start_analysis()
 
-    def tool_start(self, tool_name: str, tool_input: dict | Any = None) -> None:
-        summary = None
-        if isinstance(tool_input, dict):
-            summary = str(tool_input)[:200] if tool_input else None
-        self._sink(
-            {
-                "event": "tool_start",
-                "name": tool_name,
-                "input_summary": summary,
-            }
-        )
+    def tool_start(
+        self, tool_name: str, tool_input: dict | Any = None, call_id: str | None = None
+    ) -> None:
+        event: dict[str, Any] = {"event": "tool_start", "name": tool_name}
+        if call_id:
+            event["call_id"] = call_id
+        # Emit the real structured input (json.dumps serializes it); a stringified
+        # repr would not be parseable as JSON by downstream consumers.
+        if tool_input is not None:
+            event["input"] = tool_input
+        self._sink(event)
+        # Inner UIs render only; not all accept call_id, so don't forward it.
         self._inner.tool_start(tool_name, tool_input)
 
-    def tool_result(self, tool_name: str, is_error: bool = False, output: str | None = None) -> None:
-        self._sink(
-            {
-                "event": "tool_end",
-                "name": tool_name,
-                "is_error": is_error,
-                "output_preview": (output[:200] if output else None),
-            }
-        )
+    def tool_result(
+        self,
+        tool_name: str,
+        is_error: bool = False,
+        output: str | None = None,
+        call_id: str | None = None,
+    ) -> None:
+        event: dict[str, Any] = {
+            "event": "tool_end",
+            "name": tool_name,
+            "is_error": is_error,
+            "output_preview": (output[:200] if output else None),
+        }
+        if call_id:
+            event["call_id"] = call_id
+        self._sink(event)
         self._inner.tool_result(tool_name, is_error, output)
 
     def thinking(self, text: str, max_length: int = 500) -> None:

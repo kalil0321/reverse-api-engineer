@@ -33,6 +33,7 @@ function summarizeEvent(ev) {
         type: t,
         name: ev.name,
         status: ev.status,
+        callId: ev.call_id ?? ev.callId,
         args: ev.args,
         result: ev.status !== "running" ? ev.result : undefined,
       };
