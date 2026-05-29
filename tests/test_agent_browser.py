@@ -19,6 +19,7 @@ def clear_setup_cache():
 def test_allowed_tools_contains_bash():
     tools = agent_browser.allowed_tools_agent_browser_agent_mode()
     assert "Bash" in tools
+    assert "AskUserQuestion" not in tools
 
 
 def test_ensure_missing_node():
@@ -86,7 +87,7 @@ def test_npm_global_install_then_help():
     assert agent_browser.agent_browser_shell_invoker() == "agent-browser"
 
     first_cmd = run.call_args_list[0][0][0]
-    assert first_cmd[:4] == ["/usr/bin/npm", "install", "-g", "agent-browser@test"]
+    assert first_cmd[:5] == ["/usr/bin/npm", "install", "-g", "--yes", "agent-browser@test"]
 
 
 def test_npm_missing_falls_back_npx():

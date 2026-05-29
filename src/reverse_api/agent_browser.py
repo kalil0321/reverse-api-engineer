@@ -28,7 +28,6 @@ _AGENT_BROWSER_TOOLS = frozenset(
         "Bash",
         "WebFetch",
         "WebSearch",
-        "AskUserQuestion",
     },
 )
 
@@ -220,11 +219,12 @@ def ensure_agent_browser_runtime() -> AgentBrowserSetup:
 
     try:
         proc = subprocess.run(
-            [npm, "install", "-g", pkg],
+            [npm, "install", "-g", "--yes", pkg],
             capture_output=True,
             text=True,
             timeout=600,
             check=False,
+            env={**os.environ, "CI": "1"},
         )
     except subprocess.TimeoutExpired:
         notices.append("`npm install -g …` timed out; falling back to `npx -y …` for this session.")

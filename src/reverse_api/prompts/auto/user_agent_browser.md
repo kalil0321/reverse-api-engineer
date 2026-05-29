@@ -24,7 +24,18 @@ export AGENT_BROWSER_SESSION="{agent_browser_session}"
 
 Treat **`skills get core --full`** as mandatory for default/local flows. Confirm it exits cleanly; if commands error, run **`skills list`** (per upstream), pick the documented bundle (`core` ships with upstream), or escalate with **`{agent_browser_shell} doctor`**.
 
-{agent_browser_headed_hint}### Session + package
+{agent_browser_headed_hint}### Non-interactive agent operation
+
+This workflow is driven by an **autonomous agent** (often via `--json` / `--no-interactive`). **Do not** use modes that block on a human:
+
+- **Never** run `agent-browser chat` without a one-shot instruction (no interactive REPL).
+- **Never** pass upstream confirmation flags such as `--confirm-interactive` or `--confirm-actions` (they expect a human or auto-deny without one).
+- Use **subcommands only** (`open`, `snapshot`, `click`, `network har …`, `close`, …) and rely on **exit codes**, not prompts.
+- Do **not** invoke `AskUserQuestion` or other human-in-the-loop tools — decide from HAR/snapshots/skills instead.
+
+Upstream JS dialogs (`alert` / `beforeunload`) are auto-handled by default unless an operator explicitly disables that upstream.
+
+### Session + package
 
 - Stable session env: **`AGENT_BROWSER_SESSION={agent_browser_session}`** before every invocation (isolates refs/HAR for this run).
 - Invocation prefix (**exactly how the host resolved the CLI):** **`{agent_browser_shell}`**. Pin for installs is **`{agent_browser_npx_package}`** (config / **`RAE_AGENT_BROWSER_PACKAGE`**).

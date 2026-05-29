@@ -122,6 +122,13 @@ class ClaudeAutoEngineer(ClaudeEngineer):
     async def _handle_tool_permission(self, tool_name: str, input_data: dict[str, Any], context: ToolPermissionContext) -> PermissionResultAllow:
         """Handle tool permission requests, with interactive UI for AskUserQuestion."""
         if tool_name == "AskUserQuestion":
+            if not self.interactive:
+                return PermissionResultAllow(
+                    updated_input={
+                        "questions": input_data.get("questions", []),
+                        "answers": {},
+                    },
+                )
             questions = input_data.get("questions", [])
             answers = await self._ask_user_interactive(questions)
             return PermissionResultAllow(
