@@ -25,6 +25,9 @@ yarn-error.log*
 .vercel
 next-env.d.ts
 
+# internal design playground — not shipped
+/src/app/lab/
+
 # cloudflare / opennext
 .open-next/
 .wrangler/
