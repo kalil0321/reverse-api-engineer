@@ -5,6 +5,8 @@ import { appName, appTagline, gitConfig, githubUrl, pypiUrl, siteUrl } from '@/l
 import { HeroCyclingPhrase } from '@/components/hero-cycling-phrase';
 import { InstallCommand } from '@/components/install-command';
 import { BuiltInTheOpen } from '@/components/built-in-the-open';
+import { FeatureMarquee } from '@/components/feature-marquee';
+import { WorksWithAgents } from '@/components/works-with-agents';
 import { JsonLd } from '@/components/json-ld';
 
 export const metadata: Metadata = {
@@ -60,9 +62,10 @@ export default function HomePage() {
       <JsonLd data={softwareJsonLd} />
       <div className="flex flex-col h-[calc(100svh-3.5rem)] min-h-[640px]">
         <Hero />
-        <Marquee />
+        <FeatureMarquee />
       </div>
       <HowItWorks />
+      <WorksWithAgents />
       <BuiltInTheOpen />
       <FinalCTA />
     </main>
@@ -102,110 +105,49 @@ function Hero() {
   );
 }
 
-/* ───────────────────────────── Marquee ─────────────────────────── */
-
-function Marquee() {
-  const tags = [
-    'MIT licensed',
-    'Chrome DevTools MCP',
-    'HAR capture',
-    'typed clients',
-    'agent-ready',
-  ];
-  const items = [...tags, ...tags];
-  return (
-    <section
-      className="py-5 border-y overflow-hidden
-        bg-[#1f1f1f] border-[rgba(255,247,240,0.1)]
-        dark:bg-black dark:border-transparent"
-    >
-      <div className="marquee gap-12">
-        {items.map((t, i) => (
-          <div key={i} className="flex items-center gap-12 shrink-0">
-            <span className="font-mono text-sm whitespace-nowrap text-[rgba(255,247,240,0.8)]">{t}</span>
-            <span className="font-display italic text-lg select-none text-[rgba(255,247,240,0.28)]">*</span>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 /* ─────────────────────────── How it works ───────────────────────── */
 
 function HowItWorks() {
   const steps = [
-    { num: '01', title: 'Browse', body: 'Open the CLI. Drive the browser, or let the agent.' },
-    { num: '02', title: 'Capture', body: 'HAR records every request, header, and body.' },
-    { num: '03', title: 'Generate', body: 'Your model reads the HAR. Writes a typed client.' },
-    { num: '04', title: 'Review', body: 'Audit the output, then commit it like any code.' },
+    { num: '1', title: 'Browse', body: 'Open the CLI. Drive the browser yourself, or let the agent.' },
+    { num: '2', title: 'Capture', body: 'HAR records every request, header, and response body.' },
+    { num: '3', title: 'Generate', body: 'Your model reads the HAR and writes a typed client.' },
+    { num: '4', title: 'Review', body: 'Audit the output, then commit it like any other code.' },
   ];
   return (
     <section className="bg-orange relative overflow-hidden min-h-[100svh] flex items-center">
-      {/* Ambient code stream backdrop — pushed hard to the right edge */}
-      <pre
-        aria-hidden="true"
-        className="code-stream-pre absolute inset-y-0 right-0 hidden md:block w-[42%] lg:w-[40%] p-10 overflow-hidden"
-        style={{
-          maskImage:
-            'linear-gradient(to right, transparent 0%, black 55%, black 92%, transparent 100%)',
-          WebkitMaskImage:
-            'linear-gradient(to right, transparent 0%, black 55%, black 92%, transparent 100%)',
-        }}
-      >
-{`from dataclasses import dataclass
-import httpx
-
-@dataclass
-class Job:
-    id: str
-    title: str
-    location: str
-
-class AppleJobsClient:
-    BASE = "https://jobs.apple.com/api/v1"
-
-    def search(self, query: str, *, page: int = 0):
-        r = self._http.get(
-            f"{self.BASE}/search",
-            params={"q": query, "page": page},
-        )
-        r.raise_for_status()
-        return [Job(**row) for row in r.json()["jobs"]]
-
-    def detail(self, job_id: str) -> Job:
-        r = self._http.get(f"{self.BASE}/job/{job_id}")
-        return Job(**r.json())
-
-@dataclass
-class SearchResult:
-    total: int
-    page: int
-    jobs: list[Job]
-
-def authenticate(token: str) -> httpx.Client:
-    return httpx.Client(headers={"Authorization": f"Bearer {token}"})`}
-      </pre>
-
       <div className="relative w-full mx-auto max-w-7xl px-6 lg:px-10 py-24 md:py-36">
-        <div className="max-w-2xl">
-          <p className="eyebrow text-ink-soft">How it works</p>
-          <h2 className="section-display mt-3">
-            Four steps. <em>Zero glue code.</em>
-          </h2>
+        <div className="mx-auto max-w-2xl text-center">
+          <h2 className="section-display mt-3">How it works?</h2>
         </div>
 
-        <ol className="mt-14 grid md:grid-cols-4 gap-px bg-ink/10 rounded-2xl overflow-hidden border border-ink/10 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.15)]">
-          {steps.map((s) => (
-            <li key={s.num} className="bg-cream p-7 flex flex-col min-h-[180px]">
-              <span className="font-mono text-xs text-ink uppercase tracking-widest">
-                {s.num} / 04
-              </span>
-              <h3 className="mt-8 font-display text-3xl tracking-tight text-ink">{s.title}</h3>
-              <p className="mt-3 text-sm leading-relaxed text-ink-soft">{s.body}</p>
-            </li>
-          ))}
-        </ol>
+        {/* Alternating spine — steps zig-zag off a vertical center line */}
+        <div className="relative mx-auto max-w-3xl mt-16 md:mt-20">
+          <div className="absolute left-4 md:left-1/2 top-2 bottom-2 w-px -translate-x-1/2 bg-ink/15" />
+          <ol className="flex flex-col gap-10 md:gap-14">
+            {steps.map((s, i) => {
+              const right = i % 2 === 1;
+              return (
+                <li
+                  key={s.num}
+                  className="relative pl-12 md:pl-0 md:grid md:grid-cols-2 md:gap-10"
+                >
+                  <span className="absolute left-4 md:left-1/2 top-1.5 size-3 -translate-x-1/2 rounded-full bg-fd-primary ring-4 ring-[var(--color-orange)]" />
+                  <div
+                    className={
+                      right
+                        ? 'md:col-start-2 md:pl-10 md:text-left'
+                        : 'md:col-start-1 md:pr-10 md:text-right'
+                    }
+                  >
+                    <h3 className="font-display text-2xl tracking-tight text-ink">{s.title}</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-ink-soft">{s.body}</p>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
       </div>
     </section>
   );
@@ -238,8 +180,8 @@ function FinalCTA() {
               Skip the<br /><em>scraping.</em>
             </h2>
             <p className="mt-8 max-w-md text-base md:text-lg text-ink-soft leading-relaxed">
-              One install. One command. A working Python client before
-              your coffee gets cold.
+              Install. Prompt. Get your Python client
+              back.
             </p>
             <div className="mt-10 inline-flex flex-wrap items-center gap-3">
               <Link href="/docs/quick-start" className="btn-primary">

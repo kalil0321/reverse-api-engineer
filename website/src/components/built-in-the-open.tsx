@@ -1,18 +1,18 @@
 const CARDS = [
   {
     id: '001',
-    title: 'MIT license',
-    note: 'Use it commercially. Fork it. Ship it inside a closed-source product. No royalties, no copyleft, no licensing call with legal.',
+    title: 'MIT licensed',
+    note: 'Use it at work, fork it, or ship it inside a closed-source product. No fees, no copyleft, no strings attached.',
   },
   {
     id: '002',
-    title: 'No telemetry',
-    note: 'rae never phones home. Your HAR captures, your generated clients, your browsing — they stay on your machine. The repo is the whole product.',
+    title: 'Runs locally',
+    note: 'Everything happens on your machine. The traffic you capture and the clients it generates never leave it — no account, no server, no analytics.',
   },
   {
     id: '003',
-    title: 'Code stays yours',
-    note: 'Generated clients are plain Python files. No SDK to pin, no service to depend on. Just code in your repo.',
+    title: 'You own the output',
+    note: 'rae writes plain Python files straight into your project. No SDK to depend on, no service that can go away — just code you can read and edit.',
   },
 ];
 
@@ -28,8 +28,8 @@ export function BuiltInTheOpen() {
                 text-[rgba(30,20,50,0.88)] dark:text-[rgba(248,244,255,0.92)]"
               style={{ fontVariationSettings: "'opsz' 144, 'SOFT' 100, 'WONK' 1", fontWeight: 400 }}
             >
-              Built in the open.{' '}
-              <span className="text-[#885dc5] dark:text-[#b89dff]">Stays yours.</span>
+              Open source.{' '}
+              <span className="text-[#885dc5] dark:text-[#b89dff]">Runs on your machine.</span>
             </h2>
           </div>
         </div>
@@ -45,13 +45,6 @@ export function BuiltInTheOpen() {
               className="bg-[#f2effa] dark:bg-[#1e1729]
                 px-6 py-7 md:px-7 md:py-8 flex flex-col"
             >
-              <p
-                className="font-mono text-[9px] tracking-[0.15em]
-                  text-[rgba(30,20,50,0.28)] dark:text-[rgba(248,244,255,0.32)]
-                  mb-5"
-              >
-                N° {c.id}
-              </p>
               <p
                 className="font-display italic text-xl leading-[1.15] tracking-[-0.02em]
                   text-[rgba(30,20,50,0.88)] dark:text-[rgba(248,244,255,0.92)]

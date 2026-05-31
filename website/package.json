@@ -12,6 +12,7 @@
     "pages:deploy": "next build && wrangler pages deploy out"
   },
   "dependencies": {
+    "@phosphor-icons/react": "2.1.10",
     "gray-matter": "^4.0.3",
     "lucide-react": "^1.16.0",
     "next": "16.2.6",
@@ -23,6 +24,7 @@
     "rehype-slug": "^6.0.0",
     "remark-gfm": "^4.0.1",
     "shiki": "^4.1.0",
+    "simple-icons": "^16.22.0",
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {

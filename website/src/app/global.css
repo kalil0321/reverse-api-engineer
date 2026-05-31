@@ -200,15 +200,67 @@ body {
   animation: draw-underline 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both;
 }
 
-@keyframes marquee {
+/* ─── Marquee ────────────────────────────────────────────────────────────────
+   Seamless loop rules: the track duplicates its content and translates exactly
+   -50%, so (a) spacing must be baked into each cell (pr-*), NOT a flex `gap` on
+   the track — a gap between the two halves breaks periodicity and stutters; and
+   (b) one half must be wider than the viewport or you see an empty gap before
+   the duplicate catches up. See FeatureMarquee for the cell-repeat that ensures
+   (b). display:flex is applied via the `flex` utility on the element because
+   Lightning CSS drops it from this rule when combined with the props below. */
+
+@keyframes marquee-scroll {
   from { transform: translateX(0); }
   to   { transform: translateX(-50%); }
 }
 
-.marquee {
-  display: flex;
+.marquee-track {
+  align-items: center;
   width: max-content;
-  animation: marquee 40s linear infinite;
+  animation: marquee-scroll linear infinite;
+  will-change: transform;
+}
+
+/* Vertical reel scroll for the /lab slot-machine agent variant. */
+@keyframes agent-reel {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-33.333%); }
+}
+
+.marquee-track--rev {
+  animation-direction: reverse;
+}
+
+.marquee-viewport:hover .marquee-track {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track { animation: none; }
+}
+
+/* Soft fade at both edges so tags don't pop in/out at hard borders. */
+.marquee-mask {
+  -webkit-mask-image: linear-gradient(to right, transparent, black 7%, black 93%, transparent);
+  mask-image: linear-gradient(to right, transparent, black 7%, black 93%, transparent);
+}
+
+/* ─── Lab gallery scaffolding ───────────────────────────────────────────────*/
+
+/* Variant frame in the gallery. */
+.lab-frame {
+  border: 1px solid color-mix(in oklch, var(--color-ink) 12%, transparent);
+  border-radius: 1rem;
+  overflow: hidden;
+  background: var(--color-fd-card);
+}
+
+.lab-chip {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-ink-soft);
 }
 
 /* ─── Display typography (Fraunces) ─────────────────────────────────────── */

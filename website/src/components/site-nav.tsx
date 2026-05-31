@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { PackageIcon } from 'lucide-react';
+import { PackageIcon, BookOpenIcon } from 'lucide-react';
 import { githubUrl, pypiUrl } from '@/lib/shared';
 import { ThemeToggle } from './theme-toggle';
 
@@ -10,10 +10,6 @@ function GithubIcon({ className }: { className?: string }) {
     </svg>
   );
 }
-
-const links = [
-  { label: 'Docs', href: '/docs' },
-];
 
 export function SiteNav() {
   return (
@@ -43,20 +39,18 @@ export function SiteNav() {
           <span className="sr-only">reverse-api-engineer</span>
         </Link>
         <nav className="flex items-center gap-1 md:gap-6">
-          {links.map((link) => (
-            <Link
-              key={link.label}
-              href={link.href}
-              className="font-display text-base text-ink-soft hover:text-ink transition-colors border-b border-transparent hover:border-current"
-              style={{ fontVariationSettings: "'opsz' 144, 'SOFT' 50, 'WONK' 0" }}
-            >
-              {link.label}
-            </Link>
-          ))}
+          <Link
+            href="/docs"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-ink-soft hover:text-ink transition-colors"
+            aria-label="Docs"
+          >
+            <BookOpenIcon className="size-4" />
+            <span className="hidden sm:inline">Docs</span>
+          </Link>
           <Link
             href={pypiUrl}
             target="_blank"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-ink-soft hover:text-ink transition-colors ml-2 md:ml-4"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-ink-soft hover:text-ink transition-colors"
             aria-label="PyPI"
           >
             <PackageIcon className="size-4" />
