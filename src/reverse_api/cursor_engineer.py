@@ -121,6 +121,10 @@ class CursorEngineer(BaseEngineer):
     def _cursor_reset_stream_buffers(self) -> None:
         self._cursor_thinking_acc = ""
         self._cursor_assistant_acc = ""
+        # Each turn is a fresh agent stream; clear announced call IDs so a turn
+        # interrupted before a tool's terminal event can't leave stale IDs that
+        # suppress tool_start on a later turn (and so the set can't grow forever).
+        self._cursor_started_calls.clear()
 
     def _cursor_feed_thinking(self, fragment: str) -> None:
         self._cursor_thinking_acc += fragment

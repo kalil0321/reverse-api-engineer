@@ -127,3 +127,20 @@ def test_cursor_stream_buffers_merge_assistant(tmp_path: Path) -> None:
     eng._cursor_feed_thinking(" t1")
     eng._cursor_feed_thinking(" t2")
     assert eng._cursor_thinking_acc == " t1 t2"
+
+
+def test_cursor_reset_clears_started_calls(har_path: Path) -> None:
+    """_cursor_started_calls is cleared each turn so stale ids can't suppress tool_start."""
+    with patch.dict("os.environ", {"CURSOR_API_KEY": "x"}):
+        with patch("reverse_api.cursor_engineer._ensure_cursor_bridge_deps", return_value=None):
+            eng = CursorEngineer(
+                run_id="r4",
+                har_path=har_path,
+                prompt="p",
+                sdk="cursor",
+                interactive=False,
+                verbose=False,
+            )
+    eng._cursor_started_calls.add("stale-call-id")
+    eng._cursor_reset_stream_buffers()
+    assert eng._cursor_started_calls == set()

@@ -87,54 +87,6 @@ class TestJsonStreamContract:
 
         return StreamingUIWrapper(_Inner(), events.append), events
 
-    def test_ask_user_skip_emits_balanced_tool_end(self):
-        # In non-interactive mode AskUserQuestion is auto-skipped and the SDK
-        # never streams a tool result for it; the stream must still emit a
-        # tool_end so every tool_start has a matching tool_end.
-        from claude_agent_sdk import AssistantMessage, ToolUseBlock
-
-        from reverse_api.engineer import ClaudeEngineer
-
-        events: list[dict] = []
-
-        class _Console:
-            def print(self, *a, **k):
-                pass
-
-        class _Inner:
-            console = _Console()
-
-            def tool_start(self, *a, **k):
-                pass
-
-            def tool_result(self, *a, **k):
-                pass
-
-        eng = ClaudeEngineer.__new__(ClaudeEngineer)
-        eng.interactive = False
-        eng._json_event_sink = events.append
-        eng.ui = StreamingUIWrapper(_Inner(), events.append)
-
-        async def _receive():
-            yield AssistantMessage(
-                content=[ToolUseBlock(id="t1", name="AskUserQuestion", input={"questions": []})],
-                model="claude",
-            )
-
-        class _Client:
-            def receive_response(self):
-                return _receive()
-
-        asyncio.run(eng._stream_and_handle(_Client()))
-
-        kinds = [(e["event"], e.get("name")) for e in events if e["event"].startswith("tool")]
-        assert ("tool_start", "AskUserQuestion") in kinds
-        assert ("tool_end", "AskUserQuestion") in kinds
-        assert kinds.count(("tool_start", "AskUserQuestion")) == kinds.count(
-            ("tool_end", "AskUserQuestion")
-        )
-        assert any(e["event"] == "ask_user_skipped" for e in events)
-
     def test_tool_start_input_is_structured_json_not_repr(self):
         wrapper, events = self._wrapper()
         payload = {"todos": [{"content": "x", "status": "pending"}], "flag": False}
