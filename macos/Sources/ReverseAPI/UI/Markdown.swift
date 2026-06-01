@@ -40,11 +40,16 @@ extension MarkdownUI.Theme {
             ForegroundColor(Theme.accent)
             UnderlineStyle(.single)
         }
+        // Inline `code` — V3 from the design lab: brand pink text on a
+        // ~12% pink tint background. Reads as a deliberate emphasis,
+        // visually ties inline code to the brand without needing extra
+        // chrome (borders / shadows).
         .code {
             FontFamilyVariant(.monospaced)
             FontSize(.em(0.92))
-            ForegroundColor(Theme.textPrimary)
-            BackgroundColor(Color.white.opacity(0.08))
+            FontWeight(.medium)
+            ForegroundColor(Theme.brandPink)
+            BackgroundColor(Theme.brandPink.opacity(0.12))
         }
         // ───────────────────────────── headings
         .heading1 { configuration in
@@ -145,12 +150,21 @@ extension MarkdownUI.Theme {
             }
             .markdownMargin(top: .em(0.4), bottom: .em(0.4))
         }
-        // ───────────────────────────── tables
+        // Tables — V2 from the design lab: every cell bordered (subtle
+        // cream stroke for inside + outside) with the header row
+        // distinguished by a pink tint band. MarkdownUI's table API
+        // doesn't expose per-row backgrounds, so the closest we can get
+        // to a "header underline" effect is via `alternatingRows` where
+        // the header row (row 0) picks up the first color. Setting both
+        // colors to clear-but-different leans on the cell borders for
+        // structure and the header text color for the underline cue.
         .table { configuration in
             configuration.label
-                .markdownTableBorderStyle(.init(color: Theme.border, strokeStyle: .init(lineWidth: 1)))
-                .markdownTableBackgroundStyle(
-                    .alternatingRows(Theme.appBackground, Color.white.opacity(0.025))
+                .markdownTableBorderStyle(
+                    .init(
+                        color: Theme.border,
+                        strokeStyle: .init(lineWidth: 1)
+                    )
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay {
@@ -163,13 +177,13 @@ extension MarkdownUI.Theme {
                 .markdownTextStyle {
                     if configuration.row == 0 {
                         FontWeight(.semibold)
-                        ForegroundColor(Theme.textPrimary)
+                        ForegroundColor(Theme.brandPink)
                     } else {
                         ForegroundColor(Theme.textSecondary)
                     }
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
         }
 }
 

@@ -76,7 +76,13 @@ final class AppState {
         let databaseURL = caStore.directory.appendingPathComponent("flows.sqlite")
         let store = try FlowStore(databaseURL: databaseURL)
 
-        let agentWorkdir = caStore.directory.appendingPathComponent("agent-sessions", isDirectory: true)
+        // Shares `~/.reverse-api/` with the reverse-api-engineer CLI.
+        // No-space path is also required: the Claude CLI hashes the
+        // cwd into a folder name and encodes spaces inconsistently.
+        let homeDir = FileManager.default.homeDirectoryForCurrentUser
+        let agentWorkdir = homeDir
+            .appendingPathComponent(".reverse-api", isDirectory: true)
+            .appendingPathComponent("agent-sessions", isDirectory: true)
         try FileManager.default.createDirectory(at: agentWorkdir, withIntermediateDirectories: true)
 
         // Persist the pre-rae proxy snapshot to disk while we hold it in

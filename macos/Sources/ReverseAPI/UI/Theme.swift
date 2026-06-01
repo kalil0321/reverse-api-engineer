@@ -21,25 +21,27 @@ enum Theme {
         light: hex(0xfff7f0),
         dark: hex(0x0a0806)
     )
-    /// Cards, panels. `--color-cream-soft`.
+    /// Cards, panels. Dark = rgb(19, 17, 14) per design pick — sits
+    /// barely above the canvas so the panel reads as a slightly raised
+    /// surface without competing with content for attention.
     static let surface = Color.dynamic(
         light: hex(0xfef8ee),
-        dark: hex(0x14110e)
+        dark: hex(0x13110e)
     )
     /// Hover backgrounds, badges, raised one tier above `surface`.
     static let elevated = Color.dynamic(
         light: hex(0xf5f2ee),
         dark: hex(0x1c1814)
     )
-    /// Input fields. Intentionally distinct from `surface` so a composer /
-    /// search field sits as its own focused element rather than blending
-    /// into the panel. Aggressively lifted in dark (`#2a2418`, ~3 tiers
-    /// brighter than surface so the contrast is unmistakable) and pure
-    /// white on light. Pair with a 1pt `Theme.border` outline for extra
-    /// definition.
+    /// Input fields. Distinct from `surface` so a composer / search field
+    /// sits as its own focused element. The previous lift (#2a2418) read
+    /// as greenish due to G ≈ R; this value keeps R clearly dominant for
+    /// a neutral warm-charcoal that doesn't shift hue under any monitor
+    /// calibration. Pairs with a 1pt `Theme.border` overlay for extra
+    /// definition on still frames.
     static let input = Color.dynamic(
         light: hex(0xffffff),
-        dark: hex(0x2a2418)
+        dark: hex(0x1f1814)
     )
     /// Scrim behind modal palettes — slightly lighter than pitch black
     /// so light-mode users still see the underlying surface bleed

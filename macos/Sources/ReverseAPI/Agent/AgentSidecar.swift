@@ -96,6 +96,8 @@ actor AgentSidecar {
         do {
             let bound = try await waitForBoundPort(stdout: stdout, stderr: stderr, deadline: timeout, process: process)
             self.port = bound
+            let logURL = spec.workdir.appendingPathComponent("sidecar-stderr.log")
+            Self.attachStderrTail(handle: stderr.fileHandleForReading, to: logURL)
             return bound
         } catch {
             if process.isRunning {
@@ -104,6 +106,30 @@ actor AgentSidecar {
             self.process = nil
             self.port = nil
             throw error
+        }
+    }
+
+    /// Tails Python stderr into a log file under the agent workdir so
+    /// SDK crashes are inspectable after the websocket is up.
+    private static func attachStderrTail(handle: FileHandle, to logURL: URL) {
+        if !FileManager.default.fileExists(atPath: logURL.path) {
+            FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        }
+        if let writer = try? FileHandle(forWritingTo: logURL) {
+            _ = try? writer.seekToEnd()
+            let stamp = ISO8601DateFormatter().string(from: Date())
+            try? writer.write(contentsOf: Data("\n──── sidecar started \(stamp) ────\n".utf8))
+            try? writer.close()
+        }
+        handle.readabilityHandler = { fh in
+            let chunk = fh.availableData
+            guard !chunk.isEmpty else { return }
+            FileHandle.standardError.write(chunk)
+            if let writer = try? FileHandle(forWritingTo: logURL) {
+                defer { try? writer.close() }
+                _ = try? writer.seekToEnd()
+                try? writer.write(contentsOf: chunk)
+            }
         }
     }
 

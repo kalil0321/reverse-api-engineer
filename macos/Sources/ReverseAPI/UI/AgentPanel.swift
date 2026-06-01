@@ -24,11 +24,12 @@ struct AgentPanel: View {
 
 private struct ActiveSessionView: View {
     @Environment(AppState.self) private var state
+    @State private var isSettingsVisible = false
 
     var body: some View {
         @Bindable var agent = state.agent
         VStack(spacing: 0) {
-            SessionHeader(target: $agent.target)
+            SessionHeader(target: $agent.target, isSettingsVisible: $isSettingsVisible)
             AgentTimeline(
                 events: agent.events,
                 flowCount: flowsToSend.count,
@@ -37,7 +38,10 @@ private struct ActiveSessionView: View {
                 error: agent.lastError,
                 status: agent.status
             )
-            AgentComposer(input: $agent.input, status: agent.status, onSend: send)
+            AgentComposer(agent: agent, input: $agent.input, status: agent.status, onSend: send)
+        }
+        .sheet(isPresented: $isSettingsVisible) {
+            AgentSettingsView(agent: state.agent, isPresented: $isSettingsVisible)
         }
     }
 
@@ -59,6 +63,7 @@ private struct ActiveSessionView: View {
 private struct SessionHeader: View {
     @Environment(AppState.self) private var state
     @Binding var target: AgentTargetLanguage
+    @Binding var isSettingsVisible: Bool
 
     var body: some View {
         HStack(spacing: 8) {
@@ -75,6 +80,17 @@ private struct SessionHeader: View {
             .help("Back to sessions")
             Spacer()
             LanguageMenu(target: $target)
+            Button {
+                isSettingsVisible = true
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(width: 22, height: 22)
+                    .background(Theme.elevated, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help("Settings — model, usage, cost")
         }
         .padding(.horizontal, 14)
         .frame(height: 44)
@@ -129,10 +145,15 @@ private struct AgentTimeline: View {
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 18) {
-                        ForEach(events) { event in
-                            AgentEventRow(event: event)
-                                .id(event.id)
+                    // 12pt between adjacent timeline rows — was 18 which
+                    // left visible gaps after the new minimal V4 narrative
+                    // tool-call lines (which barely have any internal
+                    // padding of their own). 12 keeps rows distinct
+                    // without feeling sparse.
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        ForEach(groupedEvents) { group in
+                            timelineGroup(group)
+                                .id(group.id)
                         }
                         if status == .streaming {
                             ThinkingRow()
@@ -159,12 +180,74 @@ private struct AgentTimeline: View {
             }
         }
     }
+
+    /// Pair adjacent `toolUse` + `toolResult` events so the renderer can
+    /// display them in a single unified `ToolCallView` card instead of
+    /// two visually disconnected rows. Unpaired `toolUse` (still
+    /// in-flight, no result yet) renders with a running indicator;
+    /// unpaired `toolResult` (shouldn't normally happen) falls through
+    /// as a standalone row.
+    private var groupedEvents: [TimelineGroup] {
+        var groups: [TimelineGroup] = []
+        var i = 0
+        while i < events.count {
+            let event = events[i]
+            if case .toolUse(_, let useID, let name, let inputJSON) = event {
+                if i + 1 < events.count,
+                   case .toolResult(_, _, let output, let isError) = events[i + 1] {
+                    groups.append(.toolPair(
+                        id: useID,
+                        name: name,
+                        inputJSON: inputJSON,
+                        result: .init(output: output, isError: isError)
+                    ))
+                    i += 2
+                    continue
+                }
+                groups.append(.toolPair(
+                    id: useID,
+                    name: name,
+                    inputJSON: inputJSON,
+                    result: nil
+                ))
+                i += 1
+                continue
+            }
+            groups.append(.single(event))
+            i += 1
+        }
+        return groups
+    }
+
+    @ViewBuilder
+    private func timelineGroup(_ group: TimelineGroup) -> some View {
+        switch group {
+        case .single(let event):
+            AgentEventRow(event: event)
+        case .toolPair(_, let name, let inputJSON, let result):
+            ToolCallView(name: name, inputJSON: inputJSON, result: result)
+        }
+    }
+}
+
+/// Either a standalone timeline event or a tool-call/result pair that
+/// should render as one unified card.
+private enum TimelineGroup: Identifiable {
+    case single(AgentEvent)
+    case toolPair(id: UUID, name: String, inputJSON: String, result: ToolCallView.ToolResult?)
+
+    var id: AnyHashable {
+        switch self {
+        case .single(let event): return AnyHashable(event.id)
+        case .toolPair(let id, _, _, _): return AnyHashable(id)
+        }
+    }
 }
 
 private struct EmptyAgentState: View {
     var body: some View {
-        Image(systemName: "chevron.left.forwardslash.chevron.right")
-            .font(.system(size: 42, weight: .light))
+        Text("*")
+            .font(.fraunces(size: 56, weight: 400))
             .foregroundStyle(Theme.textTertiary)
     }
 }
@@ -180,15 +263,23 @@ private struct AgentEventRow: View {
             UserMessageRow(text: text)
         case .assistantText(_, _, let text):
             AssistantRow(text: text)
-        case .assistantTextChunk, .sessionStarted:
-            // Chunks are folded into the active assistantText event by
-            // AgentSession; sessionStarted is metadata only — neither is
-            // rendered as a standalone timeline row.
+        case .assistantTextChunk, .sessionStarted, .usage, .cancelled:
+            // Chunks are folded into the active assistantText event;
+            // sessionStarted / usage / cancelled are metadata only —
+            // not rendered as standalone timeline rows.
             EmptyView()
         case .toolUse(_, _, let name, let inputJSON):
-            ToolUseRow(name: name, inputJSON: inputJSON)
-        case .toolResult(_, _, let output, let isError):
-            ToolResultRow(output: output, isError: isError)
+            // Normally folded into the preceding `toolPair` group; this
+            // path only fires if the timeline ordering breaks (a tool_use
+            // without a matching tool_result reaching the group pass).
+            // Render the unified card with no result so the user still
+            // sees what the agent tried to invoke.
+            ToolCallView(name: name, inputJSON: inputJSON, result: nil)
+        case .toolResult:
+            // Same story — should already be paired with its tool_use at
+            // the group level. If we get here standalone, suppress: a
+            // bare result without context is just noise.
+            EmptyView()
         case .fileWritten(_, _, let path):
             FileWrittenRow(path: path)
         case .complete(_, _, _, let files):
@@ -232,60 +323,175 @@ private struct AssistantRow: View {
     }
 }
 
-private struct ToolUseRow: View {
+/// Unified tool-call card — renders a tool's invocation AND its result
+/// inside a single rounded container. The two sections share the same
+/// border, the same expand toggle, and are split only by a thin internal
+/// divider so the eye reads them as one logical unit instead of two
+/// disconnected rows.
+///
+/// The `result` is optional because `tool_use` events stream in before
+/// the matching `tool_result` lands. When `result == nil` we show a
+/// "running" indicator in the header. Once the matching result arrives,
+/// the timeline regroups events and re-renders this card with the
+/// populated result section.
+/// V4 Cursor-narrative tool-call card (picked from the DesignLab pass).
+/// One line of plain prose summarising what the agent just did
+/// (`"Read flows.json"`, `"Ran a shell command to extract GraphQL
+/// shapes"`, …) with an eye button on the right to peek at the raw
+/// result body. While the tool is still in-flight (no result event
+/// yet), the eye is replaced by a running spinner.
+///
+/// Why this style: tool calls are signal, not chrome. The agent's
+/// reasoning reads like a normal conversation; tool actions slot into
+/// that conversation as one-liners that don't demand visual real
+/// estate unless the user explicitly asks to see the raw bytes.
+struct ToolCallView: View {
     let name: String
     let inputJSON: String
-    @State private var isExpanded: Bool = false
+    let result: ToolResult?
+    @State private var isPeeking: Bool = false
+
+    struct ToolResult {
+        let output: String
+        let isError: Bool
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                if !inputJSON.isEmpty { isExpanded.toggle() }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: iconName)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Theme.textSecondary)
-                        .frame(width: 16)
-                    Text(name)
-                        .font(.system(.caption, design: .monospaced).weight(.semibold))
-                        .foregroundStyle(Theme.textPrimary)
-                    if let summary = inlineSummary {
-                        Text(summary)
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(Theme.textSecondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Spacer(minLength: 4)
-                    if !inputJSON.isEmpty {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(Theme.textTertiary)
-                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                    }
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: iconName)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.textTertiary)
+                    .frame(width: 14, alignment: .center)
+                Text(narrative)
+                    .font(.callout)
+                    .foregroundStyle(Theme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 6)
+                trailingControl
             }
-            .buttonStyle(.plain)
-
-            if isExpanded, !inputJSON.isEmpty {
-                Divider().overlay(Theme.border)
-                Text(inputJSON)
+            if isPeeking, let result, !result.output.isEmpty {
+                Text(result.output)
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(Theme.textSecondary)
+                    .foregroundStyle(result.isError ? Theme.danger : Theme.textSecondary)
                     .textSelection(.enabled)
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Theme.elevated.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8).stroke(Theme.border, lineWidth: 1)
+                    )
+                    .padding(.leading, 22)
             }
         }
-        .background(Theme.elevated, in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8).stroke(Theme.border, lineWidth: 1)
+    }
+
+    @ViewBuilder
+    private var trailingControl: some View {
+        if result == nil {
+            ProgressView()
+                .controlSize(.small)
+                .scaleEffect(0.7)
+                .frame(width: 22, height: 22)
+        } else if let result, !result.output.isEmpty {
+            Button { isPeeking.toggle() } label: {
+                Image(systemName: isPeeking ? "eye.slash" : "eye")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.textTertiary)
+                    .frame(width: 22, height: 22)
+                    .background(Theme.elevated, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help(isPeeking ? "Hide output" : "Show output")
+        } else if let result {
+            Image(systemName: result.isError ? "exclamationmark.octagon.fill" : "checkmark")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(result.isError ? Theme.danger : Theme.success)
+                .frame(width: 22, height: 22)
         }
+    }
+
+    // MARK: - Narrative generation
+
+    /// One-line natural-language summary of the call. Prefers the tool's
+    /// `description` argument when present (Bash + agent-friendly tools
+    /// populate it with intent like "Extract GraphQL shapes"). Falls
+    /// back to tool-specific arg extraction (file_path, command, …) so
+    /// even a description-less call still reads as something a human
+    /// would say.
+    private var narrative: String {
+        let parsed = parsedInput
+        let suffix = resultSuffix
+
+        if let desc = parsed["description"] as? String, !desc.isEmpty {
+            switch name {
+            case "Bash":
+                let lowered = desc.first.map { String($0).lowercased() + desc.dropFirst() } ?? desc
+                return "Ran a shell command to \(lowered)\(suffix)"
+            default:
+                return "\(name) — \(desc)\(suffix)"
+            }
+        }
+
+        switch name {
+        case "Read":
+            if let path = parsed["file_path"] as? String ?? parsed["path"] as? String {
+                return "Read \(filename(path))\(suffix)"
+            }
+            return "Read a file\(suffix)"
+        case "Write":
+            if let path = parsed["file_path"] as? String ?? parsed["path"] as? String {
+                return "Wrote \(filename(path))\(suffix)"
+            }
+            return "Wrote a file\(suffix)"
+        case "Edit":
+            if let path = parsed["file_path"] as? String ?? parsed["path"] as? String {
+                return "Edited \(filename(path))\(suffix)"
+            }
+            return "Edited a file\(suffix)"
+        case "Bash":
+            if let cmd = parsed["command"] as? String, !cmd.isEmpty {
+                let short = cmd.count > 60
+                    ? String(cmd.prefix(57)) + "…"
+                    : cmd
+                return "Ran \(short)\(suffix)"
+            }
+            return "Ran a shell command\(suffix)"
+        case "Glob":
+            if let pattern = parsed["pattern"] as? String {
+                return "Searched for files matching \(pattern)\(suffix)"
+            }
+            return "Searched the filesystem\(suffix)"
+        case "Grep":
+            if let pattern = parsed["pattern"] as? String {
+                return "Grepped for \(pattern)\(suffix)"
+            }
+            return "Grepped for a pattern\(suffix)"
+        default:
+            return "\(name) call\(suffix)"
+        }
+    }
+
+    /// Trailing summary about the result: " — N lines", " — error",
+    /// "" (silent on empty success), or "…" while still in flight.
+    private var resultSuffix: String {
+        guard let result else { return "…" }
+        if result.isError { return " — error" }
+        if result.output.isEmpty { return "" }
+        let lines = result.output.split(separator: "\n", omittingEmptySubsequences: false).count
+        return lines == 1 ? " — 1 line of output" : " — \(lines) lines of output"
+    }
+
+    private var parsedInput: [String: Any] {
+        guard !inputJSON.isEmpty,
+              let data = inputJSON.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return [:] }
+        return obj
+    }
+
+    private func filename(_ path: String) -> String {
+        (path as NSString).lastPathComponent
     }
 
     private var iconName: String {
@@ -298,80 +504,36 @@ private struct ToolUseRow: View {
         default: return "wrench.adjustable"
         }
     }
-
-    /// Pull the most relevant argument out of the tool input JSON so we can
-    /// show "Read · flows.json" instead of just the tool name on its own row.
-    private var inlineSummary: String? {
-        guard !inputJSON.isEmpty,
-              let data = inputJSON.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return nil }
-
-        let candidates = ["file_path", "path", "command", "pattern", "url", "query"]
-        for key in candidates {
-            if let value = obj[key] as? String, !value.isEmpty {
-                if key.hasSuffix("path") {
-                    return "· " + (value as NSString).lastPathComponent
-                }
-                return "· " + value
-            }
-        }
-        return nil
-    }
 }
 
-private struct ToolResultRow: View {
-    let output: String
-    let isError: Bool
-    @State private var isExpanded: Bool = false
+/// Small "copy to clipboard" affordance used inside expanded tool-call /
+/// tool-result panels. Flashes a checkmark for 1.2s after a copy so the
+/// user gets feedback without a noisy toast.
+private struct InlineCopyButton: View {
+    let text: String
+    @State private var didCopy = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                isExpanded.toggle()
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: isError ? "exclamationmark.octagon" : "checkmark")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(isError ? Theme.danger : Theme.success)
-                        .frame(width: 16)
-                    Text(headline)
-                        .font(.caption)
-                        .foregroundStyle(Theme.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer(minLength: 4)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Theme.textTertiary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+        Button {
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(text, forType: .string)
+            withAnimation(.easeInOut(duration: 0.18)) { didCopy = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                withAnimation(.easeInOut(duration: 0.18)) { didCopy = false }
             }
-            .buttonStyle(.plain)
-
-            if isExpanded {
-                Divider().overlay(Theme.border)
-                Text(output.isEmpty ? "(empty)" : output)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(isError ? Theme.danger : Theme.textSecondary)
-                    .textSelection(.enabled)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+        } label: {
+            Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(didCopy ? Theme.success : Theme.textTertiary)
+                .frame(width: 22, height: 22)
+                .background(Theme.elevated, in: RoundedRectangle(cornerRadius: 5))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5).stroke(Theme.border, lineWidth: 1)
+                )
         }
-        .padding(.leading, 24) // align under ToolUseRow's content
-    }
-
-    private var headline: String {
-        if isError { return "Error" }
-        let firstLine = output.split(separator: "\n", omittingEmptySubsequences: true).first.map(String.init) ?? ""
-        if firstLine.isEmpty { return "Done" }
-        let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
-        return trimmed.count > 80 ? String(trimmed.prefix(80)) + "…" : trimmed
+        .buttonStyle(.plain)
+        .help(didCopy ? "Copied" : "Copy to clipboard")
     }
 }
 
@@ -453,20 +615,33 @@ private struct ErrorRow: View {
 }
 
 private struct ThinkingRow: View {
-    @State private var phase: Int = 0
-    private let timer = Timer.publish(every: 0.45, on: .main, in: .common).autoconnect()
+    @State private var start = Date()
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<3) { i in
-                Circle()
-                    .fill(Theme.textSecondary)
-                    .frame(width: 5, height: 5)
-                    .opacity(phase == i ? 1 : 0.3)
-            }
-        }
-        .onReceive(timer) { _ in
-            phase = (phase + 1) % 3
+        TimelineView(.animation) { context in
+            let elapsed = context.date.timeIntervalSince(start)
+            let cycle: Double = 2.6
+            let phase = elapsed.truncatingRemainder(dividingBy: cycle) / cycle
+            // -0.5..1.5 so the band enters / exits off-screen rather
+            // than appearing abruptly at the edges.
+            let center = phase * 2.0 - 0.5
+            Text("thinking…")
+                .font(.callout.weight(.medium))
+                .foregroundStyle(
+                    LinearGradient(
+                        stops: [
+                            .init(color: Theme.textSecondary, location: 0),
+                            .init(color: Theme.textSecondary, location: max(0, center - 0.35)),
+                            .init(color: Theme.textPrimary, location: max(0, min(1, center - 0.1))),
+                            .init(color: Theme.brandPink, location: max(0, min(1, center))),
+                            .init(color: Theme.textPrimary, location: min(1, center + 0.1)),
+                            .init(color: Theme.textSecondary, location: min(1, center + 0.35)),
+                            .init(color: Theme.textSecondary, location: 1),
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
         }
     }
 }
@@ -531,12 +706,13 @@ private struct GeneratedFilesRow: View {
 // MARK: - Composer
 
 private struct AgentComposer: View {
+    @Bindable var agent: AgentSession
     @Binding var input: String
     let status: AgentSession.Status
     let onSend: () -> Void
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             ZStack(alignment: .topLeading) {
                 if input.isEmpty {
                     Text("Ask the agent…")
@@ -551,35 +727,40 @@ private struct AgentComposer: View {
                 })
                 .frame(minHeight: 22, maxHeight: 120)
             }
-
-            Button(action: { if canSend { onSend() } }) {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 12, weight: .bold))
-                    // Cream/dark icon on pink — high contrast, brand-led.
-                    .foregroundStyle(canSend ? Color.white : Theme.textTertiary)
-                    .frame(width: 28, height: 28)
-                    .background(
-                        // Brand pink while the user has typed something to
-                        // send — the primary action of the entire panel
-                        // earns the brand color. Falls back to neutral
-                        // `Theme.elevated` when disabled so we don't bait
-                        // a click on an empty composer.
-                        canSend ? Theme.brandPink : Theme.elevated,
-                        in: Circle()
-                    )
+            HStack(alignment: .center, spacing: 8) {
+                ModelPickerPill(agent: agent)
+                Spacer(minLength: 0)
+                if status == .streaming {
+                    Button { Task { await agent.cancel() } } label: {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Color.white)
+                            .frame(width: 26, height: 26)
+                            .background(Theme.brandPink, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop generating")
+                } else {
+                    Button(action: { if canSend { onSend() } }) {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(canSend ? Color.white : Theme.textTertiary)
+                            .frame(width: 26, height: 26)
+                            .background(
+                                canSend ? Theme.brandPink : Theme.elevated,
+                                in: Circle()
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canSend)
+                    .help("Send")
+                }
             }
-            .buttonStyle(.plain)
-            .disabled(!canSend)
-            .help("Send")
         }
         .padding(10)
-        .background(Theme.input, in: RoundedRectangle(cornerRadius: 12))
         .overlay(
-            // 1pt outline so the composer reads as a focused input even
-            // before the background lift kicks in — works in both
-            // appearances since `Theme.border` is dynamic.
             RoundedRectangle(cornerRadius: 12)
-                .stroke(Theme.border, lineWidth: 1)
+                .stroke(Theme.borderStrong, lineWidth: 1)
         )
         .padding(12)
         .background(Theme.surface)
@@ -588,6 +769,127 @@ private struct AgentComposer: View {
     private var canSend: Bool {
         guard !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         return status != .launching
+    }
+}
+
+struct ModelPickerPill: View {
+    @Bindable var agent: AgentSession
+
+    private static let presets: [(id: String, label: String)] = [
+        ("claude-opus-4-7", "Opus 4.7"),
+        ("claude-sonnet-4-6", "Sonnet 4.6"),
+        ("claude-haiku-4-5-20251001", "Haiku 4.5"),
+    ]
+
+    @State private var showingCustomSheet = false
+    @State private var customModel: String = ""
+
+    var body: some View {
+        Menu {
+            ForEach(Self.presets, id: \.id) { preset in
+                Button {
+                    agent.selectedModel = preset.id
+                } label: {
+                    HStack {
+                        Text(preset.label)
+                        Spacer()
+                        if agent.selectedModel == preset.id { Image(systemName: "checkmark") }
+                    }
+                }
+            }
+            Divider()
+            Button {
+                customModel = isCustom ? agent.selectedModel : ""
+                showingCustomSheet = true
+            } label: {
+                HStack {
+                    Text("Custom model ID…")
+                    Spacer()
+                    if isCustom { Image(systemName: "checkmark") }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                ClaudeMark(size: 12)
+                Text(displayLabel)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Color.white)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.55))
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(Theme.brandPink.opacity(0.10), in: Capsule())
+            .overlay(Capsule().stroke(Theme.brandPink.opacity(0.35), lineWidth: 1))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .sheet(isPresented: $showingCustomSheet) {
+            CustomModelSheet(
+                current: $customModel,
+                isPresented: $showingCustomSheet,
+                onApply: { value in
+                    let trimmed = value.trimmingCharacters(in: .whitespaces)
+                    if !trimmed.isEmpty {
+                        agent.selectedModel = trimmed
+                    }
+                }
+            )
+        }
+    }
+
+    private var displayLabel: String {
+        Self.presets.first(where: { $0.id == agent.selectedModel })?.label ?? agent.selectedModel
+    }
+
+    private var isCustom: Bool {
+        !Self.presets.contains(where: { $0.id == agent.selectedModel })
+    }
+}
+
+private struct CustomModelSheet: View {
+    @Binding var current: String
+    @Binding var isPresented: Bool
+    let onApply: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Custom model ID")
+                .font(.fraunces(size: 18, weight: 400))
+                .foregroundStyle(Theme.textPrimary)
+            Text("Any model id the Anthropic API recognises — e.g. `claude-3-5-sonnet-20241022`.")
+                .font(.caption)
+                .foregroundStyle(Theme.textSecondary)
+            TextField("claude-3-5-sonnet-20241022", text: $current)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(Theme.textPrimary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Theme.appBackground, in: RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6).stroke(Theme.border, lineWidth: 1)
+                )
+            HStack {
+                Spacer()
+                Button("Cancel") { isPresented = false }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.textSecondary)
+                Button("Apply") {
+                    onApply(current)
+                    isPresented = false
+                }
+                .buttonStyle(.plain)
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(Theme.brandPink)
+                .disabled(current.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(24)
+        .frame(width: 420)
+        .background(Theme.surface)
     }
 }
 

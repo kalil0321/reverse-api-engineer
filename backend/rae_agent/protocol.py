@@ -82,10 +82,8 @@ class ChatRequest:
     target: TargetLanguage
     flows: list[FlowSummary] = field(default_factory=list)
     history: list[dict[str, str]] = field(default_factory=list)
-    # The Claude Agent SDK session id from a previous turn. When present we
-    # pass it as ClaudeAgentOptions.resume so the SDK can re-attach to its
-    # own persisted state instead of replaying our local history.
     claude_session_id: str | None = None
+    model: str | None = None
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> "ChatRequest":
@@ -103,6 +101,8 @@ class ChatRequest:
         ]
         raw_sid = payload.get("claudeSessionId") or payload.get("claude_session_id")
         claude_session_id = str(raw_sid) if isinstance(raw_sid, str) and raw_sid else None
+        raw_model = payload.get("model")
+        model = str(raw_model).strip() if isinstance(raw_model, str) and raw_model.strip() else None
         return cls(
             id=str(payload.get("id", "")),
             user_message=str(payload.get("message", "")),
@@ -110,6 +110,7 @@ class ChatRequest:
             flows=flows,
             history=history,
             claude_session_id=claude_session_id,
+            model=model,
         )
 
 
@@ -159,8 +160,40 @@ class AgentEvent:
         )
 
     @classmethod
+    def usage(
+        cls,
+        chat_id: str,
+        model: str | None,
+        input_tokens: int,
+        output_tokens: int,
+        cache_creation_input_tokens: int,
+        cache_read_input_tokens: int,
+        total_cost_usd: float | None,
+        duration_ms: int,
+        num_turns: int,
+    ) -> "AgentEvent":
+        return cls(
+            type="usage",
+            payload={
+                "id": chat_id,
+                "model": model,
+                "inputTokens": input_tokens,
+                "outputTokens": output_tokens,
+                "cacheCreationInputTokens": cache_creation_input_tokens,
+                "cacheReadInputTokens": cache_read_input_tokens,
+                "totalCostUsd": total_cost_usd,
+                "durationMs": duration_ms,
+                "numTurns": num_turns,
+            },
+        )
+
+    @classmethod
     def error(cls, chat_id: str | None, message: str) -> "AgentEvent":
         payload: dict[str, Any] = {"message": message}
         if chat_id is not None:
             payload["id"] = chat_id
         return cls(type="error", payload=payload)
+
+    @classmethod
+    def cancelled(cls, chat_id: str) -> "AgentEvent":
+        return cls(type="cancelled", payload={"id": chat_id})

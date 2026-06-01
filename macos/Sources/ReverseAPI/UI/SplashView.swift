@@ -35,13 +35,17 @@ struct SplashView: View {
 
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text("*")
-                        .font(.fraunces(size: 96, weight: 600))
+                        // Web spec for the "* rae" lockup: weight 400 +
+                        // italic + opsz 144 + SOFT 100 + WONK 1 (the last
+                        // three are the Font.fraunces helper's defaults
+                        // so they don't appear here explicitly).
+                        .font(.fraunces(size: 96, weight: 400))
                         .foregroundStyle(Theme.brandPink)
                         .baselineOffset(-10)
                         .scaleEffect(asteriskScale, anchor: .center)
                         .rotationEffect(.degrees(asteriskRotation))
                     Text("rae")
-                        .font(.fraunces(size: 76, weight: 600))
+                        .font(.fraunces(size: 76, weight: 400))
                         .foregroundStyle(Theme.textPrimary)
                         .opacity(wordmarkOpacity)
                         .offset(x: wordmarkOffset)
