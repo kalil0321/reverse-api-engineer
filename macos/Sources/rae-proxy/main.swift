@@ -13,20 +13,39 @@ struct RAEProxyCLI {
 
             let engine = try ProxyEngine(root: root, port: options.port)
             try await engine.start()
+            // Try to enable the system proxy but don't make it fatal —
+            // automatic networksetup can fail under sandboxing,
+            // network-config locked by MDM, or missing privileges. Drop
+            // back to manual-proxy mode so the user can still point
+            // their own client at us.
             let systemProxy = options.systemProxy ? SystemProxyManager(port: options.port) : nil
-            try systemProxy?.apply()
+            var systemProxyActive = false
             if let systemProxy {
-                installTerminationHandlers {
-                    systemProxy.restore()
+                do {
+                    try systemProxy.apply()
+                    systemProxyActive = true
+                    installTerminationHandlers {
+                        systemProxy.restore()
+                    }
+                } catch {
+                    logger.error("system proxy setup failed, continuing without it: \(error)")
+                    fputs(
+                        "warning: could not enable the system proxy (\(error)). "
+                        + "Falling back to manual mode — point your client at "
+                        + "http://127.0.0.1:\(options.port).\n",
+                        stderr
+                    )
                 }
             }
             defer {
-                systemProxy?.restore()
+                if systemProxyActive { systemProxy?.restore() }
             }
 
             print("Proxy listening on 127.0.0.1:\(options.port)")
-            if options.systemProxy {
+            if systemProxyActive {
                 print("System HTTP/HTTPS proxy enabled. It will be restored on exit.")
+            } else if options.systemProxy {
+                print("System proxy unavailable — configure your client manually with HTTP/HTTPS proxy = 127.0.0.1:\(options.port).")
             } else {
                 print("System proxy disabled. Configure clients manually or omit --no-system-proxy.")
             }
