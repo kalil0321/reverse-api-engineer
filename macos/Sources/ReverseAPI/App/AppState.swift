@@ -1,6 +1,14 @@
 import Foundation
 import Observation
 import ReverseAPIProxy
+import Security
+
+/// Identifiable wrapper for the file the user is currently inspecting, used
+/// with SwiftUI's `.sheet(item:)` so toggling between files re-renders.
+struct AgentFileRef: Identifiable, Hashable {
+    let url: URL
+    var id: URL { url }
+}
 
 @MainActor
 @Observable
@@ -19,13 +27,32 @@ final class AppState {
     private(set) var lastError: String?
 
     var selectedFlowID: UUID?
+    /// Flows the user has explicitly checked to share with the agent on the
+    /// next send. When empty, the agent receives the filtered view instead.
+    var agentSelection: Set<UUID> = []
+    /// When set, ContentView shows AgentFileViewer for this path.
+    var viewingFile: AgentFileRef?
     var filter = TrafficFilter()
     var captureMode: CaptureMode = .device
+
+    func viewFile(at path: String) {
+        viewingFile = AgentFileRef(url: URL(fileURLWithPath: path))
+    }
+
+    func deleteFlows(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        if let selected = selectedFlowID, ids.contains(selected) {
+            selectedFlowID = nil
+        }
+        agentSelection.subtract(ids)
+        Task { await store.delete(ids: ids) }
+    }
 
     let store: FlowStore
     let engine: ProxyEngine
     let installer: CertificateTrustInstaller
     let systemProxy: SystemProxyController
+    let agent: AgentSession
 
     let port: Int
     let caDER: Data
@@ -48,10 +75,14 @@ final class AppState {
         let databaseURL = caStore.directory.appendingPathComponent("flows.sqlite")
         let store = try FlowStore(databaseURL: databaseURL)
 
+        let agentWorkdir = caStore.directory.appendingPathComponent("agent-sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: agentWorkdir, withIntermediateDirectories: true)
+
         self.store = store
         self.engine = engine
         self.installer = CertificateTrustInstaller()
         self.systemProxy = SystemProxyController()
+        self.agent = AgentSession(workdir: agentWorkdir)
         self.port = port
         self.caDER = Data(try root.derBytes())
         self.caPEM = try root.pem()
@@ -76,6 +107,9 @@ final class AppState {
         defer { isWorking = false }
 
         do {
+            if mode == .device {
+                try await ensureCATrustInstalled()
+            }
             try await engine.start()
 
             if mode == .device {
@@ -126,18 +160,30 @@ final class AppState {
         }
     }
 
+    private func ensureCATrustInstalled() async throws {
+        if installer.isInstalled(derBytes: caDER) {
+            caTrustInstalled = true
+            return
+        }
+
+        let installer = self.installer
+        let der = self.caDER
+        try await Task.detached(priority: .userInitiated) {
+            try installer.install(derBytes: der)
+        }.value
+        caTrustInstalled = installer.isInstalled(derBytes: caDER)
+        if !caTrustInstalled {
+            throw CertificateTrustError.trustFailed(errSecAuthFailed)
+        }
+    }
+
     func installCATrust() async {
         guard !isWorking else { return }
         isWorking = true
         defer { isWorking = false }
 
         do {
-            let installer = self.installer
-            let der = self.caDER
-            try await Task.detached(priority: .userInitiated) {
-                try installer.install(derBytes: der)
-            }.value
-            caTrustInstalled = true
+            try await ensureCATrustInstalled()
             lastError = nil
         } catch {
             lastError = "Failed to install CA trust: \(error)"
@@ -196,6 +242,10 @@ final class AppState {
             do {
                 try await store.clear()
                 selectedFlowID = nil
+                // Stale UUIDs in agentSelection would leave the agent
+                // panel in "N selected" mode with nothing to actually
+                // send — wipe alongside the flows.
+                agentSelection.removeAll()
                 lastError = nil
             } catch {
                 lastError = "Failed to clear flows: \(error)"

@@ -5,13 +5,12 @@ import SwiftUI
 struct ReverseAPIApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var session = AppSession.live()
-    @AppStorage("rae.sidebar.visible") private var isSidebarVisible = true
 
     var body: some Scene {
         Window("rae", id: "main") {
             switch session {
             case .ready(let state):
-                ContentView(isSidebarVisible: $isSidebarVisible)
+                ContentView()
                     .environment(state)
                     .onAppear {
                         AppLifecycle.shared.state = state
@@ -19,10 +18,22 @@ struct ReverseAPIApp: App {
                     .onDisappear {
                         Task { await state.shutdownForWindowClose() }
                     }
+                    .background(WindowAccessor { window in
+                        window.title = ""
+                        window.titleVisibility = .hidden
+                        window.titlebarAppearsTransparent = true
+                        window.isOpaque = true
+                        window.backgroundColor = NSColor(Theme.appBackground)
+                    })
                     .frame(
+                        // Bumped so the traffic card can always fit
+                        // table+inspector side by side (its inner HSplitView
+                        // needs ~700pt) without compressing past its
+                        // rounded border into a glitchy state. Old 980pt
+                        // window minimum was below that threshold.
                         minWidth: 1100,
                         maxWidth: .infinity,
-                        minHeight: 700,
+                        minHeight: 640,
                         maxHeight: .infinity,
                         alignment: .topLeading
                     )
@@ -35,12 +46,6 @@ struct ReverseAPIApp: App {
         .windowToolbarStyle(.unifiedCompact)
         .commands {
             CommandGroup(replacing: .newItem) {}
-            CommandGroup(after: .toolbar) {
-                Button(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar") {
-                    isSidebarVisible.toggle()
-                }
-                .keyboardShortcut("b", modifiers: .command)
-            }
         }
     }
 }
@@ -58,18 +63,20 @@ final class AppLifecycle {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var keyMonitor: Any?
     private var isTerminating = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            let togglesSidebar = event.charactersIgnoringModifiers?.lowercased() == "b" &&
-                modifiers == .command
-            guard togglesSidebar else { return event }
-            NotificationCenter.default.post(name: .toggleRaeSidebar, object: nil)
-            return nil
-        }
+        // `swift run` launches a bare SwiftPM executable with no .app bundle
+        // and no Info.plist, so macOS doesn't treat it as a regular GUI app —
+        // the window never reliably becomes key and AppKit text fields can't
+        // become first responder, which is why typing into the search palette
+        // and agent composer silently fails. Explicitly switching to .regular
+        // activation policy and activating in front of other apps gives the
+        // process a proper foreground app status. No-op when the binary is
+        // launched from a real .app bundle.
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.appearance = NSAppearance(named: .darkAqua)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -91,18 +98,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     func applicationWillTerminate(_ notification: Notification) {
-        if let keyMonitor {
-            NSEvent.removeMonitor(keyMonitor)
-            self.keyMonitor = nil
-        }
         if !isTerminating {
             AppLifecycle.shared.restoreProxyBeforeExit()
         }
     }
-}
-
-extension Notification.Name {
-    static let toggleRaeSidebar = Notification.Name("rae.toggleSidebar")
 }
 
 enum AppSession {
@@ -116,6 +115,50 @@ enum AppSession {
         } catch {
             return .failed(error)
         }
+    }
+}
+
+/// Grabs the hosting NSWindow once it's attached so we can tweak title visibility,
+/// titlebar transparency, and the window background — none of which SwiftUI's
+/// Scene API exposes. Uses `viewDidMoveToWindow` so the window is guaranteed
+/// to exist when `configure` runs (unlike DispatchQueue.main.async hacks).
+private struct WindowAccessor: NSViewRepresentable {
+    let configure: (NSWindow) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = WindowReadingView()
+        view.onWindow = configure
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if let view = nsView as? WindowReadingView {
+            view.onWindow = configure
+        }
+    }
+
+    final class WindowReadingView: NSView {
+        var onWindow: ((NSWindow) -> Void)?
+        private var configured = false
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window, !configured else { return }
+            configured = true
+            // Defer to next runloop tick — running AppKit window mutations during
+            // the SwiftUI hosting view's first layout can throw inside Core
+            // Animation's commit phase on macOS 14+.
+            DispatchQueue.main.async { [weak self] in
+                self?.onWindow?(window)
+            }
+        }
+
+        // Never intercept mouse / keyboard events: this view exists solely to
+        // bridge SwiftUI to its hosting NSWindow, not to participate in the
+        // responder or hit-testing chain. Returning nil lets clicks fall
+        // through to the SwiftUI content below.
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override var acceptsFirstResponder: Bool { false }
     }
 }
 
