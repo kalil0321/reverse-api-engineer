@@ -1,6 +1,6 @@
 [project]
 name = "reverse-api-engineer"
-version = "0.9.0"
+version = "0.10.0"
 description = "The agent that turns websites into APIs."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -98,6 +98,7 @@ exclude = [
     ".claude/worktrees/**",
     ".claude/plans/**",
     "src/reverse_api/cursor_bridge/node_modules/**",
+    "website/**",
 ]
 
 [dependency-groups]

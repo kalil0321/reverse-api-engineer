@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-01
+
 ### Changed
 - **Packaging metadata**: Refreshed the package `description`, `keywords`, and `classifiers`, bumped `Development Status` to `4 - Beta`, and updated the project URLs (`Homepage` now points to https://reverseapi.dev, added `Documentation` and `Changelog`)
+- **Source distribution excludes `website/`**: The marketing site under `website/` (Astro/Cloudflare Pages source) is now excluded from the sdist build so it no longer ships inside the PyPI package; the wheel already only packaged `src/reverse_api`
 
 ### Added
 
