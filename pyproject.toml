@@ -1,24 +1,48 @@
 [project]
 name = "reverse-api-engineer"
 version = "0.9.0"
-description = "A tool to capture browser traffic for API reverse engineering"
+description = "The agent that turns websites into APIs."
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
     { name = "Kalil", email = "kalil0321@users.noreply.github.com" }
 ]
 license = { text = "MIT" }
-keywords = ["api", "reverse-engineering", "browser", "har", "playwright", "claude"]
+keywords = [
+    "api",
+    "api-client",
+    "reverse-engineering",
+    "web-scraping",
+    "scraping",
+    "ai",
+    "llm",
+    "agent",
+    "claude",
+    "claude-code",
+    "mcp",
+    "har",
+    "playwright",
+    "browser-automation",
+    "code-generation",
+    "codegen",
+    "python",
+    "typescript",
+    "openapi",
+]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Code Generators",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+    "Environment :: Console",
+    "Operating System :: OS Independent",
 ]
 dependencies = [
     "playwright>=1.40.0",
@@ -45,9 +69,11 @@ copilot = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/kalil0321/reverse-api-engineer"
+Homepage = "https://reverseapi.dev"
+Documentation = "https://reverseapi.dev/docs"
 Repository = "https://github.com/kalil0321/reverse-api-engineer"
 Issues = "https://github.com/kalil0321/reverse-api-engineer/issues"
+Changelog = "https://github.com/kalil0321/reverse-api-engineer/releases"
 
 [project.scripts]
 reverse-api-engineer = "reverse_api.cli:main"

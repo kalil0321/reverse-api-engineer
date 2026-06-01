@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Packaging metadata**: Refreshed the package `description`, `keywords`, and `classifiers`, bumped `Development Status` to `4 - Beta`, and updated the project URLs (`Homepage` now points to https://reverseapi.dev, added `Documentation` and `Changelog`)
+
 ### Added
 
 - **`agent_provider: "agent-browser"`**: Shell-driven **[Vercel agent-browser CLI](https://github.com/vercel-labs/agent-browser)**—RAE prefers an `agent-browser` binary on `PATH`, otherwise runs **`npm install -g <pin>`** (with a console notice), validates **`--help`**, and only then falls back to **`npx -y <pin>`** if npm cannot install. Prompts embed the resolved shell prefix plus **`skills get …` / `skills list`**, HAR flows, and optional `agent_browser_notes`. No bundled browser MCP shim; pin via `agent_browser_npx_package` / `RAE_AGENT_BROWSER_PACKAGE`.
