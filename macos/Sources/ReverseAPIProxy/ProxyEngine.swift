@@ -57,14 +57,28 @@ public final class ProxyEngine: @unchecked Sendable {
     }
 
     public func stop() async throws {
-        guard let channel = serverChannel else { return }
-        defer { serverChannel = nil }
-        do {
-            try await channel.close().get()
-        } catch ChannelError.alreadyClosed {
-            logger.info("proxy channel already closed")
+        // Always shutdown the event-loop group, even when the channel
+        // close fails — otherwise NIO threads leak on every restart.
+        var closeError: Error?
+        if let channel = serverChannel {
+            serverChannel = nil
+            do {
+                try await channel.close().get()
+            } catch ChannelError.alreadyClosed {
+                logger.info("proxy channel already closed")
+            } catch {
+                closeError = error
+            }
         }
-        try await group.shutdownGracefully()
+        do {
+            try await group.shutdownGracefully()
+        } catch {
+            logger.error("event-loop shutdown failed: \(error)")
+            // Re-throw the shutdown failure if we don't already have
+            // a more specific channel error to surface.
+            if closeError == nil { throw error }
+        }
+        if let closeError { throw closeError }
         logger.info("proxy stopped")
     }
 }

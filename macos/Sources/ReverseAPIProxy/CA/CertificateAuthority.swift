@@ -61,6 +61,18 @@ public enum CertificateAuthority {
     public static func loadRoot(certificatePEM: String, privateKeyPEM: String) throws -> RootCertificate {
         let certificate = try Certificate(pemEncoded: certificatePEM)
         let privateKey = try Certificate.PrivateKey(pemEncoded: privateKeyPEM)
+        // Reject mismatched pairs at load time. Without this, a
+        // de-synced cert/key on disk (concurrent writes, manual edit,
+        // partial restore) silently breaks every TLS interception
+        // until the next regen — and the breakage looks like an
+        // upstream cert error, not a local config issue.
+        guard privateKey.publicKey == certificate.publicKey else {
+            throw CertificateAuthorityError.keyPairMismatch
+        }
         return RootCertificate(certificate: certificate, privateKey: privateKey)
     }
+}
+
+public enum CertificateAuthorityError: Error, Equatable {
+    case keyPairMismatch
 }
