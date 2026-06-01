@@ -30,13 +30,3 @@ struct ClaudeMark: View {
 }
 
 typealias AnthropicMark = ClaudeMark
-
-#Preview {
-    HStack(spacing: 12) {
-        ClaudeMark(size: 14)
-        ClaudeMark(size: 22)
-        ClaudeMark(size: 36)
-    }
-    .padding(20)
-    .background(Color.black)
-}

@@ -323,23 +323,11 @@ private struct AssistantRow: View {
     }
 }
 
-/// Unified tool-call card — renders a tool's invocation AND its result
-/// inside a single rounded container. The two sections share the same
-/// border, the same expand toggle, and are split only by a thin internal
-/// divider so the eye reads them as one logical unit instead of two
-/// disconnected rows.
-///
-/// The `result` is optional because `tool_use` events stream in before
-/// the matching `tool_result` lands. When `result == nil` we show a
-/// "running" indicator in the header. Once the matching result arrives,
-/// the timeline regroups events and re-renders this card with the
-/// populated result section.
-/// V4 Cursor-narrative tool-call card (picked from the DesignLab pass).
-/// One line of plain prose summarising what the agent just did
-/// (`"Read flows.json"`, `"Ran a shell command to extract GraphQL
-/// shapes"`, …) with an eye button on the right to peek at the raw
-/// result body. While the tool is still in-flight (no result event
-/// yet), the eye is replaced by a running spinner.
+/// Cursor-narrative tool-call card. One line of plain prose summarising
+/// what the agent just did (`"Read flows.json"`, `"Ran a shell command
+/// to extract GraphQL shapes"`) with an eye button on the right to
+/// peek at the raw result body. While the tool is still in-flight (no
+/// result event yet), the eye is replaced by a running spinner.
 ///
 /// Why this style: tool calls are signal, not chrome. The agent's
 /// reasoning reads like a normal conversation; tool actions slot into
