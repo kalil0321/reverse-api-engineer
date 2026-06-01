@@ -1,10 +1,5 @@
 import Foundation
 
-/// Persistent on-disk representation of one agent conversation. Saved as
-/// `<agent-sessions-root>/<id>/session.json` next to the `flows/` +
-/// `out/` directories the Python sidecar already writes into for the
-/// same chat id, so everything for a given conversation lives in one
-/// folder.
 struct AgentSessionRecord: Codable {
     var id: String
     var title: String
@@ -15,15 +10,37 @@ struct AgentSessionRecord: Codable {
     var history: [AgentHistoryItem]
     var lastWorkdir: String?
     var generatedFiles: [String]
-    /// Claude Agent SDK session id captured on the first turn. When set,
-    /// subsequent sends pass it as `resume` so the SDK rehydrates the
-    /// conversation context on its end — we don't need to ship our
-    /// `history` array back over the wire.
     var claudeSessionID: String?
+    var selectedModel: String?
+    var sessionUsage: AgentUsage?
 }
 
-/// Lightweight summary shown in the sessions list — avoids decoding the
-/// full event timeline when we're just rendering a row.
+struct AgentSessionMetadata: Codable {
+    var id: String
+    var title: String
+    var createdAt: Date
+    var lastModifiedAt: Date
+    var target: AgentTargetLanguage
+    var lastWorkdir: String?
+    var generatedFiles: [String]
+    var claudeSessionID: String?
+    var selectedModel: String?
+    var sessionUsage: AgentUsage?
+
+    init(from record: AgentSessionRecord) {
+        self.id = record.id
+        self.title = record.title
+        self.createdAt = record.createdAt
+        self.lastModifiedAt = record.lastModifiedAt
+        self.target = record.target
+        self.lastWorkdir = record.lastWorkdir
+        self.generatedFiles = record.generatedFiles
+        self.claudeSessionID = record.claudeSessionID
+        self.selectedModel = record.selectedModel
+        self.sessionUsage = record.sessionUsage
+    }
+}
+
 struct AgentSessionSummary: Identifiable, Hashable, Sendable {
     let id: String
     let title: String

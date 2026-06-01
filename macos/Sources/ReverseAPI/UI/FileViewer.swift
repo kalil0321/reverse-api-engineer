@@ -2,9 +2,11 @@ import SwiftUI
 import AppKit
 
 /// Sheet that pops over the window when the user taps a file the agent
-/// wrote. Reads the file lazily, shows it monospaced with line numbers
-/// against `Theme.appBackground`, and adapts the chrome (language label,
-/// byte count) so it reads a bit like a diff viewer / GitHub blob preview.
+/// wrote. Reads the file lazily, runs it through `SyntaxColorizer` for
+/// language-aware coloring (Swift, Python, JS/TS, JSON, Shell, etc.),
+/// and renders it monospaced against `Theme.appBackground`. Inspired
+/// by GitHub's blob preview minus the chrome — no line numbers, no
+/// gutter, just the code.
 struct AgentFileViewer: View {
     let url: URL
     @Binding var isPresented: Bool
@@ -116,20 +118,25 @@ struct AgentFileViewer: View {
             .padding(20)
         } else {
             ScrollView([.vertical, .horizontal]) {
-                HStack(alignment: .top, spacing: 0) {
-                    LineGutter(lineCount: lineCount(content))
-                    Text(content)
-                        .font(.system(size: 12.5, weight: .regular, design: .monospaced))
-                        .foregroundStyle(Theme.textPrimary)
-                        .textSelection(.enabled)
-                        .lineSpacing(2)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                Text(highlightedContent)
+                    .font(.system(size: 12.5, weight: .regular, design: .monospaced))
+                    .textSelection(.enabled)
+                    .lineSpacing(2)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .background(Theme.appBackground)
         }
+    }
+
+    /// Run the file content through the shared `SyntaxColorizer` so we
+    /// get the same Dark+-ish palette as agent markdown code blocks
+    /// (`Markdown.swift`'s `.codeBlock`). Language is derived from the
+    /// file extension; unknown extensions fall back to plain text
+    /// coloring inside the colorizer.
+    private var highlightedContent: AttributedString {
+        SyntaxColorizer.colorize(content, language: url.pathExtension.lowercased())
     }
 
     // MARK: - Loading
@@ -149,14 +156,6 @@ struct AgentFileViewer: View {
             loadError = error.localizedDescription
         }
         isLoading = false
-    }
-
-    private func lineCount(_ text: String) -> Int {
-        if text.isEmpty { return 1 }
-        var count = 0
-        for char in text where char == "\n" { count += 1 }
-        if text.last != "\n" { count += 1 }
-        return count
     }
 
     // MARK: - Metadata
@@ -213,25 +212,3 @@ struct AgentFileViewer: View {
     }
 }
 
-private struct LineGutter: View {
-    let lineCount: Int
-
-    var body: some View {
-        VStack(alignment: .trailing, spacing: 0) {
-            ForEach(1...max(1, lineCount), id: \.self) { line in
-                Text("\(line)")
-                    .font(.system(size: 11.5, weight: .regular, design: .monospaced))
-                    .foregroundStyle(Theme.textTertiary)
-                    .lineSpacing(2)
-                    .frame(minWidth: 32, alignment: .trailing)
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 12)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .background(Theme.surface)
-        .overlay(alignment: .trailing) {
-            Rectangle().fill(Theme.border).frame(width: 1)
-        }
-    }
-}
