@@ -1,7 +1,7 @@
 import './global.css';
 import { Inter, JetBrains_Mono, Fraunces } from 'next/font/google';
 import type { Metadata } from 'next';
-import { appName, appTagline, gitConfig, siteUrl } from '@/lib/shared';
+import { appName, appTagline, siteUrl } from '@/lib/shared';
 import { Providers } from '@/components/providers';
 
 export const metadata: Metadata = {
@@ -30,7 +30,7 @@ export const metadata: Metadata = {
     url: '/',
     images: [
       {
-        url: `https://raw.githubusercontent.com/${gitConfig.user}/${gitConfig.repo}/main/assets/reverse-api-banner.png`,
+        url: '/reverse-api-banner.png',
         width: 2566,
         height: 1290,
         alt: `${appName} banner`,
@@ -41,7 +41,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: `${appName} · Turn websites into APIs`,
     description: appTagline,
-    images: [`https://raw.githubusercontent.com/${gitConfig.user}/${gitConfig.repo}/main/assets/reverse-api-banner.png`],
+    images: ['/reverse-api-banner.png'],
   },
   robots: {
     index: true,

@@ -9,18 +9,34 @@ import { FeatureMarquee } from '@/components/feature-marquee';
 import { WorksWithAgents } from '@/components/works-with-agents';
 import { JsonLd } from '@/components/json-ld';
 
+const homeDescription =
+  'The agent that turns any website into a typed Python, TypeScript, or JavaScript API client — generated from the requests the site actually makes.';
+
 export const metadata: Metadata = {
   title: 'Turn websites into APIs',
-  description:
-    'Capture browser traffic and generate typed Python, JavaScript, or TypeScript API clients.',
+  description: homeDescription,
   alternates: {
     canonical: '/',
   },
   openGraph: {
+    type: 'website',
     title: 'Turn websites into APIs',
-    description:
-      'Capture browser traffic and generate typed Python, JavaScript, or TypeScript API clients.',
+    description: homeDescription,
     url: '/',
+    images: [
+      {
+        url: '/reverse-api-banner.png',
+        width: 2566,
+        height: 1290,
+        alt: `${appName} banner`,
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Turn websites into APIs',
+    description: homeDescription,
+    images: ['/reverse-api-banner.png'],
   },
 };
 
