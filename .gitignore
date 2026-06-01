@@ -108,3 +108,11 @@ store-assets/
 
 src/reverse_api/cursor_bridge/node_modules/
 
+# Swift / SwiftPM artefacts from the macos/ subtree (a separate branch
+# stack ships the macOS app; this branch never tracks it).
+macos/.build/
+macos/.swiftpm/
+macos/Package.resolved
+macos/build/
+macos/DerivedData/
+
