@@ -12,6 +12,7 @@ public enum CAStoreError: Error {
     case keychainDeleteFailed(OSStatus)
     case invalidStoredPrivateKey
     case certificateDeleteFailed(any Error)
+    case privateKeyDeleteFailed(any Error)
 }
 
 public final class CAStore: @unchecked Sendable {
@@ -20,12 +21,14 @@ public final class CAStore: @unchecked Sendable {
 
     private let keychainService = "app.reverseapi"
     private let keychainAccount = "ca.root-private-key"
+    private let legacyPrivateKeyURL: URL
 
     public init(applicationSupportURL: URL) throws {
         let root = applicationSupportURL.appendingPathComponent("ReverseAPI", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         self.directory = root
         self.certificateURL = root.appendingPathComponent("root.cer")
+        self.legacyPrivateKeyURL = root.appendingPathComponent("root-key.pem")
     }
 
     public func loadOrCreate() throws -> RootCertificate {
@@ -66,6 +69,13 @@ public final class CAStore: @unchecked Sendable {
                 throw CAStoreError.certificateDeleteFailed(error)
             }
         }
+        if manager.fileExists(atPath: legacyPrivateKeyURL.path) {
+            do {
+                try manager.removeItem(at: legacyPrivateKeyURL)
+            } catch {
+                throw CAStoreError.privateKeyDeleteFailed(error)
+            }
+        }
         try deletePrivateKey()
     }
 
@@ -80,15 +90,16 @@ public final class CAStore: @unchecked Sendable {
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: keychainAccount,
         ]
-        let deleteStatus = SecItemDelete(query as CFDictionary)
-        if deleteStatus != errSecSuccess && deleteStatus != errSecItemNotFound {
-            throw CAStoreError.keychainDeleteFailed(deleteStatus)
-        }
 
         var addQuery = query
         addQuery[kSecValueData as String] = data
         addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let status = SecItemAdd(addQuery as CFDictionary, nil)
+        if status == errSecDuplicateItem {
+            let updateStatus = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+            guard updateStatus == errSecSuccess else { throw CAStoreError.keychainWriteFailed(updateStatus) }
+            return
+        }
         guard status == errSecSuccess else { throw CAStoreError.keychainWriteFailed(status) }
     }
 
@@ -102,6 +113,12 @@ public final class CAStore: @unchecked Sendable {
         ]
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound, FileManager.default.fileExists(atPath: legacyPrivateKeyURL.path) {
+            let data = try Data(contentsOf: legacyPrivateKeyURL)
+            try storePrivateKeyPEM(data)
+            try? FileManager.default.removeItem(at: legacyPrivateKeyURL)
+            return data
+        }
         if status == errSecItemNotFound {
             throw CAStoreError.missingPrivateKeyInKeychain
         }
@@ -120,7 +137,7 @@ public final class CAStore: @unchecked Sendable {
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         let status = SecItemCopyMatching(query as CFDictionary, nil)
-        return status == errSecSuccess
+        return status == errSecSuccess || FileManager.default.fileExists(atPath: legacyPrivateKeyURL.path)
     }
 
     private func deletePrivateKey() throws {

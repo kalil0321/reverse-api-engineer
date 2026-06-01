@@ -104,36 +104,19 @@ final class ProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @unche
         Task {
             await proxyContext.bus.emit(.started(flow))
             do {
-                let response = try await proxyContext.upstream.send(
+                let captured = try await proxyContext.upstream.forward(
                     scheme: inflight.scheme,
                     host: inflight.host,
                     port: inflight.port,
                     method: inflight.head.method,
                     uri: inflight.path,
                     headers: headersForUpstream,
-                    body: inflight.body
+                    body: inflight.body,
+                    downstream: channel,
+                    initialFlow: flow,
+                    maxCaptureBodyBytes: maxBodyBytes
                 )
-                var captured = flow
-                captured.responseStatus = Int(response.status.code)
-                captured.responseHeaders = response.headers.map { HTTPHeader($0.name, $0.value) }
-                captured.responseBody = Data(buffer: response.body)
-                captured.finishedAt = Date()
                 await proxyContext.bus.emit(.finished(captured))
-
-                eventLoop.execute {
-                    var head = HTTPResponseHead(version: response.version, status: response.status, headers: response.headers)
-                    head.headers.replaceOrAdd(name: "Connection", value: "close")
-                    head.headers.remove(name: "Transfer-Encoding")
-                    head.headers.replaceOrAdd(name: "Content-Length", value: String(response.body.readableBytes))
-
-                    channel.write(HTTPServerResponsePart.head(head), promise: nil)
-                    if response.body.readableBytes > 0 {
-                        channel.write(HTTPServerResponsePart.body(.byteBuffer(response.body)), promise: nil)
-                    }
-                    channel.writeAndFlush(HTTPServerResponsePart.end(nil)).whenComplete { _ in
-                        channel.close(promise: nil)
-                    }
-                }
             } catch {
                 var failed = flow
                 failed.error = "\(error)"
@@ -203,6 +186,7 @@ final class ProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @unche
         headers.remove(name: "Proxy-Connection")
         headers.remove(name: "Proxy-Authorization")
         headers.replaceOrAdd(name: "Connection", value: "close")
+        headers.replaceOrAdd(name: "Accept-Encoding", value: "identity")
     }
 
     private func makeFlow(from inflight: InflightRequest) -> CapturedFlow {
