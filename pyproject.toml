@@ -40,7 +40,6 @@ classifiers = [
     "Topic :: Software Development :: Code Generators",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Internet :: WWW/HTTP",
-    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
     "Environment :: Console",
     "Operating System :: OS Independent",
 ]
@@ -73,7 +72,7 @@ Homepage = "https://reverseapi.dev"
 Documentation = "https://reverseapi.dev/docs"
 Repository = "https://github.com/kalil0321/reverse-api-engineer"
 Issues = "https://github.com/kalil0321/reverse-api-engineer/issues"
-Changelog = "https://github.com/kalil0321/reverse-api-engineer/releases"
+Changelog = "https://github.com/kalil0321/reverse-api-engineer/blob/main/CHANGELOG.md"
 
 [project.scripts]
 reverse-api-engineer = "reverse_api.cli:main"
