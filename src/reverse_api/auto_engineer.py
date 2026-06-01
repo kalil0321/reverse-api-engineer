@@ -141,7 +141,7 @@ class ClaudeAutoEngineer(ClaudeEngineer):
                     },
                 )
             questions = input_data.get("questions", [])
-            answers = await self._ask_user_interactive(questions)
+            answers = await self._ask_user_questions(questions)
             return PermissionResultAllow(
                 updated_input={"questions": questions, "answers": answers},
             )

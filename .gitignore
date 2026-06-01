@@ -116,3 +116,5 @@ macos/Package.resolved
 macos/build/
 macos/DerivedData/
 
+# Claude Code harness internals
+.claude/

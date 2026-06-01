@@ -54,7 +54,7 @@ class CopilotEngineer(BaseEngineer):
         async def ask_user_question(params: AskUserParams) -> str:
             # Convert pydantic models to dicts for the shared method
             question_dicts = [q.model_dump() for q in params.questions]
-            answers = await engineer._ask_user_interactive(question_dicts)
+            answers = await engineer._ask_user_questions(question_dicts)
             return "\n".join(f"{k}: {v}" for k, v in answers.items())
 
         return ask_user_question

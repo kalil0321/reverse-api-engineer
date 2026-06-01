@@ -74,7 +74,7 @@ class CursorEngineer(BaseEngineer):
         cursor_setting_sources: list[str] | None = None,
         **kwargs: Any,
     ):
-        cm = cursor_model or model or "composer-2"
+        cm = cursor_model or model or "composer-2.5"
         super().__init__(run_id=run_id, har_path=har_path, prompt=prompt, model=cm, **kwargs)
         self.cursor_model = cm
         self.cursor_web_search = cursor_web_search
@@ -83,6 +83,10 @@ class CursorEngineer(BaseEngineer):
         self.ui = CursorStreamUI(self, verbose=vb)
         self._cursor_thinking_acc = ""
         self._cursor_assistant_acc = ""
+        # Cursor streams several `tool_call`/running deltas per call as the args
+        # fill in; track which call_ids we've already announced so the UI and
+        # json-stream emit exactly one tool_start per logical call.
+        self._cursor_started_calls: set[str] = set()
 
     @staticmethod
     def _cursor_coerce_args(raw: Any) -> dict[str, Any]:
@@ -118,6 +122,10 @@ class CursorEngineer(BaseEngineer):
     def _cursor_reset_stream_buffers(self) -> None:
         self._cursor_thinking_acc = ""
         self._cursor_assistant_acc = ""
+        # Each turn is a fresh agent stream; clear announced call IDs so a turn
+        # interrupted before a tool's terminal event can't leave stale IDs that
+        # suppress tool_start on a later turn (and so the set can't grow forever).
+        self._cursor_started_calls.clear()
 
     def _cursor_feed_thinking(self, fragment: str) -> None:
         self._cursor_thinking_acc += fragment
@@ -162,18 +170,33 @@ class CursorEngineer(BaseEngineer):
         elif et == "tool_call":
             name = str(event.get("name") or "tool")
             status = event.get("status")
+            call_id = event.get("callId") or event.get("call_id")
             if status == "running":
-                self._cursor_flush_narrative()
                 args = self._cursor_coerce_args(event.get("args"))
+                # Live todo board reflects the latest snapshot on every delta;
+                # this is a TUI-only render and never reaches the json-stream.
                 self._cursor_emit_todo_ui(name, args)
-                self.ui.tool_start(name, args)
+                # Announce the tool exactly once, on the first running delta.
+                if call_id and call_id in self._cursor_started_calls:
+                    return
+                if call_id:
+                    self._cursor_started_calls.add(call_id)
+                self._cursor_flush_narrative()
+                if not self.interactive and self._is_ask_user_tool_name(name):
+                    self._emit_json_event({"event": "ask_user_skipped", "count": 1, "tool": name})
+                    self.ui.console.print(
+                        f"  [dim]AskUserQuestion skipped ({name}; non-interactive mode)[/dim]"
+                    )
+                self.ui.tool_start(name, args, call_id=call_id)
                 self.message_store.save_tool_start(name, args)
             else:
                 is_err = status == "error"
                 res = event.get("result")
                 out = str(res) if res is not None else None
-                self.ui.tool_result(name, is_err, out)
+                self.ui.tool_result(name, is_err, out, call_id=call_id)
                 self.message_store.save_tool_result(name, is_err, out)
+                if call_id:
+                    self._cursor_started_calls.discard(call_id)
 
     async def _one_turn(  # noqa: C901 - subprocess + NDJSON; splitting obscures control flow
         self,
