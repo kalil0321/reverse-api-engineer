@@ -97,6 +97,20 @@ final class ProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @unche
         let channel = channelContext.channel
         let eventLoop = channelContext.eventLoop
 
+        if isWebSocketUpgrade(inflight.head) {
+            let flow = makeFlow(from: inflight)
+            var failed = flow
+            failed.responseStatus = Int(HTTPResponseStatus.badGateway.code)
+            failed.error = "WebSocket upgrades are not supported yet"
+            failed.finishedAt = Date()
+            Task {
+                await proxyContext.bus.emit(.started(flow))
+                await proxyContext.bus.emit(.finished(failed))
+            }
+            respondError(channelContext: channelContext, status: .badGateway)
+            return
+        }
+
         var headersForUpstream = inflight.head.headers
         sanitizeRequestHeaders(&headersForUpstream)
         let flow = makeFlow(from: inflight)
@@ -187,6 +201,17 @@ final class ProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @unche
         headers.remove(name: "Proxy-Authorization")
         headers.replaceOrAdd(name: "Connection", value: "close")
         headers.replaceOrAdd(name: "Accept-Encoding", value: "identity")
+    }
+
+    static func isWebSocketUpgrade(_ head: HTTPRequestHead) -> Bool {
+        let tokens = head.headers["Upgrade"]
+            .flatMap { $0.split(separator: ",") }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        return tokens.contains("websocket")
+    }
+
+    private func isWebSocketUpgrade(_ head: HTTPRequestHead) -> Bool {
+        Self.isWebSocketUpgrade(head)
     }
 
     private func makeFlow(from inflight: InflightRequest) -> CapturedFlow {
