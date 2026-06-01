@@ -36,6 +36,15 @@ actor AgentClient {
         try await task.send(.string(json))
     }
 
+    func cancel(_ request: AgentCancelRequest) async throws {
+        guard let task else { throw ClientError.notConnected }
+        let data = try JSONEncoder().encode(request)
+        guard let json = String(data: data, encoding: .utf8) else {
+            throw ClientError.encodingFailed
+        }
+        try await task.send(.string(json))
+    }
+
     func events() -> AsyncThrowingStream<AgentEvent, Error> {
         AsyncThrowingStream<AgentEvent, Error> { continuation in
             let receiveTask = Task {

@@ -8,6 +8,11 @@ struct ContentView: View {
     @State private var isPaletteVisible: Bool = false
     @State private var trafficWidth: CGFloat = 720
     @State private var dragStartWidth: CGFloat?
+    // First-launch onboarding gate. The sheet is shown until the user
+    // explicitly acknowledges it via "Get started" / "Skip for now" —
+    // both buttons flip this flag, NOT the sheet dismiss path, so closing
+    // the window before acknowledging doesn't silently mark it complete.
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
     var body: some View {
         ZStack {
@@ -102,9 +107,14 @@ struct ContentView: View {
                 set: { if !$0 { state.viewingFile = nil } }
             ))
         }
+        .sheet(isPresented: Binding(
+            get: { !hasCompletedOnboarding },
+            set: { if !$0 { hasCompletedOnboarding = true } }
+        )) {
+            OnboardingView(hasCompletedOnboarding: $hasCompletedOnboarding)
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Theme.appBackground)
-        .preferredColorScheme(.dark)
         .toolbar { toolbarContent }
         .task {
             await state.recoverStaleSystemProxyOnLaunch()
@@ -374,12 +384,18 @@ private struct ErrorBanner: View {
 
 private struct CaptureStateChip: View {
     @Environment(AppState.self) private var state
+    /// Drives the soft pulse animation on the recording dot — bound to a
+    /// boolean toggle that flips every 1.1s via `repeatForever`.
+    @State private var pulse = false
 
     var body: some View {
         HStack(spacing: 6) {
             Circle()
                 .fill(dotColor)
                 .frame(width: 6, height: 6)
+                .scaleEffect(state.isCapturing && pulse ? 1.4 : 1.0)
+                .opacity(state.isCapturing && pulse ? 0.55 : 1.0)
+                .shadow(color: state.isCapturing ? Theme.brandPink.opacity(0.6) : .clear, radius: 4)
             Text(label)
                 .font(.caption)
                 .foregroundStyle(Theme.textSecondary)
@@ -387,13 +403,21 @@ private struct CaptureStateChip: View {
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 4)
-        .background(Theme.input, in: Capsule())
+        .background(Theme.elevated, in: Capsule())
         .help("Capture state · 127.0.0.1:\(state.port)")
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
+                pulse = true
+            }
+        }
     }
 
+    /// Recording uses brand pink so the live state pulls the eye — this
+    /// is the most action-driven indicator in the toolbar. Idle stays
+    /// neutral so a quiet app doesn't shout.
     private var dotColor: Color {
-        if state.isWorking { return .yellow }
-        if state.isCapturing { return Theme.success }
+        if state.isWorking { return Theme.warn }
+        if state.isCapturing { return Theme.brandPink }
         return Theme.textTertiary
     }
 
@@ -418,7 +442,7 @@ private struct CATrustChip: View {
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 4)
-        .background(Theme.input, in: Capsule())
+        .background(Theme.elevated, in: Capsule())
         .help(state.caTrustInstalled
               ? "Root CA installed — HTTPS can be inspected"
               : "Root CA not trusted — HTTPS will fail")
@@ -435,10 +459,23 @@ private struct SearchButton: View {
         Button(action: action) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Theme.textSecondary)
+                // Brand pink on hover so the eye picks up the only
+                // outbound action in the bar; subtle when at rest.
+                .foregroundStyle(isHovering ? Theme.brandPink : Theme.textSecondary)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(isHovering ? PillStyle.activeBackground : PillStyle.hoverBackground, in: Capsule())
+                .background(
+                    isHovering
+                        ? Theme.brandPink.opacity(0.12)
+                        : Theme.elevated,
+                    in: Capsule()
+                )
+                .overlay(
+                    Capsule().stroke(
+                        isHovering ? Theme.brandPink.opacity(0.35) : .clear,
+                        lineWidth: 1
+                    )
+                )
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }

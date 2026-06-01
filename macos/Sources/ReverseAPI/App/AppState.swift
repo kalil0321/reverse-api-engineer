@@ -60,6 +60,7 @@ final class AppState {
     let caPath: String
 
     private var proxySnapshot: [ProxyServiceSnapshot]?
+    private let snapshotFileURL: URL
 
     init(port: Int = 8888) throws {
         let appSupport = try FileManager.default.url(
@@ -75,8 +76,22 @@ final class AppState {
         let databaseURL = caStore.directory.appendingPathComponent("flows.sqlite")
         let store = try FlowStore(databaseURL: databaseURL)
 
-        let agentWorkdir = caStore.directory.appendingPathComponent("agent-sessions", isDirectory: true)
+        // Shares `~/.reverse-api/` with the reverse-api-engineer CLI.
+        // No-space path is also required: the Claude CLI hashes the
+        // cwd into a folder name and encodes spaces inconsistently.
+        let homeDir = FileManager.default.homeDirectoryForCurrentUser
+        let agentWorkdir = homeDir
+            .appendingPathComponent(".reverse-api", isDirectory: true)
+            .appendingPathComponent("agent-sessions", isDirectory: true)
         try FileManager.default.createDirectory(at: agentWorkdir, withIntermediateDirectories: true)
+
+        // Persist the pre-rae proxy snapshot to disk while we hold it in
+        // memory, so even an abrupt kill (force-quit, kernel panic, power
+        // loss) leaves enough state on disk for the next launch to
+        // restore the user's real settings instead of just disabling
+        // the proxy and losing any pre-existing corporate proxy.
+        self.snapshotFileURL = caStore.directory
+            .appendingPathComponent("proxy-snapshot.json")
 
         self.store = store
         self.engine = engine
@@ -90,7 +105,43 @@ final class AppState {
         self.caTrustInstalled = installer.isInstalled(derBytes: self.caDER)
         self.systemProxyEnabled = (try? systemProxy.isEnabled(host: "127.0.0.1", port: port)) ?? false
 
+        // Eagerly recover from a stale snapshot left over from a previous
+        // process that didn't shut down cleanly. We do this synchronously
+        // in init so by the time the UI appears the user's network is
+        // already in a sane state — Safari/Chrome are dead-in-the-water
+        // as long as the system proxy points at our port and we're not
+        // accepting connections.
+        //
+        // Only load the snapshot when the system proxy is currently
+        // pointing at our port. Otherwise the file is just leftover from
+        // a prior run that the user has since changed manually — loading
+        // it would let us "restore" stale settings on the next exit and
+        // overwrite the user's real, current proxy configuration.
+        if self.systemProxyEnabled,
+           let persisted = try? Self.readSnapshot(from: snapshotFileURL),
+           !persisted.isEmpty {
+            self.proxySnapshot = persisted
+        } else {
+            // File is either missing, malformed, or no longer relevant —
+            // drop it so we don't accidentally pick it up later.
+            Self.deleteSnapshot(at: snapshotFileURL)
+        }
+
         store.subscribe(to: engine.bus)
+    }
+
+    nonisolated private static func readSnapshot(from url: URL) throws -> [ProxyServiceSnapshot] {
+        let data = try Data(contentsOf: url)
+        return try JSONDecoder().decode([ProxyServiceSnapshot].self, from: data)
+    }
+
+    nonisolated private static func writeSnapshot(_ snapshot: [ProxyServiceSnapshot], to url: URL) throws {
+        let data = try JSONEncoder().encode(snapshot)
+        try data.write(to: url, options: .atomic)
+    }
+
+    nonisolated private static func deleteSnapshot(at url: URL) {
+        try? FileManager.default.removeItem(at: url)
     }
 
     func toggleCapture() async {
@@ -254,13 +305,24 @@ final class AppState {
     }
 
     func recoverStaleSystemProxyOnLaunch() async {
-        guard systemProxyEnabled, !isCapturing, proxySnapshot == nil, !isWorking else { return }
+        guard systemProxyEnabled, !isCapturing, !isWorking else { return }
         isWorking = true
         defer { isWorking = false }
 
         do {
-            try await disableCurrentRaeProxy()
-            lastError = "Recovered stale device proxy from a previous session."
+            if let snapshot = proxySnapshot, !snapshot.isEmpty {
+                // Best-case: previous run got far enough to persist the
+                // user's pre-rae proxy state. Restore it verbatim so any
+                // corporate proxy / VPN config the user had is preserved.
+                try await restoreSystemProxy()
+                lastError = "Restored previous proxy settings from a stale session."
+            } else {
+                // No snapshot on disk but the system proxy is still pointing
+                // at 127.0.0.1:<our port>. Best we can do is turn it off so
+                // browsers can reach the internet again.
+                try await disableCurrentRaeProxy()
+                lastError = "Recovered stale device proxy from a previous session."
+            }
         } catch {
             lastError = "Device proxy points at rae, but could not be repaired automatically: \(error)"
         }
@@ -275,6 +337,9 @@ final class AppState {
             try? systemProxy.disable(host: "127.0.0.1", port: port)
             systemProxyEnabled = false
         }
+        // Either way the on-disk sentinel is no longer accurate — drop it
+        // so the next launch doesn't try to restore stale data.
+        Self.deleteSnapshot(at: snapshotFileURL)
     }
 
     func shutdownForWindowClose() async {
@@ -304,13 +369,21 @@ final class AppState {
     private func applySystemProxy() async throws {
         let systemProxy = self.systemProxy
         let port = self.port
+        let snapshotURL = self.snapshotFileURL
         let snapshot = try await Task.detached(priority: .userInitiated) {
             let snapshot = try systemProxy.snapshot()
+            // Write the snapshot to disk BEFORE flipping the system proxy.
+            // If this fails (read-only volume, sandbox refusal, disk full)
+            // we must NOT flip the proxy — otherwise a subsequent crash
+            // would leave the user with no way to recover their original
+            // settings.
+            try Self.writeSnapshot(snapshot, to: snapshotURL)
             do {
                 try systemProxy.enable(host: "127.0.0.1", port: port)
                 return snapshot
             } catch {
                 try? systemProxy.restore(snapshot)
+                Self.deleteSnapshot(at: snapshotURL)
                 throw error
             }
         }.value
@@ -322,12 +395,14 @@ final class AppState {
         let systemProxy = self.systemProxy
         let port = self.port
         let snapshot = proxySnapshot
+        let snapshotURL = self.snapshotFileURL
         try await Task.detached(priority: .userInitiated) {
             if let snapshot {
                 try systemProxy.restore(snapshot)
             } else {
                 try systemProxy.disable(host: "127.0.0.1", port: port)
             }
+            Self.deleteSnapshot(at: snapshotURL)
         }.value
         proxySnapshot = nil
         systemProxyEnabled = false
@@ -336,8 +411,10 @@ final class AppState {
     private func disableCurrentRaeProxy() async throws {
         let systemProxy = self.systemProxy
         let port = self.port
+        let snapshotURL = self.snapshotFileURL
         try await Task.detached(priority: .userInitiated) {
             try systemProxy.disable(host: "127.0.0.1", port: port)
+            Self.deleteSnapshot(at: snapshotURL)
         }.value
         proxySnapshot = nil
         systemProxyEnabled = false

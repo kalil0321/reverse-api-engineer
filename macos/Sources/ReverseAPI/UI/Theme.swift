@@ -1,35 +1,167 @@
 import SwiftUI
+import AppKit
 
+/// Visual tokens for the rae macOS app.
+///
+/// Mirrors `reverse-api-website`'s design system (see `SYSTEM_DESIGN.md`
+/// at the repo root) — warm cream/ink palette, pink magenta brand
+/// accent. Every token now resolves dynamically against the system
+/// appearance, so the app honours macOS's dark/light setting instead of
+/// being locked to dark.
+///
+/// Hex equivalents trail each declaration in comments — they're the
+/// authoritative reference. RGB literals are SwiftUI plumbing.
 enum Theme {
-    // Backgrounds (darkest → lightest) — exploration: bumped roughly +6%
-    // luminance across the dark stack so the canvas reads as warm dark grey
-    // instead of near-black. Each surface keeps the same relative gap
-    // (~5% between tiers) so contrast on hover/selected states is preserved.
-    static let appBackground = Color(red: 0.071, green: 0.075, blue: 0.086)        // #12131A
-    static let surface = Color(red: 0.106, green: 0.110, blue: 0.122)              // #1B1C1F
-    static let elevated = Color(red: 0.157, green: 0.161, blue: 0.180)             // #28292E
-    static let input = Color(red: 0.122, green: 0.125, blue: 0.141)                // #1F2024
+    // MARK: Backgrounds — warm cream / cream-dark stack
+
+    /// Root canvas. `--color-cream` light / darker than spec in dark
+    /// (user feedback: original #14110e read too "milky", deepened to
+    /// #0a0806).
+    static let appBackground = Color.dynamic(
+        light: hex(0xfff7f0),
+        dark: hex(0x0a0806)
+    )
+    /// Cards, panels. Dark = rgb(19, 17, 14) per design pick — sits
+    /// barely above the canvas so the panel reads as a slightly raised
+    /// surface without competing with content for attention.
+    static let surface = Color.dynamic(
+        light: hex(0xfef8ee),
+        dark: hex(0x13110e)
+    )
+    /// Hover backgrounds, badges, raised one tier above `surface`.
+    static let elevated = Color.dynamic(
+        light: hex(0xf5f2ee),
+        dark: hex(0x1c1814)
+    )
+    /// Input fields. Distinct from `surface` so a composer / search field
+    /// sits as its own focused element. The previous lift (#2a2418) read
+    /// as greenish due to G ≈ R; this value keeps R clearly dominant for
+    /// a neutral warm-charcoal that doesn't shift hue under any monitor
+    /// calibration. Pairs with a 1pt `Theme.border` overlay for extra
+    /// definition on still frames.
+    static let input = Color.dynamic(
+        light: hex(0xffffff),
+        dark: hex(0x1f1814)
+    )
+    /// Scrim behind modal palettes — slightly lighter than pitch black
+    /// so light-mode users still see the underlying surface bleed
+    /// through.
     static let overlay = Color.black.opacity(0.55)
 
-    // Borders & dividers
-    static let border = Color.white.opacity(0.07)
-    static let borderStrong = Color.white.opacity(0.14)
+    // MARK: Borders & dividers — ink/cream at very low alpha
 
-    // Text
-    static let textPrimary = Color(red: 0.929, green: 0.929, blue: 0.937)          // #EDEDEF
-    static let textSecondary = Color(red: 0.549, green: 0.557, blue: 0.580)        // #8C8E94
-    static let textTertiary = Color(red: 0.373, green: 0.380, blue: 0.404)         // #5F6167
+    /// Default 1pt strokes. `--color-fd-border` = ink @ 10% light / cream @ 8% dark.
+    static let border = Color.dynamic(
+        light: Color.black.opacity(0.10),
+        dark: Color.white.opacity(0.08)
+    )
+    /// Stronger structural separators.
+    static let borderStrong = Color.dynamic(
+        light: Color.black.opacity(0.18),
+        dark: Color.white.opacity(0.14)
+    )
 
-    // Accent colors (matched against the dark canvas)
-    static let accent = Color(red: 0.231, green: 0.510, blue: 0.965)               // #3B82F6
-    static let warn = Color(red: 0.941, green: 0.549, blue: 0.227)                 // #F08C3A
-    static let success = Color(red: 0.298, green: 0.792, blue: 0.518)              // #4CCA84
-    static let danger = Color(red: 0.949, green: 0.357, blue: 0.357)               // #F25B5B
+    // MARK: Text — ink / cream
 
-    // Method palette (HTTP)
-    static let methodGet = Color(red: 0.392, green: 0.643, blue: 1.000)            // #64A4FF
-    static let methodPost = Color(red: 0.388, green: 0.851, blue: 0.541)           // #63D98A
-    static let methodPut = Color(red: 0.953, green: 0.722, blue: 0.282)            // #F3B848
-    static let methodDelete = Color(red: 0.949, green: 0.439, blue: 0.439)         // #F27070
-    static let methodConnect = Color(red: 0.682, green: 0.482, blue: 0.965)        // #AE7BF6
+    /// Primary text.
+    static let textPrimary = Color.dynamic(
+        light: hex(0x1f1f1f),
+        dark: hex(0xfff7f0)
+    )
+    /// Secondary text. `--color-ink-soft`.
+    static let textSecondary = Color.dynamic(
+        light: hex(0x1f1f1f).opacity(0.78),
+        dark: hex(0xfff7f0).opacity(0.73)
+    )
+    /// Tertiary text (timestamps, labels, captions).
+    static let textTertiary = Color.dynamic(
+        light: hex(0x1f1f1f).opacity(0.55),
+        dark: hex(0xfff7f0).opacity(0.55)
+    )
+
+    // MARK: Semantic accents
+
+    /// Primary brand accent. Pink magenta. `--color-fd-primary`.
+    /// Drives focus rings, primary CTAs, status dots, brand asterisk.
+    static let accent = Color.dynamic(
+        light: hex(0xe50d75),
+        dark: hex(0xff3d8b)
+    )
+    /// Alias of `accent` for sites that read as "brand mark" (the
+    /// `*` asterisk + "rae" wordmark) rather than generic CTA.
+    static let brandPink = accent
+
+    /// Completed / success states. Deeper mint on light bg for
+    /// readability, soft mint on dark bg so it doesn't shout.
+    static let success = Color.dynamic(
+        light: hex(0x2d8059),
+        dark: hex(0xa4d4b8)
+    )
+    /// Alias of `success` for explicit "completion" semantics.
+    static let mint = success
+
+    /// Warning / attention. Warm orange.
+    static let warn = Color.dynamic(
+        light: hex(0xb06b3e),
+        dark: hex(0xd4946e)
+    )
+
+    /// Errors / destructive actions. Single value — works on both
+    /// palettes with adequate contrast.
+    static let danger = hex(0xe04848)
+
+    // MARK: HTTP method palette
+
+    /// HTTP method colors — desaturated slightly vs the original dark-only
+    /// palette so they read on the cream light background without
+    /// vibrating, while keeping enough difference between them for the
+    /// dense traffic table.
+    static let methodGet = Color.dynamic(light: hex(0x1f6fd1), dark: hex(0x64a4ff))
+    static let methodPost = Color.dynamic(light: hex(0x1f8757), dark: hex(0x63d98a))
+    static let methodPut = Color.dynamic(light: hex(0xb88128), dark: hex(0xf3b848))
+    static let methodDelete = Color.dynamic(light: hex(0xc43d3d), dark: hex(0xf27070))
+    static let methodConnect = Color.dynamic(light: hex(0x6e3fbd), dark: hex(0xae7bf6))
+
+    // MARK: Shape radii
+
+    /// Outer container cards (the 3-column shell).
+    static let radiusCard: CGFloat = 14
+    /// Inner sub-cards inside a Card.
+    static let radiusInner: CGFloat = 10
+    /// Inputs + small pill buttons.
+    static let radiusInput: CGFloat = 8
+}
+
+// MARK: - Color helpers
+
+extension Color {
+    /// Build a SwiftUI Color that resolves to `light` under any aqua-family
+    /// appearance and `dark` under any dark-aqua-family appearance. Backed
+    /// by AppKit's dynamic NSColor so it also works when handed to APIs
+    /// outside SwiftUI (e.g. `NSWindow.backgroundColor`).
+    static func dynamic(light: Color, dark: Color) -> Color {
+        Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
+            switch appearance.name {
+            case .darkAqua,
+                 .vibrantDark,
+                 .accessibilityHighContrastDarkAqua,
+                 .accessibilityHighContrastVibrantDark:
+                return NSColor(dark)
+            default:
+                return NSColor(light)
+            }
+        }))
+    }
+}
+
+/// Hex literal helper — `hex(0xff3d8b)` reads more naturally than the
+/// RGB-as-fractions form. Alpha is always 1.0; use `.opacity(...)` for
+/// translucent variants.
+@inlinable
+func hex(_ value: UInt32) -> Color {
+    Color(
+        red: Double((value >> 16) & 0xff) / 255.0,
+        green: Double((value >> 8) & 0xff) / 255.0,
+        blue: Double(value & 0xff) / 255.0
+    )
 }

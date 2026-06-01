@@ -5,47 +5,82 @@ import SwiftUI
 struct ReverseAPIApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var session = AppSession.live()
+    /// Splash gate — visible for ~1.6s on launch so the wordmark gets a
+    /// brand moment instead of the window flashing through an empty
+    /// frame. Flips to false after the timer fires.
+    @State private var isShowingSplash = true
+
+    init() {
+        // Register the bundled Fraunces font *here*, not in
+        // applicationDidFinishLaunching — `App.init()` runs before any
+        // View body is computed, while the delegate's launch callback
+        // fires after the run loop starts. Doing it late means the
+        // SplashView's first paint resolves `Font.fraunces(...)` to a
+        // fallback (SF Italic) and only flips to Fraunces on a later
+        // layout pass, which reads as the wordmark "morphing" mid-anim.
+        BrandFont.bootstrap()
+    }
 
     var body: some Scene {
         Window("rae", id: "main") {
-            switch session {
-            case .ready(let state):
-                ContentView()
-                    .environment(state)
-                    .onAppear {
-                        AppLifecycle.shared.state = state
-                    }
-                    .onDisappear {
-                        Task { await state.shutdownForWindowClose() }
-                    }
-                    .background(WindowAccessor { window in
-                        window.title = ""
-                        window.titleVisibility = .hidden
-                        window.titlebarAppearsTransparent = true
-                        window.isOpaque = true
-                        window.backgroundColor = NSColor(Theme.appBackground)
-                    })
-                    .frame(
-                        // Bumped so the traffic card can always fit
-                        // table+inspector side by side (its inner HSplitView
-                        // needs ~700pt) without compressing past its
-                        // rounded border into a glitchy state. Old 980pt
-                        // window minimum was below that threshold.
-                        minWidth: 1100,
-                        maxWidth: .infinity,
-                        minHeight: 640,
-                        maxHeight: .infinity,
-                        alignment: .topLeading
-                    )
-            case .failed(let error):
-                BootFailureView(error: error)
-                    .frame(minWidth: 500, minHeight: 300)
+            ZStack {
+                mainContent
+                    .opacity(isShowingSplash ? 0 : 1)
+                if isShowingSplash {
+                    SplashView()
+                        .transition(.opacity)
+                }
+            }
+            .task {
+                try? await Task.sleep(for: .milliseconds(1600))
+                withAnimation(.easeOut(duration: 0.45)) {
+                    isShowingSplash = false
+                }
             }
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unifiedCompact)
         .commands {
             CommandGroup(replacing: .newItem) {}
+        }
+    }
+
+    @ViewBuilder
+    private var mainContent: some View {
+        switch session {
+        case .ready(let state):
+            ContentView()
+                .environment(state)
+                .onAppear {
+                    AppLifecycle.shared.state = state
+                }
+                .onDisappear {
+                    Task { await state.shutdownForWindowClose() }
+                }
+                .background(WindowAccessor { window in
+                    window.title = ""
+                    window.titleVisibility = .hidden
+                    window.titlebarAppearsTransparent = true
+                    window.isOpaque = true
+                    // Dynamic NSColor under the hood — flips automatically
+                    // when the system appearance changes.
+                    window.backgroundColor = NSColor(Theme.appBackground)
+                })
+                .frame(
+                    // Bumped so the traffic card can always fit
+                    // table+inspector side by side (its inner HSplitView
+                    // needs ~700pt) without compressing past its
+                    // rounded border into a glitchy state. Old 980pt
+                    // window minimum was below that threshold.
+                    minWidth: 1100,
+                    maxWidth: .infinity,
+                    minHeight: 640,
+                    maxHeight: .infinity,
+                    alignment: .topLeading
+                )
+        case .failed(let error):
+            BootFailureView(error: error)
+                .frame(minWidth: 500, minHeight: 300)
         }
     }
 }
@@ -64,8 +99,12 @@ final class AppLifecycle {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isTerminating = false
+    private var signalSources: [DispatchSourceSignal] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Font bootstrap happens in `ReverseAPIApp.init()` so it lands
+        // before any view body is computed — see the comment there.
+
         // `swift run` launches a bare SwiftPM executable with no .app bundle
         // and no Info.plist, so macOS doesn't treat it as a regular GUI app —
         // the window never reliably becomes key and AppKit text fields can't
@@ -76,7 +115,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // launched from a real .app bundle.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
-        NSApp.appearance = NSAppearance(named: .darkAqua)
+        // No longer force `.darkAqua` — the Theme tokens are dynamic NSColors
+        // and ContentView no longer pins `.preferredColorScheme(.dark)`,
+        // so light/dark now follows the system setting.
+        installSignalHandlers()
+    }
+
+    /// Restore the system proxy before exiting on SIGINT / SIGTERM / SIGHUP.
+    /// Activity Monitor's "Quit" / "Force Quit", `kill <pid>`, terminal Ctrl-C
+    /// from `swift run` and shutdown all hit this path. AppKit's normal
+    /// applicationShouldTerminate doesn't fire for these, so without this
+    /// the system proxy stays pointing at 127.0.0.1:<port> with nothing
+    /// listening — exactly the "Safari can't connect" symptom users see.
+    private func installSignalHandlers() {
+        for sig in [SIGINT, SIGTERM, SIGHUP] {
+            // Ignore the default signal action FIRST so the dispatch source
+            // gets a chance to run before the process gets killed by the
+            // kernel's default handler.
+            signal(sig, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+            source.setEventHandler { [weak self] in
+                guard let self else { exit(0) }
+                // Queue is .main — we're already on the main actor, just
+                // assert it so we can call @MainActor methods without
+                // hopping through an async Task.
+                MainActor.assumeIsolated { self.handleSignal(sig) }
+            }
+            source.resume()
+            signalSources.append(source)
+        }
+    }
+
+    @MainActor
+    private func handleSignal(_ sig: Int32) {
+        guard !isTerminating else { return }
+        isTerminating = true
+        // Synchronous restore — we have no async budget once the OS has
+        // decided to kill us. The proxy state is the priority; the engine
+        // + agent sidecar would normally clean up too but they'd race the
+        // process exit anyway.
+        AppLifecycle.shared.restoreProxyBeforeExit()
+        // Re-raise the signal with the default handler so the process
+        // actually exits with the right termination status.
+        signal(sig, SIG_DFL)
+        raise(sig)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
