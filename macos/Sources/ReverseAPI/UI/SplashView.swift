@@ -83,8 +83,3 @@ struct SplashView: View {
     }
 }
 
-#Preview("Splash") {
-    SplashView()
-        .frame(width: 720, height: 480)
-}
-
