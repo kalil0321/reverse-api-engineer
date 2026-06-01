@@ -166,6 +166,6 @@ class TestDefaultConfig:
         assert DEFAULT_CONFIG["output_dir"] is None
         assert DEFAULT_CONFIG["output_language"] == "python"
         assert DEFAULT_CONFIG["real_time_sync"] is True
-        assert DEFAULT_CONFIG["cursor_model"] == "composer-2"
+        assert DEFAULT_CONFIG["cursor_model"] == "composer-2.5"
         assert DEFAULT_CONFIG["cursor_web_search"] is True
         assert DEFAULT_CONFIG["cursor_setting_sources"] is None

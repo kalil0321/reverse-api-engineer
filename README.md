@@ -86,7 +86,7 @@ Settings live in `~/.reverse-api/config.json` and can be edited via `/settings` 
   "opencode_model": "claude-sonnet-4-6",
   "opencode_provider": "anthropic",
   "copilot_model": "gpt-5",
-  "cursor_model": "composer-2",
+  "cursor_model": "composer-2.5",
   "output_dir": null,
   "output_language": "python",
   "real_time_sync": true,

@@ -10,7 +10,7 @@ DEFAULT_CONFIG = {
     "agent_browser_npx_package": "agent-browser@0",
     "claude_code_model": "claude-sonnet-4-6",
     "collector_model": "claude-sonnet-4-6",  # Model for collector mode
-    "cursor_model": "composer-2",  # Model id for Cursor SDK (see Cursor.models.list())
+    "cursor_model": "composer-2.5",  # Model id for Cursor SDK (see Cursor.models.list())
     # When True, local agents load broader Cursor setting layers (plugins/team) so WebFetch/WebSearch
     # and other IDE tools match Cursor desktop behavior. Set False for minimal "project+user" only.
     "cursor_web_search": True,

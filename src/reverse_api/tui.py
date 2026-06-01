@@ -78,8 +78,9 @@ class ClaudeUI:
         self.console.print(" [dim]decoding starting...[/dim]")
         self.console.print()
 
-    def tool_start(self, tool_name: str, tool_input: dict | Any) -> None:
+    def tool_start(self, tool_name: str, tool_input: dict | Any, call_id: str | None = None) -> None:
         """Display when a tool starts execution."""
+        _ = call_id  # accepted for parity with json-stream; not rendered
         self._tool_count += 1
         self._tools_used.append(tool_name)
 
@@ -92,8 +93,9 @@ class ClaudeUI:
         if input_summary:
             self.console.print(f"      {input_summary}")
 
-    def tool_result(self, tool_name: str, is_error: bool = False, output: str | None = None) -> None:
+    def tool_result(self, tool_name: str, is_error: bool = False, output: str | None = None, call_id: str | None = None) -> None:
         """Display when a tool completes."""
+        _ = call_id  # accepted for parity with json-stream; not rendered
         tl = tool_name.lower()
         if is_error:
             self.console.print(f"  [dim]![/dim] [red]{self._tool_header_label(tool_name)} failed[/red]")

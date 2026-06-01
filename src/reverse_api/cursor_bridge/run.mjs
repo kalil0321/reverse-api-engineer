@@ -33,6 +33,7 @@ function summarizeEvent(ev) {
         type: t,
         name: ev.name,
         status: ev.status,
+        callId: ev.call_id ?? ev.callId,
         args: ev.args,
         result: ev.status !== "running" ? ev.result : undefined,
       };
@@ -64,7 +65,7 @@ if (!cwd || typeof cwd !== "string") {
   process.exit(1);
 }
 
-const modelId = input.modelId || "composer-2";
+const modelId = input.modelId || "composer-2.5";
 const mcpServers = input.mcpServers && typeof input.mcpServers === "object" ? input.mcpServers : undefined;
 const resumeAgentId = input.resumeAgentId || null;
 const prompt = input.prompt;
