@@ -10,8 +10,8 @@ Agent mode runs an AI loop. **`auto`** and **`chrome-mcp`** attach browser autom
 ### `auto` (default)
 
 Playwright MCP browser automation with real-time reverse engineering. The
-configured SDK uses Playwright via MCP to control a headless (or headed)
-Chromium, capturing the HAR as it goes.
+configured SDK uses Playwright via MCP to control Chromium, capturing the HAR
+as it goes. Add `--headless` when running without a display.
 
 Works with the Claude SDK (default) or the OpenCode SDK. Pick whichever
 you've already configured. Copilot and Cursor SDK backends are also supported

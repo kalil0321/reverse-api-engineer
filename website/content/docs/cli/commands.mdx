@@ -10,7 +10,7 @@ While in the interactive prompt, the following slash commands are available:
 | `/settings`            | Configure model, agent provider, SDK, output directory.   |
 | `/history`             | View past runs with token usage and cost.                 |
 | `/messages <run_id>`   | View the full message log for a previous run.             |
-| `/help`                | List all commands.                                        |
+| `/help`                | List all commands. Alias: `/commands`.                    |
 | `/exit`                | Quit the CLI.                                             |
 
 ## Mode cycling
@@ -24,17 +24,23 @@ agent → manual → engineer → collector → agent ...
 The current mode is shown in the prompt. Each mode has its own behavior. See
 [Usage modes](/docs/modes/manual).
 
-## Listing and inspecting runs
+## Direct subcommands
 
 Outside the interactive CLI, you can use direct subcommands:
 
-```bash
-# list all runs
-reverse-api-engineer list
+| Command       | What it does                                               |
+|---------------|------------------------------------------------------------|
+| `agent`       | Run an autonomous browser capture and generation pipeline. |
+| `collector`   | Run AI-powered data collection and export JSON/CSV files.  |
+| `engineer`    | Re-run generation against an existing capture.             |
+| `list`        | List generated scripts and runs; supports `--json`.        |
+| `show`        | Inspect one run; supports `--json`.                        |
+| `run`         | Execute a generated Python script; supports `--json`.      |
 
-# inspect a single run
-reverse-api-engineer show <run_id>
-```
-
-Both accept `--json` for machine-parseable output. See
+Scripted flags are command-specific: `agent`, `engineer`, and `run` support
+`--json` and `--json-stream`; `list` and `show` support `--json`; and `run`
+also supports `--no-interactive` for script selection and dependency prompts. See
 [Scripted usage](/docs/cli/scripted-usage).
+
+Manual mode is available only inside the interactive REPL because it opens a
+visible browser for human-driven capture.

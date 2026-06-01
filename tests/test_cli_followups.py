@@ -719,31 +719,27 @@ class TestFollowUpPromptSuppressed:
 
 
 class TestHeadlessFlag:
-    """`--headless` wires through to auto-engineer constructors (agent only —
-    manual mode is intentionally human-only and rejects --headless)."""
+    """`--headless` wires through to auto-engineer constructors.
 
-    def test_manual_rejects_headless_flag(self):
-        """`manual --headless` must fail: manual mode requires a human and a
-        visible browser; agents should use `agent --headless` instead."""
-        from reverse_api.cli import manual as manual_cmd
+    Manual mode is intentionally REPL-only, so there is no direct `manual`
+    subcommand to parse scripted/headless flags.
+    """
+
+    def test_manual_is_not_a_direct_subcommand(self):
+        from reverse_api.cli import main
 
         runner = CliRunner()
-        result = runner.invoke(manual_cmd, ["-p", "x", "-u", "https://example.com", "--headless"])
+        result = runner.invoke(main, ["manual"])
         assert result.exit_code != 0
-        assert "no such option" in result.output.lower() or "--headless" in result.output
+        assert "no such command 'manual'" in result.output.lower()
 
-    def test_manual_help_mentions_human_only(self):
-        """`manual --help` must make it explicit that the mode requires a
-        human and is not scriptable (so agents inspecting --help self-route
-        to `agent` instead)."""
-        from reverse_api.cli import manual as manual_cmd
+    def test_manual_is_absent_from_root_help(self):
+        from reverse_api.cli import main
 
         runner = CliRunner()
-        result = runner.invoke(manual_cmd, ["--help"])
+        result = runner.invoke(main, ["--help"])
         assert result.exit_code == 0
-        out = result.output.lower()
-        assert "human" in out
-        assert "agent" in out  # tells the agent where to go instead
+        assert "  manual " not in result.output
 
     def test_agent_command_threads_headless(self):
         from reverse_api.cli import agent as agent_cmd
@@ -762,6 +758,59 @@ class TestHeadlessFlag:
             result = runner.invoke(agent_cmd, ["-p", "x", "--json"])
         assert result.exit_code == 0, result.output
         assert mock_run.call_args.kwargs["headless"] is False
+
+
+class TestCollectorCommand:
+    """Direct `collector` command wiring."""
+
+    def test_collector_command_threads_prompt_model_and_output_dir(self):
+        from reverse_api.cli import collector as collector_cmd
+
+        runner = CliRunner()
+        with patch("reverse_api.cli.run_collector", return_value={"output_path": "/tmp/out"}) as mock_run:
+            result = runner.invoke(
+                collector_cmd,
+                [
+                    "--prompt",
+                    "collect one item",
+                    "--model",
+                    "claude-haiku-4-5",
+                    "--output-dir",
+                    "/tmp/rae-test",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_run.call_args.kwargs == {
+            "prompt": "collect one item",
+            "model": "claude-haiku-4-5",
+            "output_dir": "/tmp/rae-test",
+        }
+
+    def test_collector_requires_prompt_when_not_tty(self):
+        from reverse_api.cli import collector as collector_cmd
+
+        runner = CliRunner()
+        with patch("reverse_api.cli.run_collector") as mock_run:
+            result = runner.invoke(collector_cmd, [])
+        assert result.exit_code == 2
+        assert "--prompt is required" in result.output
+        mock_run.assert_not_called()
+
+    def test_collector_exits_nonzero_on_error_result(self):
+        from reverse_api.cli import collector as collector_cmd
+
+        runner = CliRunner()
+        with patch("reverse_api.cli.run_collector", return_value={"error": "No items collected"}):
+            result = runner.invoke(collector_cmd, ["--prompt", "collect nothing"])
+        assert result.exit_code == 1
+
+    def test_collector_exits_nonzero_on_empty_result(self):
+        from reverse_api.cli import collector as collector_cmd
+
+        runner = CliRunner()
+        with patch("reverse_api.cli.run_collector", return_value=None):
+            result = runner.invoke(collector_cmd, ["--prompt", "collect nothing"])
+        assert result.exit_code == 1
 
 
 class TestHeadlessMcpConfig:

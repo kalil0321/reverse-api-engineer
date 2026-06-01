@@ -19,10 +19,10 @@ In the CLI:
 /settings then "Claude Code Model"
 ```
 
-Or pass at launch:
+Or pass a model to a direct command:
 
 ```bash
-reverse-api-engineer manual --model claude-sonnet-4-6
+reverse-api-engineer agent --prompt "capture the jobs api" --model claude-sonnet-4-6
 ```
 
 Or edit `~/.reverse-api/config.json` directly:
@@ -40,6 +40,8 @@ The full default config:
 ```json
 {
   "agent_provider": "auto",
+  "agent_browser_notes": "",
+  "agent_browser_npx_package": "agent-browser@0",
   "claude_code_model": "claude-sonnet-4-6",
   "collector_model": "claude-sonnet-4-6",
   "cursor_model": "composer-2.5",

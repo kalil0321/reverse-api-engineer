@@ -23,7 +23,7 @@ English; providers such as Playwright MCP or Chrome DevTools MCP route browser a
 
 ```bash
 reverse-api-engineer
-# switch to agent mode with Shift+Tab
+# the REPL starts in agent mode
 > click on the first job listing
 ```
 
@@ -39,6 +39,28 @@ reverse-api-engineer agent \
 The `--json` flag makes the command emit a single JSON document on stdout
 (see [Scripted usage](/docs/cli/scripted-usage) for the schema and exit
 codes).
+
+Use `--json-stream` when a supervising agent wants NDJSON progress events
+during the browser and generation loop:
+
+```bash
+reverse-api-engineer agent \
+  --prompt "capture the public jobs api" \
+  --url https://example.com/jobs \
+  --json-stream
+```
+
+For wrapper or CI validation without launching a browser, use:
+
+```bash
+reverse-api-engineer agent \
+  --prompt "capture the public jobs api" \
+  --url https://example.com/jobs \
+  --dry-run
+```
+
+`--dry-run` implies JSON output and checks prompt, URL, SDK config, browser
+tooling, and output directory writability.
 
 ## Agent providers
 

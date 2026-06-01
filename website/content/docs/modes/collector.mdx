@@ -1,0 +1,41 @@
+---
+title: Collector mode
+description: Use an AI agent to collect structured web data as JSON and CSV.
+---
+
+Collector mode is an interactive REPL mode for data collection tasks. Instead
+of generating an API client from a HAR, it runs a Claude-powered collector that
+uses web search and fetch tools, writes collected items, and exports structured
+artifacts.
+
+## When to use it
+
+- You want a dataset, not a reusable API client.
+- The task is research or aggregation across multiple web pages.
+- JSON/CSV output is more useful than generated request code.
+
+## How to run it
+
+Direct:
+
+```bash
+reverse-api-engineer collector \
+  --prompt "collect companies hiring browser automation engineers"
+```
+
+Interactive:
+
+```bash
+reverse-api-engineer
+# press Shift+Tab until the prompt shows collector
+> collect companies hiring browser automation engineers
+```
+
+Collector mode uses the `collector_model` config key and writes output under:
+
+```text
+./collected/{folder_name}/
+```
+
+Typical files include `items.jsonl`, `data.json`, `data.csv`, and
+`README.md`, depending on what the collector finds.

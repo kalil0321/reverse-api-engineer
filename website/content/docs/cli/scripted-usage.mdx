@@ -5,8 +5,8 @@ description: Drive the CLI from another agent or a wrapper script with --no-inte
 
 The CLI can be driven by another agent, a CI job, or a wrapper script. Use
 `agent --json` or `engineer --json` for a single machine-readable result,
-`list --json` and `show --json` for history inspection, and `run
---no-interactive` to avoid script-picker and dependency prompts.
+`list --json` and `show --json` for history inspection, and `run --json` to
+execute generated scripts without contaminating stdout.
 
 When `--json` is set:
 
@@ -14,11 +14,14 @@ When `--json` is set:
 - **stderr** receives Rich logs and progress updates.
 - The process exits with a **stable exit code**.
 
-When `--json-stream` is set (on `agent` and `engineer`):
+When `--json-stream` is set (on `agent`, `engineer`, and `run`):
 
 - **stdout** receives **NDJSON**: one JSON object per line while the run progresses, then a final `{"event":"result",...}` line with the same fields as `--json`.
 - **stderr** receives Rich logs (same as `--json`).
-- Implies **non-interactive** mode; `AskUserQuestion` is auto-answered with a fixed message instead of prompting on stdin.
+- Implies **non-interactive** mode. Engineer runs answer `AskUserQuestion`
+  with a fixed non-interactive message; agent runs do not prompt on stdin and
+  skip human answers; script runs never open the run/script picker or install
+  confirm prompt.
 
 ## Examples
 
@@ -40,7 +43,20 @@ reverse-api-engineer agent \
   --json-stream
 ```
 
-Common event types: `run_started` (includes `run_id`, `sdk`; agent runs also include `mode`, `url`, `command`), `tool_start`, `tool_end`, `thinking`, `ask_user_skipped`, `result`.
+Common event types for `agent` and `engineer`: `run_started` (includes `run_id`, `sdk`; agent runs also include `mode`, `url`, `command`), `tool_start`, `tool_end`, `thinking`, `ask_user_skipped`, `result`.
+
+### Validate an agent run without launching a browser
+
+```bash
+reverse-api-engineer agent \
+  --prompt "capture the public jobs api" \
+  --url https://example.com/jobs \
+  --dry-run | jq
+```
+
+`--dry-run` implies `--json`, validates prompt/URL/config/environment, returns
+`would_run` plus `checks`, and exits `0` when all checks pass or `1` when any
+check has `status: "error"`.
 
 ### List and inspect runs
 
@@ -52,14 +68,19 @@ reverse-api-engineer list --json
 reverse-api-engineer show <run_id> --json
 ```
 
-### Run a generated script non-interactively
+### Run a generated script from another agent
 
 ```bash
 reverse-api-engineer run <run_id> --file api_client.py \
-  --no-interactive --auto-install -- --org acme
+  --json --auto-install -- --org acme
 ```
 
-- `--no-interactive`: never open the script-picker or install confirm.
+- `--json`: captures the generated script's stdout/stderr into the result
+  payload and implies `--no-interactive`.
+- `--json-stream`: emits NDJSON events such as `run_resolved`,
+  `script_selected`, `process_started`, and final `result`.
+- `--no-interactive`: never open the run picker, script picker, or install
+  confirm.
 - `--auto-install`: install missing deps on retry without asking.
 - Everything after `--` is forwarded to the underlying script.
 
@@ -79,6 +100,13 @@ reverse-api-engineer run <run_id> --file api_client.py \
 | `error`          | `string \| null`    | Human-readable error message when `status == "error"`.                 |
 | `error_kind`     | `string \| null`    | Machine-readable error category such as `misuse`, `network`, or `engine_failure`. |
 
+`engineer --json` uses the same top-level contract, minus agent-only fields
+(`url`, `mode`, `har_path`) and plus `fresh`. `run --json` uses the same
+`schema_version`, `status`, `error`, and `error_kind` fields, plus
+`identifier`, `run_id`, `script_path`, `script_args`, `returncode`, `stdout`,
+`stderr`, and `scripts`. `show --json` includes `schema_version`, `status`,
+`error`, and `error_kind` in addition to the run details.
+
 ## Exit codes
 
 | Code | Meaning                                                                  |
@@ -87,6 +115,8 @@ reverse-api-engineer run <run_id> --file api_client.py \
 | `1`  | Runtime error (capture or engineering failed; details in `error`).       |
 | `2`  | Misuse: required arg missing under `--no-interactive` / `--json`.        |
 
-For `run`, the exit code is the underlying script's return code on success,
-or `1` if no script was found, or non-zero if `--no-interactive` would
-otherwise have to prompt.
+For `run`, the exit code is the underlying script's return code when a script
+executes, or `1` if no script was found, no exact script was selected, or
+`--no-interactive` would otherwise have to prompt. Under `--json`, the
+generated script's stdout and stderr are captured into JSON fields instead of
+being written directly to stdout.

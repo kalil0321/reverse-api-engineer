@@ -1,4 +1,4 @@
 {
   "title": "Usage modes",
-  "pages": ["manual", "engineer", "agent"]
+  "pages": ["manual", "engineer", "agent", "collector"]
 }

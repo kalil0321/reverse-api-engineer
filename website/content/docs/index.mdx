@@ -48,11 +48,11 @@ or too time-consuming to map by hand:
 
 ### Drive captures from another agent
 
-Scripted commands are available for agent workflows. `agent` and `engineer`
-support `--json` plus non-interactive execution, `list` and `show` support
-JSON output, and `run` supports `--no-interactive` for script selection and
-dependency prompts. Easy to wrap in a CI job, a [Claude Agent SDK][agent-sdk]
-loop, or a cron task.
+Scripted commands are available for agent workflows. `agent`, `engineer`, and
+`run` support JSON output plus non-interactive execution, `agent`, `engineer`,
+and `run` can stream NDJSON progress with `--json-stream`, and `list` plus
+`show` support JSON history inspection. Easy to wrap in a CI job, a
+[Claude Agent SDK][agent-sdk] loop, or a cron task.
 
 [agent-sdk]: https://code.claude.com/docs/en/agent-sdk/
 
@@ -66,20 +66,23 @@ bodies, response bodies, timing.
 
 ### Autonomous agent loop
 
-Plug an MCP-driven agent into the loop and it browses on your behalf. Two
-providers shipped:
+Plug an agent into the loop and it browses on your behalf. Three providers
+ship today:
 
-- **Playwright MCP** *(default)*: headless capture, fully self-contained.
-- **Chrome DevTools MCP**: drives your **real Chrome** with existing
-  sessions, cookies, and auth.
+- **Playwright MCP** *(default)*: self-contained browser automation; add
+  `--headless` for CI or machines without a display.
+- **Chrome DevTools MCP**: drives your **real Chrome** with existing sessions,
+  cookies, and auth.
+- **agent-browser**: delegates browsing to the Vercel `agent-browser` CLI
+  after resolving a PATH/global/npm/npx shell invocation.
 
 The agent reverse-engineers the API in real time while it browses, so by the
 time the run ends, the client is already generated.
 
-### AI-powered codegen with Claude
+### AI-powered codegen
 
-The HAR is fed to your configured model (Claude by default) along with a tuned
-system prompt. Output:
+The HAR is fed to your configured SDK model (Claude by default) along with a
+tuned system prompt. Output:
 
 - Typed Python (or TS / JS) clients with docstrings.
 - Authentication handling: cookies, bearers, CSRF tokens.

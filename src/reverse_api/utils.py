@@ -534,7 +534,7 @@ def get_visible_save_path(domain: str, base_dir: Path | str, suffix: int = 0) ->
     return path
 
 
-def resolve_run(identifier: str, session_manager) -> dict:
+def resolve_run(identifier: str, session_manager, *, interactive: bool = True) -> dict:
     """Resolve a run by exact ID or fuzzy prompt/folder name match.
 
     Args:
@@ -545,7 +545,8 @@ def resolve_run(identifier: str, session_manager) -> dict:
         The matching run dict
 
     Raises:
-        click.ClickException: If no match or ambiguous match without TTY
+        click.ClickException: If no match or if multiple matches are found in
+            non-interactive mode.
     """
     import click
     import questionary
@@ -575,6 +576,12 @@ def resolve_run(identifier: str, session_manager) -> dict:
 
     if len(matches) == 1:
         return matches[0]
+
+    if not interactive:
+        available = ", ".join(m.get("run_id", "") for m in matches)
+        raise click.ClickException(
+            f"Multiple runs match '{identifier}'; pass an exact run_id. Available: {available}"
+        )
 
     # Multiple matches — show picker
     choices = []

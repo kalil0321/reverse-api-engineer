@@ -1,6 +1,6 @@
 ---
 title: Manual mode
-description: You drive the browser, the AI writes the client. The default workflow.
+description: You drive the browser, the AI writes the client.
 ---
 
 Manual mode runs the full pipeline with you in the driver's seat.
@@ -15,10 +15,14 @@ Manual mode runs the full pipeline with you in the driver's seat.
 
 <Steps>
   <Step>
-    Start the CLI:
+    Start the interactive REPL:
     ```bash
     reverse-api-engineer
     ```
+
+    Press **`Shift+Tab`** once from the default agent prompt to switch into
+    manual mode. Manual mode is REPL-only because it requires a human in front
+    of a visible browser.
   </Step>
   <Step>
     Enter a task description (e.g. *"Fetch Apple job listings"*).

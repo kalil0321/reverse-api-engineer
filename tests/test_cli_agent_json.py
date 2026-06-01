@@ -202,6 +202,9 @@ class TestShowJsonNotFound:
             result = runner.invoke(show_run, ["doesnotexist", "--json"])
         assert result.exit_code == 1
         payload = json.loads(result.stdout.strip())
+        assert payload["schema_version"] == AGENT_JSON_SCHEMA_VERSION
+        assert payload["status"] == "error"
+        assert payload["error_kind"] == "engine_failure"
         assert "error" in payload
         assert payload["run_id"] == "doesnotexist"
 
@@ -328,6 +331,100 @@ class TestRunCommandNonInteractive:
         mock_confirm.assert_not_called()
         # Exit propagates the original failure
         assert result.exit_code != 0
+
+    def test_fuzzy_multiple_matches_with_no_interactive_errors_without_picker(self, tmp_path):
+        """--no-interactive must fail fast even before script selection."""
+        sm = SessionManager(tmp_path / "history.json")
+        sm.add_run("abc123def456", "capture ashby api", mode="manual")
+        sm.add_run("def789ghi012", "capture hubspot api", mode="agent")
+
+        runner = CliRunner()
+        with (
+            patch("reverse_api.cli.session_manager", sm),
+            patch("questionary.select") as mock_select,
+        ):
+            result = runner.invoke(main, ["run", "api", "--no-interactive"])
+        assert result.exit_code != 0
+        assert "Multiple runs match" in result.output
+        mock_select.assert_not_called()
+
+
+class TestRunCommandJson:
+    """`run --json` / `--json-stream` should be safe for wrapper agents."""
+
+    def _precreate_venv(self, tmp_path):
+        venv = tmp_path / ".venv"
+        (venv / "bin").mkdir(parents=True)
+        (venv / "bin" / "python").write_text("#!/bin/sh")
+        (venv / "bin" / "pip").write_text("#!/bin/sh")
+
+    def test_run_json_captures_script_output(self, multi_script_env):
+        tmp_path, _ = multi_script_env
+        self._precreate_venv(tmp_path)
+
+        runner = CliRunner()
+        completed = MagicMock(returncode=0, stdout="hello\n", stderr="warn\n")
+        with patch("subprocess.run", return_value=completed):
+            result = runner.invoke(
+                main,
+                ["run", "abc123def456", "--file", "api_client.py", "--json"],
+            )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout.strip())
+        assert payload["schema_version"] == AGENT_JSON_SCHEMA_VERSION
+        assert payload["status"] == "ok"
+        assert payload["run_id"] == "abc123def456"
+        assert payload["script_path"].endswith("api_client.py")
+        assert payload["stdout"] == "hello\n"
+        assert payload["stderr"] == "warn\n"
+
+    def test_run_json_multiple_scripts_requires_file_without_picker(self, multi_script_env):
+        runner = CliRunner()
+        with patch("questionary.select") as mock_select:
+            result = runner.invoke(main, ["run", "abc123def456", "--json"])
+
+        assert result.exit_code == 1
+        payload = json.loads(result.stdout.strip())
+        assert payload["status"] == "error"
+        assert payload["error_kind"] == "misuse"
+        assert "multiple scripts" in payload["error"]
+        assert {s["name"] for s in payload["scripts"]} == {"api_client.py", "example_usage.py"}
+        mock_select.assert_not_called()
+
+    def test_run_json_stream_emits_events_and_result(self, multi_script_env):
+        tmp_path, _ = multi_script_env
+        self._precreate_venv(tmp_path)
+
+        runner = CliRunner()
+        completed = MagicMock(returncode=0, stdout="ok\n", stderr="")
+        with patch("subprocess.run", return_value=completed):
+            result = runner.invoke(
+                main,
+                ["run", "abc123def456", "--file", "api_client.py", "--json-stream"],
+            )
+
+        assert result.exit_code == 0, result.output
+        events = [json.loads(line) for line in result.stdout.strip().splitlines()]
+        assert [event["event"] for event in events[:3]] == [
+            "run_resolved",
+            "script_selected",
+            "process_started",
+        ]
+        assert events[-1]["event"] == "result"
+        assert events[-1]["status"] == "ok"
+        assert events[-1]["stdout"] == "ok\n"
+
+    def test_run_ls_json_lists_scripts_without_executing(self, multi_script_env):
+        runner = CliRunner()
+        with patch("subprocess.run") as mock_sub:
+            result = runner.invoke(main, ["run", "abc123def456", "--ls", "--json"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout.strip())
+        assert payload["status"] == "ok"
+        assert {s["name"] for s in payload["scripts"]} == {"api_client.py", "example_usage.py"}
+        mock_sub.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

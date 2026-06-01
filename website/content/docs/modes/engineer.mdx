@@ -30,6 +30,17 @@ Direct:
 reverse-api-engineer engineer <run_id>
 ```
 
+From another agent or CI wrapper:
+
+```bash
+reverse-api-engineer engineer <run_id> \
+  --prompt "add pagination support" \
+  --json-stream
+```
+
+Use `--json` when you only need the final result. Both JSON modes suppress
+follow-up prompts and keep machine-readable output on stdout.
+
 Find the `run_id` of a previous run with:
 
 ```bash

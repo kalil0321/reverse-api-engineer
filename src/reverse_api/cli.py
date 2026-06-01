@@ -493,6 +493,56 @@ def _build_engineer_payload(
         "error_kind": error_kind,
     }
 
+
+def _build_run_payload(
+    *,
+    identifier: str,
+    run_id: str | None = None,
+    script_path: str | None = None,
+    script_args: tuple[str, ...] | list[str] = (),
+    returncode: int | None = None,
+    stdout: str | None = None,
+    stderr: str | None = None,
+    scripts: list[Path] | None = None,
+    error: str | BaseException | None = None,
+    error_kind_hint: str = "unknown",
+) -> dict:
+    """Normalize `run --json` output into a stable machine-readable shape."""
+    error_str = _format_error_message(error)
+    if error_str is None and returncode not in (None, 0):
+        error_str = f"script exited with code {returncode}"
+    error_kind = _classify_error(error, default=error_kind_hint) if error_str else None
+    if error_str and error is None:
+        error_kind = error_kind_hint
+    return {
+        "schema_version": AGENT_JSON_SCHEMA_VERSION,
+        "status": "error" if error_str else "ok",
+        "identifier": identifier,
+        "run_id": run_id,
+        "script_path": script_path,
+        "script_args": list(script_args),
+        "returncode": returncode,
+        "stdout": stdout,
+        "stderr": stderr,
+        "scripts": [
+            {
+                "name": p.name,
+                "path": str(p),
+                "size": p.stat().st_size if p.exists() else None,
+                "modified": p.stat().st_mtime if p.exists() else None,
+            }
+            for p in (scripts or [])
+        ],
+        "error": error_str,
+        "error_kind": error_kind,
+    }
+
+
+def _write_json_event(real_stdout, payload: dict) -> None:
+    real_stdout.write(json.dumps(payload) + "\n")
+    real_stdout.flush()
+
+
 # Mode definitions
 MODES = ["agent", "manual", "engineer", "collector"]
 MODE_DESCRIPTIONS = {
@@ -774,11 +824,13 @@ def main(ctx: click.Context, show_schema_version: bool):
     """reverse-api-engineer: reverse engineer apis.
 
     Run without a subcommand to start the interactive REPL; use agent, manual,
-    or engineer for CLI mode.
+    engineer, or collector mode interactively.
 
-    Most subcommands accept --json and --no-interactive for scripted use; see
-    `<cmd> --help` for per-command details. Wrappers that need to gate on the
-    payload schema can call `reverse-api-engineer --json-schema-version`.
+    Scripted flags are subcommand-specific: agent, engineer, and run support
+    --json, --json-stream, and --no-interactive; list/show support --json.
+    See `<cmd> --help` for details. Wrappers that need to gate on the payload
+    schema can call `reverse-api-engineer
+    --json-schema-version`.
     """
     if show_schema_version:
         click.echo(str(AGENT_JSON_SCHEMA_VERSION))
@@ -1440,38 +1492,6 @@ def handle_messages(run_id: str, mode_color=THEME_PRIMARY):
     console.print()
 
 
-@main.command()
-@click.option("--prompt", "-p", default=None, help="Capture description.")
-@click.option("--url", "-u", default=None, help="Starting URL.")
-@click.option(
-    "--reverse-engineer/--no-engineer",
-    "reverse_engineer",
-    default=True,
-    help="Auto-run Claude.",
-)
-@click.option(
-    "--model",
-    "-m",
-    type=click.Choice(["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"]),
-    default=None,
-)
-@click.option("--output-dir", "-o", default=None, help="Custom output directory.")
-def manual(prompt, url, reverse_engineer, model, output_dir):
-    """Start a manual browser session.
-
-    \b
-    Interactive only — this mode requires a human in front of a real,
-    visible browser to navigate, click, and submit forms. It cannot be
-    driven by an agent or run on a headless machine. There is no
-    --headless / --json / --no-interactive flag here on purpose.
-
-    For scripted / agent / CI use cases, use `agent --json --headless`
-    instead, which runs an autonomous AI-driven capture without needing
-    a human or an X server.
-    """
-    run_manual_capture(prompt, url, reverse_engineer, model, output_dir)
-
-
 @main.command(
     epilog="""\b
 Examples:
@@ -1490,8 +1510,16 @@ JSON output schema (--json):
     "mode": "auto" | "chrome-mcp" | "agent-browser" | null,
     "har_path": "/abs/path/recording.har" | null,
     "script_path": "/abs/path/api_client.py" | null,
-    "usage": { "input_tokens": ..., "output_tokens": ..., "total_cost": ... },
-    "error": "<message>" | null
+    "usage": {
+      "input_tokens": ...,
+      "output_tokens": ...,
+      "cache_read_tokens": ...,
+      "cache_write_tokens": ...,
+      "total_cost_usd": ...,
+      "raw": { ... }
+    },
+    "error": "<message>" | null,
+    "error_kind": "misuse" | "config_invalid" | "permission_denied" | "network" | "engine_failure" | "interrupted" | "unknown" | null
   }
 
 \b
@@ -1540,8 +1568,7 @@ Exit codes:
 def agent(prompt, url, model, output_dir, no_interactive, as_json, json_stream, headless, dry_run):
     """Run autonomous agent browser session.
 
-    Agent mode runs an integrated capture + reverse-engineering pipeline; if you
-    only want a HAR recording, use `manual --no-engineer` instead.
+    Agent mode runs an integrated capture + reverse-engineering pipeline.
     """
     if dry_run:
         # --dry-run is fundamentally about emitting machine-parseable validation
@@ -1622,6 +1649,42 @@ def agent(prompt, url, model, output_dir, no_interactive, as_json, json_stream, 
 
         _write_json_stdout(real_stdout, payload, json_stream=json_stream)
     sys.exit(0 if payload["status"] == "ok" else 1)
+
+
+@main.command(
+    epilog="""\b
+Examples:
+  reverse-api-engineer collector -p "collect companies hiring browser automation engineers"
+  reverse-api-engineer collector
+"""
+)
+@click.option("--prompt", "-p", default=None, help="Collection instructions.")
+@click.option(
+    "--model",
+    "-m",
+    type=click.Choice(["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"]),
+    default=None,
+)
+@click.option("--output-dir", "-o", default=None, help="Custom output directory for run metadata and messages.")
+def collector(prompt, model, output_dir):
+    """Run AI-powered data collection."""
+    if prompt is None:
+        if not sys.stdin.isatty():
+            click.echo("error: --prompt is required when stdin is not a TTY", err=True)
+            sys.exit(2)
+        options = prompt_interactive_options(
+            prompt=None,
+            model=model,
+            current_mode="collector",
+        )
+        if "command" in options:
+            return
+        prompt = options["prompt"]
+        model = options.get("model") or model
+
+    result = run_collector(prompt=prompt, model=model, output_dir=output_dir)
+    if result is None or (isinstance(result, dict) and result.get("error")):
+        sys.exit(1)
 
 
 def run_manual_capture(prompt=None, url=None, reverse_engineer=True, model=None, output_dir=None):
@@ -1762,12 +1825,17 @@ def run_collector(prompt=None, model=None, output_dir=None):
                 usage=result.get("usage", {}),
                 paths={"output_path": result.get("output_path")},
             )
+        return result
     except Exception as e:
         console.print(f" [red]collector error: {e}[/red]")
         console.print(f" [dim]{ERROR_CTA}[/dim]")
         import traceback
 
         traceback.print_exc()
+        return {
+            "run_id": run_id,
+            "error": str(e) or type(e).__name__,
+        }
 
 
 def run_auto_capture(
@@ -1979,7 +2047,6 @@ def run_auto_capture(
         }
 
 
-
 @main.command(
     epilog="""\b
 Examples:
@@ -1997,8 +2064,16 @@ JSON output schema (--json):
     "prompt": "..." | null,
     "fresh": false,
     "script_path": "/abs/path/api_client.py" | null,
-    "usage": { "input_tokens": ..., "output_tokens": ..., "total_cost": ... },
-    "error": "<message>" | null
+    "usage": {
+      "input_tokens": ...,
+      "output_tokens": ...,
+      "cache_read_tokens": ...,
+      "cache_write_tokens": ...,
+      "total_cost_usd": ...,
+      "raw": { ... }
+    },
+    "error": "<message>" | null,
+    "error_kind": "misuse" | "config_invalid" | "permission_denied" | "network" | "engine_failure" | "interrupted" | "unknown" | null
   }
 
 \b
@@ -2445,20 +2520,29 @@ def show_run(run_id, as_json):
     from rich.table import Table
     from rich.text import Text
 
+    def _show_error_payload(message: str, rid: str | None = None) -> dict:
+        return {
+            "schema_version": AGENT_JSON_SCHEMA_VERSION,
+            "status": "error",
+            "run_id": rid,
+            "error": message,
+            "error_kind": _classify_error(message, default="engine_failure"),
+        }
+
     if run_id:
         run = session_manager.get_run(run_id)
     elif session_manager.history:
         run = session_manager.history[0]
     else:
         if as_json:
-            click.echo(json.dumps({"error": "no runs found"}))
+            click.echo(json.dumps(_show_error_payload("no runs found")))
             sys.exit(1)
         console.print("No runs found.", style="dim")
         return
 
     if run is None:
         if as_json:
-            click.echo(json.dumps({"error": "run not found", "run_id": run_id}))
+            click.echo(json.dumps(_show_error_payload("run not found", run_id)))
             sys.exit(1)
         console.print(f"Run not found: {run_id}")
         return
@@ -2502,6 +2586,10 @@ def show_run(run_id, as_json):
     details["har_entries"] = har_entries
 
     if as_json:
+        details["schema_version"] = AGENT_JSON_SCHEMA_VERSION
+        details["status"] = "ok"
+        details["error"] = None
+        details["error_kind"] = None
         click.echo(json.dumps(details, indent=2))
         return
 
@@ -2549,6 +2637,155 @@ def show_run(run_id, as_json):
     console.print(table)
 
 
+def _run_script_machine_payload(
+    *,
+    identifier: str,
+    script_args: tuple[str, ...],
+    file_name: str | None,
+    list_scripts: bool,
+    auto_install: bool,
+    emit_event,
+) -> dict:
+    """Run or list generated scripts without prompts and with JSON-safe stdout."""
+    import re as _re
+    import subprocess
+
+    run_id: str | None = None
+    script: Path | None = None
+    scripts: list[Path] = []
+
+    try:
+        run = resolve_run(identifier, session_manager, interactive=False)
+        run_id = run["run_id"]
+        output_dir = config_manager.get("output_dir")
+        scripts = discover_scripts(run_id, output_dir, run_metadata=run)
+        emit_event("run_resolved", run_id=run_id, script_count=len(scripts))
+
+        if not scripts:
+            return _build_run_payload(
+                identifier=identifier,
+                run_id=run_id,
+                scripts=scripts,
+                error=f"No Python scripts found for run {run_id}",
+                error_kind_hint="engine_failure",
+            )
+
+        if list_scripts:
+            return _build_run_payload(
+                identifier=identifier,
+                run_id=run_id,
+                scripts=scripts,
+                returncode=0,
+            )
+
+        if file_name:
+            matching = [s for s in scripts if s.name == file_name]
+            if not matching:
+                available = ", ".join(s.name for s in scripts)
+                return _build_run_payload(
+                    identifier=identifier,
+                    run_id=run_id,
+                    scripts=scripts,
+                    error=f"'{file_name}' not found. Available: {available}",
+                    error_kind_hint="misuse",
+                )
+            script = matching[0]
+        elif len(scripts) == 1:
+            script = scripts[0]
+        else:
+            available = ", ".join(s.name for s in scripts)
+            return _build_run_payload(
+                identifier=identifier,
+                run_id=run_id,
+                scripts=scripts,
+                error=(f"multiple scripts found for run {run_id}; pass --file <name> to choose. Available: {available}"),
+                error_kind_hint="misuse",
+            )
+
+        emit_event("script_selected", run_id=run_id, script_path=str(script))
+
+        from .utils import get_base_output_dir as _get_base
+
+        venv_dir = _get_base(output_dir) / ".venv"
+        venv_bin = "Scripts" if sys.platform == "win32" else "bin"
+        venv_python = venv_dir / venv_bin / ("python.exe" if sys.platform == "win32" else "python")
+        venv_pip = venv_dir / venv_bin / ("pip.exe" if sys.platform == "win32" else "pip")
+
+        subprocess_kwargs = {"capture_output": True, "text": True}
+        if not venv_dir.exists():
+            emit_event("venv_setup_started", run_id=run_id, path=str(venv_dir))
+            subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True, **subprocess_kwargs)
+            subprocess.run([str(venv_pip), "install", "-q", "requests"], check=True, **subprocess_kwargs)
+            emit_event("venv_setup_completed", run_id=run_id, path=str(venv_dir))
+
+        requirements = script.parent / "requirements.txt"
+        if requirements.exists():
+            emit_event("requirements_install_started", run_id=run_id, path=str(requirements))
+            subprocess.run([str(venv_pip), "install", "-q", "-r", str(requirements)], check=True, **subprocess_kwargs)
+            emit_event("requirements_install_completed", run_id=run_id, path=str(requirements))
+
+        cmd = [str(venv_python), str(script), *script_args]
+        emit_event("process_started", run_id=run_id, script_path=str(script))
+        result = subprocess.run(cmd, **subprocess_kwargs)
+
+        stderr = result.stderr or ""
+        if result.returncode != 0 and "ModuleNotFoundError: No module named" in stderr:
+            match = _re.search(r"No module named ['\"]([^'\"]+)['\"]", stderr)
+            if match:
+                missing = match.group(1).split(".")[0]
+                emit_event("dependency_missing", run_id=run_id, package=missing)
+                if auto_install:
+                    emit_event("dependency_install_started", run_id=run_id, package=missing)
+                    subprocess.run([str(venv_pip), "install", "-q", missing], check=True, **subprocess_kwargs)
+                    emit_event("dependency_install_completed", run_id=run_id, package=missing)
+                    emit_event("process_retried", run_id=run_id, script_path=str(script))
+                    result = subprocess.run(cmd, **subprocess_kwargs)
+                else:
+                    return _build_run_payload(
+                        identifier=identifier,
+                        run_id=run_id,
+                        script_path=str(script),
+                        script_args=script_args,
+                        returncode=result.returncode,
+                        stdout=result.stdout or "",
+                        stderr=stderr,
+                        scripts=scripts,
+                        error=f"missing dependency: {missing}",
+                        error_kind_hint="engine_failure",
+                    )
+
+        return _build_run_payload(
+            identifier=identifier,
+            run_id=run_id,
+            script_path=str(script),
+            script_args=script_args,
+            returncode=result.returncode,
+            stdout=result.stdout or "",
+            stderr=result.stderr or "",
+            scripts=scripts,
+        )
+    except click.ClickException as e:
+        return _build_run_payload(
+            identifier=identifier,
+            run_id=run_id,
+            script_path=str(script) if script else None,
+            script_args=script_args,
+            scripts=scripts,
+            error=e.message,
+            error_kind_hint="misuse",
+        )
+    except Exception as e:
+        return _build_run_payload(
+            identifier=identifier,
+            run_id=run_id,
+            script_path=str(script) if script else None,
+            script_args=script_args,
+            scripts=scripts,
+            error=e,
+            error_kind_hint="engine_failure",
+        )
+
+
 @main.command(
     "run",
     epilog="""\b
@@ -2557,6 +2794,8 @@ Examples:
   reverse-api-engineer run ashby --ls
   reverse-api-engineer run ashby --file api_client.py -- --org acme --limit 10
   reverse-api-engineer run a450e520ca30 --file api_client.py --no-interactive --auto-install
+  reverse-api-engineer run a450e520ca30 --file api_client.py --json | jq
+  reverse-api-engineer run a450e520ca30 --file api_client.py --json-stream
 
 \b
 Exit codes:
@@ -2579,8 +2818,20 @@ Exit codes:
     is_flag=True,
     help="Auto-install missing dependencies on retry without prompting (implies --no-interactive for the picker).",
 )
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    help="Emit one JSON result on stdout with captured script stdout/stderr. Implies --no-interactive.",
+)
+@click.option(
+    "--json-stream",
+    "json_stream",
+    is_flag=True,
+    help='Emit NDJSON progress events on stdout, then a final {"event":"result",...} line. Implies --no-interactive.',
+)
 @click.pass_context
-def run_script(ctx, identifier, script_args, file_name, list_scripts, no_interactive, auto_install):
+def run_script(ctx, identifier, script_args, file_name, list_scripts, no_interactive, auto_install, as_json, json_stream):
     """Run a generated script from a previous run.
 
     IDENTIFIER is a run ID or search term to match against prompts.
@@ -2601,8 +2852,32 @@ def run_script(ctx, identifier, script_args, file_name, list_scripts, no_interac
 
     from rich.table import Table
 
+    machine_output = as_json or json_stream
+    no_interactive = no_interactive or machine_output
+
+    if machine_output:
+        with _quiet_consoles_for_json() as real_stdout:
+
+            def emit_event(event: str, **fields) -> None:
+                if json_stream:
+                    _write_json_event(real_stdout, {"event": event, **fields})
+
+            payload = _run_script_machine_payload(
+                identifier=identifier,
+                script_args=script_args,
+                file_name=file_name,
+                list_scripts=list_scripts,
+                auto_install=auto_install,
+                emit_event=emit_event,
+            )
+            _write_json_stdout(real_stdout, payload, json_stream=json_stream)
+
+        if payload["returncode"] not in (None, 0):
+            raise SystemExit(payload["returncode"])
+        raise SystemExit(0 if payload["status"] == "ok" else 1)
+
     # Resolve which run
-    run = resolve_run(identifier, session_manager)
+    run = resolve_run(identifier, session_manager, interactive=not no_interactive)
     run_id = run["run_id"]
     output_dir = config_manager.get("output_dir")
 
