@@ -46,6 +46,42 @@ final class CertificateAuthorityTests: XCTestCase {
         XCTAssertEqual(first.privateKey.publicKey, second.privateKey.publicKey)
     }
 
+    func testLoadRootRejectsMismatchedKeyPair() throws {
+        let rootA = try CertificateAuthority.generateRoot()
+        let rootB = try CertificateAuthority.generateRoot()
+        XCTAssertThrowsError(
+            try CertificateAuthority.loadRoot(
+                certificatePEM: try rootA.pem(),
+                privateKeyPEM: try rootB.privateKeyPEM()
+            )
+        ) { error in
+            XCTAssertEqual(error as? CertificateAuthorityError, .keyPairMismatch)
+        }
+    }
+
+    func testConcurrentLoadOrCreateProducesConsistentRoot() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = RootCertificateStore(directory: directory)
+        let count = 8
+        var roots: [RootCertificate?] = Array(repeating: nil, count: count)
+        let lock = NSLock()
+        DispatchQueue.concurrentPerform(iterations: count) { idx in
+            // Concurrent racers — the lock inside loadOrCreate must
+            // serialise them so all callers see the same on-disk pair.
+            let r = try? store.loadOrCreate()
+            lock.lock()
+            roots[idx] = r
+            lock.unlock()
+        }
+        let firstDER = try XCTUnwrap(roots[0]).derBytes()
+        for root in roots {
+            let r = try XCTUnwrap(root)
+            XCTAssertEqual(try r.derBytes(), try firstDER)
+        }
+    }
+
     func testLeafCertificateFactoryProducesLeafForHost() async throws {
         let root = try CertificateAuthority.generateRoot()
         let factory = try LeafCertificateFactory(root: root)

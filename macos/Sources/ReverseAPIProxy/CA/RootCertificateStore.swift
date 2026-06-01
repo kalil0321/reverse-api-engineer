@@ -5,6 +5,14 @@ public struct RootCertificateStore: Sendable {
     public let certificateURL: URL
     public let privateKeyURL: URL
 
+    /// Serialises `loadOrCreate` across the process. The previous
+    /// check-then-create pattern could let two concurrent callers
+    /// both miss the file existence check, both generate fresh roots,
+    /// and race to overwrite each other — leaving one writer holding
+    /// an in-memory `RootCertificate` whose private key no longer
+    /// matches what's on disk.
+    private static let loadOrCreateLock = NSLock()
+
     public init(directory: URL) {
         self.directory = directory
         self.certificateURL = directory.appendingPathComponent("reverseapi-root.pem")
@@ -23,6 +31,9 @@ public struct RootCertificateStore: Sendable {
     }
 
     public func loadOrCreate(commonName: String = "ReverseAPI Local Root") throws -> RootCertificate {
+        Self.loadOrCreateLock.lock()
+        defer { Self.loadOrCreateLock.unlock() }
+
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)

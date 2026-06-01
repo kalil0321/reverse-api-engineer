@@ -39,7 +39,7 @@ final class ProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @unche
         case .head(let head):
             onHead(channelContext: channelContext, head: head)
         case .body(let buffer):
-            onBody(buffer)
+            onBody(channelContext: channelContext, buffer: buffer)
         case .end(let trailers):
             onEnd(channelContext: channelContext, trailers: trailers)
         }
@@ -68,22 +68,24 @@ final class ProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @unche
         }
     }
 
-    private func onBody(_ buffer: ByteBuffer) {
+    private func onBody(channelContext: ChannelHandlerContext, buffer: ByteBuffer) {
         guard case .buffering(var inflight) = phase else { return }
         inflight.appendBody(buffer)
+        // Reject + close immediately on overflow. Waiting for `.end`
+        // lets a hostile client keep streaming past the limit and
+        // grow the buffer arbitrarily.
         if inflight.body.readableBytes > maxBodyBytes {
             phase = .rejected
+            respondError(channelContext: channelContext, status: .payloadTooLarge)
             return
         }
         phase = .buffering(inflight)
     }
 
     private func onEnd(channelContext: ChannelHandlerContext, trailers: HTTPHeaders?) {
-        if case .rejected = phase {
-            phase = .idle
-            respondError(channelContext: channelContext, status: .payloadTooLarge)
-            return
-        }
+        // `.rejected` already wrote the 413 + closed in `onBody`; just
+        // drop any trailing parts the client may still be sending.
+        if case .rejected = phase { return }
         guard case .buffering(var inflight) = phase else { return }
         inflight.appendTrailers(trailers)
         phase = .idle
