@@ -10,15 +10,8 @@ const LINKS = [
 
 export function SiteFooter() {
   return (
-    <footer
-      style={{
-        background: `
-          radial-gradient(55% 70% at 100% 120%, rgba(229,13,117,0.28) 0%, transparent 60%),
-          radial-gradient(45% 60% at 0% 110%, rgba(136,93,197,0.18) 0%, transparent 60%),
-          #0d0a07
-        `,
-      }}
-    >
+    <footer style={{ background: '#0d0a07' }}>
+
       <div
         style={{
           padding: '60px 0 40px',
@@ -106,7 +99,7 @@ export function SiteFooter() {
             href={`https://github.com/${gitConfig.user}`}
             target="_blank"
             style={{ color: 'inherit', textDecoration: 'underline', textUnderlineOffset: 3 }}
-            className="hover:text-[rgba(255,247,240,0.6)] transition-colors"
+            className="hover:text-fd-primary transition-colors"
           >
             {gitConfig.user}
           </Link>

@@ -37,13 +37,19 @@ export function BuiltInTheOpen() {
         <div
           className="grid grid-cols-1 md:grid-cols-3 gap-px
             bg-[rgba(30,20,50,0.14)] dark:bg-[rgba(248,244,255,0.08)]
-            rounded-md overflow-hidden"
+            rounded-md"
         >
-          {CARDS.map((c) => (
+          {CARDS.map((c, i) => (
             <div
               key={c.id}
-              className="bg-[#f2effa] dark:bg-[#1e1729]
-                px-6 py-7 md:px-7 md:py-8 flex flex-col"
+              className={`oss-hov bg-[#f2effa] dark:bg-[#1e1729]
+                px-6 py-7 md:px-7 md:py-8 flex flex-col ${
+                  i === 0
+                    ? 'rounded-t-md md:rounded-tr-none md:rounded-bl-md'
+                    : i === CARDS.length - 1
+                      ? 'rounded-b-md md:rounded-bl-none md:rounded-tr-md'
+                      : ''
+                }`}
             >
               <p
                 className="font-display italic text-xl leading-[1.15] tracking-[-0.02em]

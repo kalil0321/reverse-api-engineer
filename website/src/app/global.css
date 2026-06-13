@@ -263,6 +263,197 @@ body {
   color: var(--color-ink-soft);
 }
 
+/* ─── Lab sticky-notes animations (N3) ──────────────────────────────────────
+   Notes drop in (la-note) then idle-sway; the CTA row rises in (la-rise).
+   Played when <Reveal> flips data-show to "true" on scroll-in. Disabled under
+   prefers-reduced-motion. --d = per-element delay, --r = resting rotation. */
+
+@keyframes la-rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+@keyframes la-drop {
+  0% { opacity: 0; transform: translateY(-22px) rotate(var(--r, 0deg)); }
+  100% { opacity: 1; transform: translateY(0) rotate(var(--r, 0deg)); }
+}
+@keyframes la-sway {
+  0%, 100% { transform: rotate(var(--r, 0deg)); }
+  50% { transform: rotate(calc(var(--r, 0deg) + 1.3deg)); }
+}
+
+[data-show="false"] .la-rise { opacity: 0; transform: translateY(18px); }
+[data-show="false"] .la-note { opacity: 0; }
+
+[data-show="true"] .la-rise { animation: la-rise 0.6s cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: var(--d, 0s); }
+[data-show="true"] .la-note {
+  animation:
+    la-drop 0.55s cubic-bezier(0.34, 1.4, 0.64, 1) var(--d, 0s) both,
+    la-sway 4.6s ease-in-out calc(var(--d, 0s) + 0.55s) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-show] .la-rise, [data-show] .la-note {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* ─── Lab: same-UI animation variants ───────────────────────────────────────
+   The production "how it works" spine and the split-flap agent board, with
+   only the animation swapped per variant. Scroll-triggered (via [data-show])
+   for entrances; continuous/hover otherwise. Disabled under reduced-motion. */
+
+@keyframes lab-pop { from { opacity: 0; transform: scale(0); } to { opacity: 1; transform: scale(1); } }
+
+/* SPINE v1 — draw: line draws down, dots pop, steps rise (scroll) */
+@keyframes sp-draw { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+[data-show="false"] .sp-v1-line { transform: scaleY(0); }
+[data-show="true"]  .sp-v1-line { transform-origin: top; animation: sp-draw 0.9s cubic-bezier(0.16,1,0.3,1) both; }
+[data-show="false"] .sp-v1-dot { opacity: 0; transform: scale(0); }
+[data-show="true"]  .sp-v1-dot { animation: lab-pop 0.4s cubic-bezier(0.34,1.56,0.64,1) both; }
+[data-show="false"] .sp-v1-step { opacity: 0; transform: translateY(16px); }
+[data-show="true"]  .sp-v1-step { animation: la-rise 0.6s cubic-bezier(0.16,1,0.3,1) both; }
+
+/* SPINE v2 — stagger: dots + steps fade/rise in sequence (scroll) */
+[data-show="false"] .sp-v2-dot, [data-show="false"] .sp-v2-step { opacity: 0; transform: translateY(14px); }
+[data-show="true"]  .sp-v2-dot, [data-show="true"]  .sp-v2-step { animation: la-rise 0.55s cubic-bezier(0.16,1,0.3,1) both; }
+
+/* SPINE v3 — fill: a pink line grows down forever; dots light as it passes */
+@keyframes sp-fill { 0% { transform: scaleY(0); } 80%, 100% { transform: scaleY(1); } }
+@keyframes sp-dotlight { 0%, 100% { opacity: 0.35; transform: scale(0.8); } 8%, 20% { opacity: 1; transform: scale(1.25); } }
+.sp-v3-fill { transform-origin: top; animation: sp-fill 5s ease-in-out infinite; }
+.sp-v3-dot { animation: sp-dotlight 5s ease-in-out infinite; }
+
+/* SPINE v4 — hover: steps dim until you hover their row */
+.sp-v4-step { opacity: 0.45; transition: opacity 0.25s ease; }
+.sp-v4-dot { transition: transform 0.25s ease, box-shadow 0.25s ease; }
+.sp-v4-row:hover .sp-v4-step { opacity: 1; }
+.sp-v4-row:hover .sp-v4-dot { transform: scale(1.5); box-shadow: 0 0 0 6px color-mix(in oklch, var(--color-fd-primary) 25%, transparent); }
+
+/* SPINE v5 — ripple: dots pulse down the spine forever */
+@keyframes sp-ripple { 0%, 70%, 100% { transform: scale(1); } 12% { transform: scale(1.6); } }
+.sp-v5-dot { animation: sp-ripple 3.4s ease-in-out infinite; }
+
+/* BOARD v1 — flip in (scroll) */
+@keyframes bd-flip { 0% { transform: rotateX(-90deg); opacity: 0; } 60% { transform: rotateX(12deg); opacity: 1; } 100% { transform: rotateX(0); } }
+[data-show="false"] .bd-v1-tile { opacity: 0; transform: rotateX(-90deg); }
+[data-show="true"]  .bd-v1-tile { animation: bd-flip 0.5s cubic-bezier(0.3,1,0.4,1) both; }
+
+/* BOARD v2 — row cascade (scroll) */
+[data-show="false"] .bd-v2-row { opacity: 0; transform: translateY(14px); }
+[data-show="true"]  .bd-v2-row { animation: la-rise 0.5s cubic-bezier(0.16,1,0.3,1) both; }
+
+/* BOARD v3 — live board: tiles re-flip on a loop */
+@keyframes bd-reflip { 0%, 86%, 100% { transform: rotateX(0); } 90% { transform: rotateX(-90deg); } 93% { transform: rotateX(0); } }
+.bd-v3-tile { animation: bd-reflip 6s ease-in-out infinite; }
+
+/* BOARD v4 — hover a row to flip its tiles */
+.bd-v4-tile { backface-visibility: hidden; }
+.bd-v4-row:hover .bd-v4-tile { animation: bd-flip 0.5s cubic-bezier(0.3,1,0.4,1) both; }
+
+/* BOARD v5 — sweep: tiles brighten left-to-right forever */
+@keyframes bd-sweep {
+  0%, 100% { background-color: #1c1c1c; color: rgba(255,247,240,0.55); }
+  12% { background-color: #3a2030; color: #fff7f0; }
+}
+.bd-v5-tile { animation: bd-sweep 4s linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-show] .sp-v1-line, [data-show] .sp-v1-dot, [data-show] .sp-v1-step,
+  [data-show] .sp-v2-dot, [data-show] .sp-v2-step,
+  [data-show] .bd-v1-tile, [data-show] .bd-v2-row,
+  .sp-v3-fill, .sp-v3-dot, .sp-v5-dot, .bd-v3-tile, .bd-v5-tile {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .sp-v4-step { opacity: 1 !important; }
+  .sp-v4-dot, .bd-v4-tile { transition: none !important; }
+}
+
+/* ─── HIW card iteration: flip on hover ─────────────────────────────────── */
+.hiw-flip { perspective: 1000px; }
+.hiw-flip-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transition: transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-style: preserve-3d;
+}
+.hiw-flip:hover .hiw-flip-inner { transform: rotateY(180deg); }
+.hiw-flip-face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.hiw-flip-back { transform: rotateY(180deg); }
+@media (prefers-reduced-motion: reduce) {
+  .hiw-flip-inner { transition: none; }
+}
+
+/* ─── HIW polaroids — subtle motion ─────────────────────────────────────────
+   Polaroids fade + rise in on scroll (wrapper, so the card keeps its tilt);
+   the capture rec-dot pulses and the generate sparkle twinkles. */
+@keyframes hiw-rise { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: none; } }
+[data-show="false"] .hiw-pol-wrap { opacity: 0; transform: translateY(22px); }
+[data-show="true"] .hiw-pol-wrap { animation: hiw-rise 0.55s cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: var(--d, 0s); }
+
+/* SVG motion — each conveys the step's action (no pulsing dots). */
+@keyframes ill-cursor { from { transform: translate(0, 0); } to { transform: translate(7px, 6px); } }
+.ill-cursor { animation: ill-cursor 1.8s ease-in-out infinite alternate; }
+
+@keyframes ill-wave { to { stroke-dashoffset: -48; } }
+.ill-wave { stroke-dasharray: 4 4; animation: ill-wave 1.1s linear infinite; }
+
+@keyframes ill-spin { to { transform: rotate(360deg); } }
+.ill-spin { transform-box: fill-box; transform-origin: center; animation: ill-spin 9s linear infinite; }
+
+/* Generate — code lines write themselves on a loop. */
+@keyframes ill-write { 0%, 8% { stroke-dashoffset: 60; } 42%, 100% { stroke-dashoffset: 0; } }
+.ill-write { stroke-dasharray: 60; animation: ill-write 3.6s ease-in-out infinite; }
+
+@keyframes ill-mag { 0% { transform: translate(0, 0); } 50% { transform: translate(-24px, -12px); } 100% { transform: translate(0, 0); } }
+.ill-mag { animation: ill-mag 4.5s ease-in-out infinite; }
+
+@keyframes ill-draw { 0%, 15% { stroke-dashoffset: 40; } 45%, 100% { stroke-dashoffset: 0; } }
+.ill-check { stroke-dasharray: 40; animation: ill-draw 4.5s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-show] .hiw-pol-wrap { animation: none !important; opacity: 1 !important; transform: none !important; }
+  .ill-cursor, .ill-wave, .ill-spin, .ill-mag, .ill-check, .ill-write { animation: none !important; }
+  .ill-check, .ill-write { stroke-dasharray: none !important; }
+}
+
+/* ─── Lab: OSS section — same-UI animation variants ─────────────────────────
+   The "Open source · runs on your machine" joined card grid, animated.
+   Scroll entrances via [data-show]; hover otherwise. Reduced-motion safe. */
+@keyframes oss-fade { from { opacity: 0; } to { opacity: 1; } }
+[data-show="false"] .oss-fade { opacity: 0; }
+[data-show="true"]  .oss-fade { animation: oss-fade 0.6s ease both; animation-delay: var(--d, 0s); }
+
+@keyframes oss-slide-l { from { opacity: 0; transform: translateX(-34px); } to { opacity: 1; transform: none; } }
+@keyframes oss-slide-r { from { opacity: 0; transform: translateX(34px); } to { opacity: 1; transform: none; } }
+@keyframes oss-slide-u { from { opacity: 0; transform: translateY(26px); } to { opacity: 1; transform: none; } }
+[data-show="false"] .oss-sl { opacity: 0; transform: translateX(-34px); }
+[data-show="false"] .oss-su { opacity: 0; transform: translateY(26px); }
+[data-show="false"] .oss-sr { opacity: 0; transform: translateX(34px); }
+[data-show="true"]  .oss-sl { animation: oss-slide-l 0.6s cubic-bezier(0.16,1,0.3,1) both; }
+[data-show="true"]  .oss-su { animation: oss-slide-u 0.6s cubic-bezier(0.16,1,0.3,1) both; }
+[data-show="true"]  .oss-sr { animation: oss-slide-r 0.6s cubic-bezier(0.16,1,0.3,1) both; }
+
+.oss-hov { position: relative; transition: transform 0.2s ease, box-shadow 0.2s ease; }
+.oss-hov:hover { transform: translateY(-6px); box-shadow: 0 18px 36px -20px rgba(30,20,50,0.55); z-index: 10; }
+
+@keyframes oss-wipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+[data-show="false"] .oss-wipe { clip-path: inset(0 100% 0 0); }
+[data-show="true"]  .oss-wipe { animation: oss-wipe 0.9s cubic-bezier(0.16,1,0.3,1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-show] .oss-fade, [data-show] .oss-sl, [data-show] .oss-su, [data-show] .oss-sr, [data-show] .oss-wipe {
+    animation: none !important; opacity: 1 !important; transform: none !important; clip-path: none !important;
+  }
+  .oss-hov { transition: none !important; }
+}
+
 /* ─── Display typography (Fraunces) ─────────────────────────────────────── */
 
 .font-display {

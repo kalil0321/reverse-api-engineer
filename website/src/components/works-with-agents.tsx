@@ -24,17 +24,18 @@ export function WorksWithAgents() {
             <span>agent</span>
             <span>status</span>
           </div>
-          {AGENTS.map((a) => (
+          {AGENTS.map((a, ai) => (
             <div key={a.key} className="flex items-center gap-3">
               <span className="flex size-8 shrink-0 items-center justify-center rounded bg-white/[0.06]">
                 <BrandIcon agent={a} className="size-4 text-white/85" />
               </span>
               {/* flap tiles spelling the agent name */}
-              <div className="flex gap-px overflow-hidden">
+              <div className="flex gap-px" style={{ perspective: '420px' }}>
                 {a.name.toUpperCase().slice(0, 16).split('').map((ch, ci) => (
                   <span
                     key={ci}
-                    className="flex h-7 w-5 items-center justify-center rounded-[3px] bg-[#1c1c1c] font-mono text-[13px] text-[rgba(255,247,240,0.92)] shadow-[inset_0_-1px_0_rgba(0,0,0,0.6)]"
+                    className="bd-v3-tile flex h-7 w-5 items-center justify-center rounded-[3px] bg-[#1c1c1c] font-mono text-[13px] text-[rgba(255,247,240,0.92)] shadow-[inset_0_-1px_0_rgba(0,0,0,0.6)]"
+                    style={{ animationDelay: `${ai * 0.22 + ci * 0.05}s` }}
                   >
                     {ch === ' ' ? ' ' : ch}
                   </span>
