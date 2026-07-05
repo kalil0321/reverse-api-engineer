@@ -2770,6 +2770,21 @@ def _run_script_machine_payload(
                         error=f"missing dependency: {missing}",
                         error_kind_hint="engine_failure",
                     )
+            elif auto_install:
+                # Keep the refusal observable instead of falling through to a
+                # generic script-exit error
+                return _build_run_payload(
+                    identifier=identifier,
+                    run_id=run_id,
+                    script_path=str(script),
+                    script_args=script_args,
+                    returncode=result.returncode,
+                    stdout=result.stdout or "",
+                    stderr=stderr,
+                    scripts=scripts,
+                    error="refusing to auto-install: no safe package name could be extracted from the ModuleNotFoundError output",
+                    error_kind_hint="engine_failure",
+                )
 
         return _build_run_payload(
             identifier=identifier,
