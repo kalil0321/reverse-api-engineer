@@ -2637,6 +2637,26 @@ def show_run(run_id, as_json):
     console.print(table)
 
 
+def _extract_missing_module(stderr: str) -> str | None:
+    """Extract a missing top-level module name from a ModuleNotFoundError message.
+
+    Returns None if no module name is found or the name is not a plain Python
+    identifier — a genuine ModuleNotFoundError always names one, and rejecting
+    anything else prevents a crafted error message from smuggling pip options
+    or arbitrary install targets.
+    """
+    import re as _re
+
+    match = _re.search(r"No module named ['\"]([^'\"]+)['\"]", stderr)
+    if not match:
+        return None
+    missing = match.group(1).split(".")[0]
+    # fullmatch, since $ in re.match would accept a trailing newline
+    if not _re.fullmatch(r"[a-zA-Z0-9_]+", missing) or len(missing) > 64:
+        return None
+    return missing
+
+
 def _run_script_machine_payload(
     *,
     identifier: str,
@@ -2647,7 +2667,6 @@ def _run_script_machine_payload(
     emit_event,
 ) -> dict:
     """Run or list generated scripts without prompts and with JSON-safe stdout."""
-    import re as _re
     import subprocess
 
     run_id: str | None = None
@@ -2730,9 +2749,8 @@ def _run_script_machine_payload(
 
         stderr = result.stderr or ""
         if result.returncode != 0 and "ModuleNotFoundError: No module named" in stderr:
-            match = _re.search(r"No module named ['\"]([^'\"]+)['\"]", stderr)
-            if match:
-                missing = match.group(1).split(".")[0]
+            missing = _extract_missing_module(stderr)
+            if missing:
                 emit_event("dependency_missing", run_id=run_id, package=missing)
                 if auto_install:
                     emit_event("dependency_install_started", run_id=run_id, package=missing)
@@ -2753,6 +2771,21 @@ def _run_script_machine_payload(
                         error=f"missing dependency: {missing}",
                         error_kind_hint="engine_failure",
                     )
+            elif auto_install:
+                # Keep the refusal observable instead of falling through to a
+                # generic script-exit error
+                return _build_run_payload(
+                    identifier=identifier,
+                    run_id=run_id,
+                    script_path=str(script),
+                    script_args=script_args,
+                    returncode=result.returncode,
+                    stdout=result.stdout or "",
+                    stderr=stderr,
+                    scripts=scripts,
+                    error="refusing to auto-install: no safe package name could be extracted from the ModuleNotFoundError output",
+                    error_kind_hint="engine_failure",
+                )
 
         return _build_run_payload(
             identifier=identifier,
@@ -2967,11 +3000,8 @@ def run_script(ctx, identifier, script_args, file_name, list_scripts, no_interac
 
     if result.returncode != 0:
         if "ModuleNotFoundError: No module named" in (result.stderr or ""):
-            import re as _re
-
-            match = _re.search(r"No module named ['\"]([^'\"]+)['\"]", result.stderr)
-            if match:
-                missing = match.group(1).split(".")[0]
+            missing = _extract_missing_module(result.stderr)
+            if missing:
                 console.print(f"[yellow]Missing dependency: {missing}[/yellow]")
 
                 if auto_install:

@@ -289,6 +289,30 @@ def get_base_output_dir(output_dir: str | None = None) -> Path:
     return get_app_dir() / "runs"
 
 
+def _validate_path_component(value: str, label: str = "run_id") -> None:
+    """Validate a user-supplied path component to prevent path traversal attacks.
+
+    Args:
+        value: The path component to validate
+        label: Name of the parameter, used in error messages
+
+    Raises:
+        ValueError: If the value is empty, contains invalid characters, or is too long
+    """
+    if not value:
+        raise ValueError(f"{label} cannot be empty")
+
+    # Allow alphanumeric characters, hyphens, and underscores
+    # Chrome extension IDs start with crx- followed by UUID-style format
+    # (fullmatch, since $ in re.match would accept a trailing newline)
+    if not re.fullmatch(r"[a-zA-Z0-9_-]+", value):
+        raise ValueError(f"Invalid {label}: {value}. Only alphanumeric characters, hyphens, and underscores are allowed")
+
+    # Limit length to prevent extremely long paths
+    if len(value) > 64:
+        raise ValueError(f"{label} too long: {len(value)} characters (max 64)")
+
+
 def get_har_dir(run_id: str, output_dir: str | None = None) -> Path:
     """Get the HAR directory for a specific run.
 
@@ -302,18 +326,7 @@ def get_har_dir(run_id: str, output_dir: str | None = None) -> Path:
     Raises:
         ValueError: If run_id contains invalid characters or attempts path traversal
     """
-    # Validate run_id to prevent path traversal attacks
-    if not run_id:
-        raise ValueError("run_id cannot be empty")
-
-    # Allow alphanumeric characters, hyphens, and underscores
-    # Chrome extension IDs start with crx- followed by UUID-style format
-    if not re.match(r"^[a-zA-Z0-9_-]+$", run_id):
-        raise ValueError(f"Invalid run_id: {run_id}. Only alphanumeric characters, hyphens, and underscores are allowed")
-
-    # Limit length to prevent extremely long paths
-    if len(run_id) > 64:
-        raise ValueError(f"run_id too long: {len(run_id)} characters (max 64)")
+    _validate_path_component(run_id)
 
     base_dir = get_base_output_dir(output_dir)
     har_dir = base_dir / "har" / run_id
@@ -344,18 +357,7 @@ def get_scripts_dir(run_id: str, output_dir: str | None = None) -> Path:
     Raises:
         ValueError: If run_id contains invalid characters or attempts path traversal
     """
-    # Validate run_id to prevent path traversal attacks
-    if not run_id:
-        raise ValueError("run_id cannot be empty")
-
-    # Allow alphanumeric characters, hyphens, and underscores
-    # Chrome extension IDs start with crx- followed by UUID-style format
-    if not re.match(r"^[a-zA-Z0-9_-]+$", run_id):
-        raise ValueError(f"Invalid run_id: {run_id}. Only alphanumeric characters, hyphens, and underscores are allowed")
-
-    # Limit length to prevent extremely long paths
-    if len(run_id) > 64:
-        raise ValueError(f"run_id too long: {len(run_id)} characters (max 64)")
+    _validate_path_component(run_id)
 
     base_dir = get_base_output_dir(output_dir)
     scripts_dir = base_dir / "scripts" / run_id
@@ -386,18 +388,7 @@ def get_docs_dir(run_id: str, output_dir: str | None = None) -> Path:
     Raises:
         ValueError: If run_id contains invalid characters or attempts path traversal
     """
-    # Validate run_id to prevent path traversal attacks
-    if not run_id:
-        raise ValueError("run_id cannot be empty")
-
-    # Allow alphanumeric characters, hyphens, and underscores
-    # Chrome extension IDs start with crx- followed by UUID-style format
-    if not re.match(r"^[a-zA-Z0-9_-]+$", run_id):
-        raise ValueError(f"Invalid run_id: {run_id}. Only alphanumeric characters, hyphens, and underscores are allowed")
-
-    # Limit length to prevent extremely long paths
-    if len(run_id) > 64:
-        raise ValueError(f"run_id too long: {len(run_id)} characters (max 64)")
+    _validate_path_component(run_id)
 
     base_dir = get_base_output_dir(output_dir)
     docs_dir = base_dir / "docs" / run_id
@@ -416,11 +407,33 @@ def get_docs_dir(run_id: str, output_dir: str | None = None) -> Path:
 
 
 def get_messages_path(run_id: str, output_dir: str | None = None) -> Path:
-    """Get the messages file path for a specific run."""
+    """Get the messages file path for a specific run.
+
+    Args:
+        run_id: Run identifier (must be alphanumeric with hyphens/underscores only)
+        output_dir: Optional custom output directory
+
+    Returns:
+        Path to the messages file
+
+    Raises:
+        ValueError: If run_id contains invalid characters or attempts path traversal
+    """
+    _validate_path_component(run_id)
+
     base_dir = get_base_output_dir(output_dir)
     messages_dir = base_dir / "messages"
+    messages_path = messages_dir / f"{run_id}.jsonl"
+
+    # Verify the resolved path is within the base directory (defense in depth)
+    try:
+        if not messages_path.resolve().is_relative_to(base_dir.resolve()):
+            raise ValueError(f"Path traversal detected: {run_id}")
+    except (OSError, RuntimeError) as e:
+        raise ValueError(f"Invalid path for run_id {run_id}: {e}") from e
+
     messages_dir.mkdir(parents=True, exist_ok=True)
-    return messages_dir / f"{run_id}.jsonl"
+    return messages_path
 
 
 def get_timestamp() -> str:
@@ -432,12 +445,27 @@ def get_collected_dir(folder_name: str) -> Path:
     """Get ./collected/{folder_name}/ directory for collector mode output.
 
     Args:
-        folder_name: Name of the collection folder
+        folder_name: Name of the collection folder (must be alphanumeric with
+            hyphens/underscores only)
 
     Returns:
         Path to the collection output directory
+
+    Raises:
+        ValueError: If folder_name contains invalid characters or attempts path traversal
     """
-    path = Path.cwd() / "collected" / folder_name
+    _validate_path_component(folder_name, "folder_name")
+
+    base_dir = Path.cwd() / "collected"
+    path = base_dir / folder_name
+
+    # Verify the resolved path is within the base directory (defense in depth)
+    try:
+        if not path.resolve().is_relative_to(base_dir.resolve()):
+            raise ValueError(f"Path traversal detected: {folder_name}")
+    except (OSError, RuntimeError) as e:
+        raise ValueError(f"Invalid path for folder_name {folder_name}: {e}") from e
+
     path.mkdir(parents=True, exist_ok=True)
     return path
 

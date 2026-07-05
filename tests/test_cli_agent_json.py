@@ -392,6 +392,31 @@ class TestRunCommandJson:
         assert {s["name"] for s in payload["scripts"]} == {"api_client.py", "example_usage.py"}
         mock_select.assert_not_called()
 
+    def test_run_json_auto_install_refuses_invalid_package_name(self, multi_script_env):
+        """A crafted ModuleNotFoundError must not smuggle pip options into auto-install."""
+        tmp_path, _ = multi_script_env
+        self._precreate_venv(tmp_path)
+
+        runner = CliRunner()
+        crafted = MagicMock(
+            returncode=1,
+            stdout="",
+            stderr="ModuleNotFoundError: No module named '--index-url=https://evil.example'",
+        )
+        with patch("subprocess.run", return_value=crafted) as mock_sub:
+            result = runner.invoke(
+                main,
+                ["run", "abc123def456", "--file", "api_client.py", "--json", "--auto-install"],
+            )
+
+        assert result.exit_code == 1
+        payload = json.loads(result.stdout.strip())
+        assert payload["status"] == "error"
+        assert "refusing to auto-install" in payload["error"]
+        # The crafted token must never appear in any subprocess invocation
+        for call in mock_sub.call_args_list:
+            assert "--index-url=https://evil.example" not in [str(a) for a in call.args[0]]
+
     def test_run_json_stream_emits_events_and_result(self, multi_script_env):
         tmp_path, _ = multi_script_env
         self._precreate_venv(tmp_path)

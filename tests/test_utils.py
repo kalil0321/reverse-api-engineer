@@ -133,6 +133,22 @@ class TestPathHelpers:
             path = get_messages_path("run123")
             assert path == tmp_path / "messages" / "run123.jsonl"
 
+    def test_get_messages_path_empty_run_id_raises(self):
+        """Empty run_id raises ValueError."""
+        with pytest.raises(ValueError, match="cannot be empty"):
+            get_messages_path("")
+
+    def test_get_messages_path_traversal_raises(self, tmp_path):
+        """Path traversal in run_id raises ValueError."""
+        with patch("reverse_api.utils.get_base_output_dir", return_value=tmp_path):
+            with pytest.raises(ValueError, match="Invalid run_id"):
+                get_messages_path("../../../etc/passwd")
+
+    def test_get_messages_path_too_long_raises(self):
+        """Too long run_id raises ValueError."""
+        with pytest.raises(ValueError, match="too long"):
+            get_messages_path("x" * 65)
+
 
 class TestGetHarDir:
     """Test get_har_dir with validation."""
@@ -180,6 +196,11 @@ class TestGetHarDir:
         """Run ID > 64 chars raises ValueError."""
         with pytest.raises(ValueError, match="too long"):
             get_har_dir("a" * 65)
+
+    def test_trailing_newline_raises(self):
+        """A trailing newline in run_id raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid run_id"):
+            get_har_dir("run123\n")
 
     def test_custom_output_dir(self, tmp_path):
         """Custom output_dir is used."""
@@ -258,6 +279,22 @@ class TestGetCollectedDir:
             path = get_collected_dir("test_collection")
             assert path.exists()
             assert path.name == "test_collection"
+
+    def test_empty_folder_name_raises(self):
+        """Empty folder_name raises ValueError."""
+        with pytest.raises(ValueError, match="cannot be empty"):
+            get_collected_dir("")
+
+    def test_traversal_raises(self, tmp_path):
+        """Path traversal in folder_name raises ValueError."""
+        with patch("reverse_api.utils.Path.cwd", return_value=tmp_path):
+            with pytest.raises(ValueError, match="Invalid folder_name"):
+                get_collected_dir("../../etc")
+
+    def test_too_long_raises(self):
+        """Too long folder_name raises ValueError."""
+        with pytest.raises(ValueError, match="too long"):
+            get_collected_dir("x" * 65)
 
 
 class TestCheckForUpdates:

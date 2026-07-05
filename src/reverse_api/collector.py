@@ -69,7 +69,9 @@ class Collector:
         self.ui.header(self.run_id, self.prompt, self.model, mode="collector")
         self.ui.start_collecting()
 
-        self._folder_name = generate_folder_name(self.prompt)
+        # A punctuation-only prompt can slugify to an empty string, which
+        # get_collected_dir rejects — fall back to the (validated) run_id
+        self._folder_name = generate_folder_name(self.prompt) or self.run_id
         self._collected_dir = get_collected_dir(self._folder_name)
 
         self.items_path = self._collected_dir / "items.jsonl"

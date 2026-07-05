@@ -637,3 +637,50 @@ class TestRunCommandOutputMessages:
             result = cli_runner.invoke(main, ["run", "def789ghi012"])
         assert "Setting up shared venv" in result.output
         assert "Shared venv ready" in result.output
+
+
+# ---------------------------------------------------------------------------
+# _extract_missing_module
+# ---------------------------------------------------------------------------
+
+class TestExtractMissingModule:
+    """Test _extract_missing_module validation against crafted error messages."""
+
+    def test_plain_module_name(self):
+        from reverse_api.cli import _extract_missing_module
+        stderr = "ModuleNotFoundError: No module named 'requests'"
+        assert _extract_missing_module(stderr) == "requests"
+
+    def test_dotted_module_returns_top_level(self):
+        from reverse_api.cli import _extract_missing_module
+        stderr = "ModuleNotFoundError: No module named 'bs4.element'"
+        assert _extract_missing_module(stderr) == "bs4"
+
+    def test_no_match_returns_none(self):
+        from reverse_api.cli import _extract_missing_module
+        assert _extract_missing_module("SyntaxError: invalid syntax") is None
+
+    def test_pip_option_injection_rejected(self):
+        from reverse_api.cli import _extract_missing_module
+        stderr = "ModuleNotFoundError: No module named '--index-url=https://evil.example'"
+        assert _extract_missing_module(stderr) is None
+
+    def test_spaces_rejected(self):
+        from reverse_api.cli import _extract_missing_module
+        stderr = "ModuleNotFoundError: No module named '-q evil-package'"
+        assert _extract_missing_module(stderr) is None
+
+    def test_hyphen_rejected(self):
+        from reverse_api.cli import _extract_missing_module
+        stderr = "ModuleNotFoundError: No module named 'evil-package'"
+        assert _extract_missing_module(stderr) is None
+
+    def test_too_long_rejected(self):
+        from reverse_api.cli import _extract_missing_module
+        stderr = f"ModuleNotFoundError: No module named '{'a' * 65}'"
+        assert _extract_missing_module(stderr) is None
+
+    def test_trailing_newline_rejected(self):
+        from reverse_api.cli import _extract_missing_module
+        stderr = "ModuleNotFoundError: No module named 'requests\n'"
+        assert _extract_missing_module(stderr) is None
