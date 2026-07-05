@@ -2735,6 +2735,22 @@ def _run_script_machine_payload(
                 missing = match.group(1).split(".")[0]
                 emit_event("dependency_missing", run_id=run_id, package=missing)
                 if auto_install:
+                    # A genuine ModuleNotFoundError names a plain Python identifier;
+                    # reject anything else so a crafted error message can't smuggle
+                    # pip options or arbitrary install targets
+                    if not _re.match(r"^[a-zA-Z0-9_]+$", missing) or len(missing) > 64:
+                        return _build_run_payload(
+                            identifier=identifier,
+                            run_id=run_id,
+                            script_path=str(script),
+                            script_args=script_args,
+                            returncode=result.returncode,
+                            stdout=result.stdout or "",
+                            stderr=stderr,
+                            scripts=scripts,
+                            error=f"refusing to auto-install invalid package name: {missing!r}",
+                            error_kind_hint="engine_failure",
+                        )
                     emit_event("dependency_install_started", run_id=run_id, package=missing)
                     subprocess.run([str(venv_pip), "install", "-q", missing], check=True, **subprocess_kwargs)
                     emit_event("dependency_install_completed", run_id=run_id, package=missing)
