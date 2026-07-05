@@ -304,7 +304,8 @@ def _validate_path_component(value: str, label: str = "run_id") -> None:
 
     # Allow alphanumeric characters, hyphens, and underscores
     # Chrome extension IDs start with crx- followed by UUID-style format
-    if not re.match(r"^[a-zA-Z0-9_-]+$", value):
+    # (fullmatch, since $ in re.match would accept a trailing newline)
+    if not re.fullmatch(r"[a-zA-Z0-9_-]+", value):
         raise ValueError(f"Invalid {label}: {value}. Only alphanumeric characters, hyphens, and underscores are allowed")
 
     # Limit length to prevent extremely long paths

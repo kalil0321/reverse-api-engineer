@@ -679,3 +679,8 @@ class TestExtractMissingModule:
         from reverse_api.cli import _extract_missing_module
         stderr = f"ModuleNotFoundError: No module named '{'a' * 65}'"
         assert _extract_missing_module(stderr) is None
+
+    def test_trailing_newline_rejected(self):
+        from reverse_api.cli import _extract_missing_module
+        stderr = "ModuleNotFoundError: No module named 'requests\n'"
+        assert _extract_missing_module(stderr) is None

@@ -2651,7 +2651,8 @@ def _extract_missing_module(stderr: str) -> str | None:
     if not match:
         return None
     missing = match.group(1).split(".")[0]
-    if not _re.match(r"^[a-zA-Z0-9_]+$", missing) or len(missing) > 64:
+    # fullmatch, since $ in re.match would accept a trailing newline
+    if not _re.fullmatch(r"[a-zA-Z0-9_]+", missing) or len(missing) > 64:
         return None
     return missing
 

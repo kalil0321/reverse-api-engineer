@@ -197,6 +197,11 @@ class TestGetHarDir:
         with pytest.raises(ValueError, match="too long"):
             get_har_dir("a" * 65)
 
+    def test_trailing_newline_raises(self):
+        """A trailing newline in run_id raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid run_id"):
+            get_har_dir("run123\n")
+
     def test_custom_output_dir(self, tmp_path):
         """Custom output_dir is used."""
         har_dir = get_har_dir("run123", output_dir=str(tmp_path))
