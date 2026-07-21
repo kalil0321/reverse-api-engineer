@@ -96,7 +96,7 @@ Settings live in `~/.reverse-api/config.json` and can be edited via `/settings` 
 
 - **Models**: Sonnet 4.6 (default), Opus 4.6 (most capable), Haiku 4.5 (fastest). For OpenCode see [models.dev](https://models.dev).
 - **SDK**: `claude` (default), `opencode`, `cursor`, or `copilot` (GitHub Copilot).
-- **Output language**: `python`, `javascript`, `typescript`, `go`, `java`, or `csharp`.
+- **Output language**: `python`, `javascript`, `typescript`, `go`, `java`, `csharp`, or `php`.
 
 ## CLI
 

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Go output language**: `output_language: "go"` is now supported alongside python/javascript/typescript, generating a standard-library-first (`net/http`, `encoding/json`) Go program, with the same auth-hardcoding/refresh and bot-detection-fallback guidance as the other languages.
 - **Java output language**: `output_language: "java"` is now supported alongside python/javascript/typescript, generating a small Maven project using `java.net.http.HttpClient` (JDK 11+, no HTTP library dependency) and Gson for JSON, with the same auth-hardcoding/refresh guidance as the other languages.
 - **C# output language**: `output_language: "csharp"` is now supported alongside python/javascript/typescript, generating a minimal .NET project using `System.Net.Http.HttpClient` and `System.Text.Json` (both part of the .NET 5+ base class library — no NuGet dependency needed), with the same auth-hardcoding/refresh guidance as the other languages.
+- **PHP output language**: `output_language: "php"` is now supported alongside python/javascript/typescript, generating a script using the `curl` and `json_encode`/`json_decode` core extensions (`ext-curl`, `ext-json` — no Composer dependency needed), with the same auth-hardcoding/refresh guidance as the other languages.
 
 ## [0.10.0] - 2026-06-01
 
