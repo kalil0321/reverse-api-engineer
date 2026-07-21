@@ -348,11 +348,22 @@ class TestBaseEngineerHelpers:
         assert Path(script_arg).is_absolute()
         assert script_arg == str(eng.scripts_dir.resolve() / "api_client.php")
     def test_get_run_command_ruby(self, tmp_path):
-        """Run command for Ruby uses the full path, not a bare relative
-        filename — the agent's cwd is scripts_dir.parent.parent (see
-        analyze_and_generate), not scripts_dir where the script lives."""
+        """Run command for Ruby uses the full, shell-quoted path, not a bare
+        relative filename — the agent's cwd is scripts_dir.parent.parent
+        (see analyze_and_generate), not scripts_dir where the script lives."""
         eng = self._make_engineer(tmp_path, output_language="ruby")
-        assert eng._get_run_command() == f'ruby "{eng.scripts_dir}/api_client.rb"'
+        expected_path = shlex.quote(f"{eng.scripts_dir}/api_client.rb")
+        assert eng._get_run_command() == f"ruby {expected_path}"
+
+    def test_get_run_command_ruby_quotes_metacharacters(self, tmp_path):
+        """A scripts_dir containing shell metacharacters must round-trip
+        back to the literal path, not be left open to $()/backtick
+        expansion — what the naive f'"{path}"' approach got wrong."""
+        eng = self._make_engineer(tmp_path, output_language="ruby")
+        eng.scripts_dir = Path("/tmp/weird$(rm -rf ~) dir")
+        tokens = shlex.split(eng._get_run_command())
+        assert tokens[0] == "ruby"
+        assert tokens[1] == f"{eng.scripts_dir}/api_client.rb"
 
     def test_get_run_command_unknown(self, tmp_path):
         """Unknown language defaults to Python command."""

@@ -538,7 +538,10 @@ class BaseEngineer(ABC):
             # (see analyze_and_generate's ClaudeAgentOptions), not
             # scripts_dir itself where the script is actually saved — the
             # same working-directory ambiguity fixed for Go/Java/C#/PHP.
-            return f'ruby "{self.scripts_dir}/{self._get_client_filename()}"'
+            # shlex.quote (not manual double-quoting) so shell metacharacters
+            # in the path can't be interpreted as command substitution.
+            path = shlex.quote(f"{self.scripts_dir}/{self._get_client_filename()}")
+            return f"ruby {path}"
         return {
             "python": "python api_client.py",
             "javascript": "node api_client.js",
