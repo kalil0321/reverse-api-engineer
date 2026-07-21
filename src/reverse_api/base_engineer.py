@@ -491,12 +491,20 @@ class BaseEngineer(ABC):
             # requires ("symbolic reference class is not accessible").
             pom = shlex.quote(str(self.scripts_dir.resolve() / "pom.xml"))
             return f"mvn -q -f {pom} compile exec:exec"
+        if self.output_language == "csharp":
+            # Unlike python/node/npx (which happily take a plain relative
+            # filename regardless of the agent's actual cwd, scripts_dir.
+            # parent.parent — see analyze_and_generate's ClaudeAgentOptions),
+            # a bare `dotnet run` only looks for a project file in the
+            # current directory. --project points it straight at this run's
+            # own .csproj regardless of cwd, rather than relying on the
+            # agent to cd there itself first.
+            return f'dotnet run --project "{self.scripts_dir}/ApiClient.csproj"'
         return {
             "python": "python api_client.py",
             "javascript": "node api_client.js",
             "typescript": "npx tsx api_client.ts",
             "go": "go run api_client.go",
-            "csharp": "dotnet run",
         }.get(self.output_language, "python api_client.py")
 
     def _get_codegen_instructions(self) -> str:

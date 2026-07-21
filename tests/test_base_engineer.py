@@ -274,9 +274,12 @@ class TestBaseEngineerHelpers:
         assert Path(pom_arg).is_absolute()
         assert pom_arg == str(eng.scripts_dir.resolve() / "pom.xml")
     def test_get_run_command_csharp(self, tmp_path):
-        """Run command for C#."""
+        """Run command for C# points --project at this run's own .csproj,
+        not a bare `dotnet run` — the agent's cwd is scripts_dir.parent.
+        parent (see analyze_and_generate), and dotnet only looks for a
+        project file in the current directory."""
         eng = self._make_engineer(tmp_path, output_language="csharp")
-        assert eng._get_run_command() == "dotnet run"
+        assert eng._get_run_command() == f'dotnet run --project "{eng.scripts_dir}/ApiClient.csproj"'
 
     def test_get_run_command_unknown(self, tmp_path):
         """Unknown language defaults to Python command."""
