@@ -197,6 +197,10 @@ class TestBaseEngineerHelpers:
         """Go extension."""
         eng = self._make_engineer(tmp_path, output_language="go")
         assert eng._get_output_extension() == ".go"
+    def test_get_output_extension_java(self, tmp_path):
+        """Java extension."""
+        eng = self._make_engineer(tmp_path, output_language="java")
+        assert eng._get_output_extension() == ".java"
 
     def test_get_output_extension_unknown(self, tmp_path):
         """Unknown language defaults to .py."""
@@ -232,6 +236,10 @@ class TestBaseEngineerHelpers:
         """Run command for Go."""
         eng = self._make_engineer(tmp_path, output_language="go")
         assert eng._get_run_command() == "go run api_client.go"
+    def test_get_run_command_java(self, tmp_path):
+        """Run command for Java."""
+        eng = self._make_engineer(tmp_path, output_language="java")
+        assert eng._get_run_command() == "mvn -q compile exec:java"
 
     def test_get_run_command_unknown(self, tmp_path):
         """Unknown language defaults to Python command."""
@@ -285,6 +293,12 @@ class TestBaseEngineerBuildPrompt:
         system_prompt, user_message = eng._build_prompts()
         assert "Go program" in system_prompt
         assert "net/http" in system_prompt
+    def test_java_prompt(self, tmp_path):
+        """Java prompt includes Java-specific instructions."""
+        eng = self._make_engineer(tmp_path, output_language="java")
+        system_prompt, user_message = eng._build_prompts()
+        assert "Java program" in system_prompt
+        assert "HttpClient" in system_prompt
 
     def test_docs_prompt(self, tmp_path):
         """Docs mode prompt includes OpenAPI instructions."""

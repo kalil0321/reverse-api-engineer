@@ -34,6 +34,7 @@ class BaseEngineer(ABC):
         "javascript": ".js",
         "typescript": ".ts",
         "go": ".go",
+        "java": ".java",
     }
 
     def __init__(
@@ -441,6 +442,7 @@ class BaseEngineer(ABC):
             "javascript": "JavaScript",
             "typescript": "TypeScript",
             "go": "Go",
+            "java": "Java",
         }.get(self.output_language, "Python")
 
     def _get_existing_client_guidance(self) -> str:
@@ -470,6 +472,7 @@ class BaseEngineer(ABC):
             "javascript": "node api_client.js",
             "typescript": "npx tsx api_client.ts",
             "go": "go run api_client.go",
+            "java": "mvn -q compile exec:java",
         }.get(self.output_language, "python api_client.py")
 
     def _get_codegen_instructions(self) -> str:
@@ -584,6 +587,8 @@ class BaseEngineer(ABC):
                 f"\n3. `{self.scripts_dir}/go.mod` and `{self.scripts_dir}/go.sum` - "
                 "Only if external dependencies are needed"
             )
+        elif self.output_language == "java":
+            return base + f"\n3. `{self.scripts_dir}/pom.xml` - Maven project file (Gson dependency, exec-maven-plugin)"
         return base
 
     @abstractmethod
