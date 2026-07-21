@@ -1,6 +1,6 @@
 **Generate a PHP script** that replicates the API calls found in the traffic. The following are guidelines — use your judgment on what's appropriate for the specific API:
 
-- Use the `curl` extension (`curl_init`/`curl_exec`) for requests and `json_encode`/`json_decode` for JSON — both are part of core PHP (`ext-curl` and `ext-json`), so no Composer dependency is needed
+- Use the `curl` extension (`curl_init`/`curl_exec`) for requests and `json_encode`/`json_decode` for JSON — no Composer dependency is needed for either. `ext-json` is bundled with PHP core and always available, but `ext-curl` is bundled-but-optional and isn't guaranteed enabled on every install — if `curl_init` isn't defined, install it with whatever package manager is available (e.g. `apt-get install -y php-curl`) before retrying
 - Reuse one cURL handle across requests rather than creating a new one per call
 - Create a separate function for each distinct API endpoint
 - Include type declarations on function signatures where they add clarity

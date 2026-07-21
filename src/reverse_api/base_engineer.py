@@ -519,7 +519,13 @@ class BaseEngineer(ABC):
             # this is already how they're shipped and evidently work in
             # practice, but there's no reason to leave a new language
             # exposed to the same ambiguity when it's this cheap to remove.
-            return f'php "{self.scripts_dir}/{self._get_client_filename()}"'
+            # shlex.quote(), not manual double-quoting — output_dir (and so
+            # scripts_dir) isn't guaranteed free of shell metacharacters,
+            # and naive f'"{path}"' still lets $()/backticks expand inside
+            # double quotes (confirmed live: shlex.quote handles this, plain
+            # double-quoting doesn't).
+            path = shlex.quote(f"{self.scripts_dir}/{self._get_client_filename()}")
+            return f"php {path}"
         return {
             "python": "python api_client.py",
             "javascript": "node api_client.js",
