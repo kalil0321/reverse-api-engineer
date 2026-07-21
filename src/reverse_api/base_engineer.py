@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import shlex
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -474,8 +475,12 @@ class BaseEngineer(ABC):
             # Maven hard-fails immediately if invoked from a directory with
             # no pom.xml, no upward search. -f points it straight at the
             # right project file regardless of cwd, rather than relying on
-            # the agent to cd there itself first.
-            return f'mvn -q -f "{self.scripts_dir}/pom.xml" compile exec:java'
+            # the agent to cd there itself first. shlex.quote(), not manual
+            # double-quoting — output_dir (and so scripts_dir) isn't
+            # guaranteed free of shell metacharacters, and naive f'"{path}"'
+            # still lets $()/backticks expand inside double quotes.
+            pom = shlex.quote(f"{self.scripts_dir}/pom.xml")
+            return f"mvn -q -f {pom} compile exec:java"
         return {
             "python": "python api_client.py",
             "javascript": "node api_client.js",
