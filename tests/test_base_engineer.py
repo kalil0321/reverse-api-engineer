@@ -193,6 +193,11 @@ class TestBaseEngineerHelpers:
         eng = self._make_engineer(tmp_path, output_language="typescript")
         assert eng._get_output_extension() == ".ts"
 
+    def test_get_output_extension_go(self, tmp_path):
+        """Go extension."""
+        eng = self._make_engineer(tmp_path, output_language="go")
+        assert eng._get_output_extension() == ".go"
+
     def test_get_output_extension_unknown(self, tmp_path):
         """Unknown language defaults to .py."""
         eng = self._make_engineer(tmp_path, output_language="rust")
@@ -222,6 +227,11 @@ class TestBaseEngineerHelpers:
         """Run command for TypeScript."""
         eng = self._make_engineer(tmp_path, output_language="typescript")
         assert eng._get_run_command() == "npx tsx api_client.ts"
+
+    def test_get_run_command_go(self, tmp_path):
+        """Run command for Go."""
+        eng = self._make_engineer(tmp_path, output_language="go")
+        assert eng._get_run_command() == "go run api_client.go"
 
     def test_get_run_command_unknown(self, tmp_path):
         """Unknown language defaults to Python command."""
@@ -268,6 +278,13 @@ class TestBaseEngineerBuildPrompt:
         system_prompt, user_message = eng._build_prompts()
         assert "TypeScript module" in system_prompt
         assert "interfaces" in system_prompt
+
+    def test_go_prompt(self, tmp_path):
+        """Go prompt includes Go-specific instructions."""
+        eng = self._make_engineer(tmp_path, output_language="go")
+        system_prompt, user_message = eng._build_prompts()
+        assert "Go program" in system_prompt
+        assert "net/http" in system_prompt
 
     def test_docs_prompt(self, tmp_path):
         """Docs mode prompt includes OpenAPI instructions."""

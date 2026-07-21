@@ -71,6 +71,17 @@ class TestLoadLanguagePartial:
         assert "TypeScript module" in text
         assert "interfaces" in text
 
+    def test_go_partial(self):
+        text = load_language_partial(
+            "go",
+            scripts_dir="/tmp/scripts",
+            client_filename="api_client.go",
+            run_command="go run api_client.go",
+        )
+        assert "Go program" in text
+        assert "net/http" in text
+        assert "/tmp/scripts/api_client.go" in text
+
 
 class TestEngineerTemplates:
     """Test engineer system/user templates."""
