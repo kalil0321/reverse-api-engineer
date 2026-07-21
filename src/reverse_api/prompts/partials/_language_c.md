@@ -1,7 +1,10 @@
 **Generate a C program** that replicates the API calls found in the traffic. The following are guidelines — use your judgment on what's appropriate for the specific API:
 
-- C has no HTTP client or JSON support in its standard library, unlike every other output language here — use `libcurl` for requests and vendor `cJSON` (a small, widely-used, permissively-licensed single-file JSON library — `cJSON.c`/`cJSON.h`) for JSON, rather than hand-rolling either from scratch
-- `libcurl` itself is a system library, not something a build step can fetch — if compilation fails because `curl/curl.h` isn't found, install it with whatever package manager is available (e.g. `apt-get install -y libcurl4-openssl-dev`, `brew install curl`) before retrying
+- C has no HTTP client or JSON support in its standard library, unlike every other output language here — use `libcurl` for requests and vendor `cJSON` (a small, widely-used, permissively-licensed single-file JSON library) for JSON, rather than hand-rolling either from scratch
+- Don't hand-write or reconstruct `cJSON.c`/`cJSON.h` from memory — fetch the exact, pinned upstream source instead, so the vendored copy is the real, complete library rather than a possibly incomplete or subtly wrong approximation:
+  - `curl -fsSL -o {scripts_dir}/cJSON.c https://raw.githubusercontent.com/DaveGamble/cJSON/v1.7.18/cJSON.c`
+  - `curl -fsSL -o {scripts_dir}/cJSON.h https://raw.githubusercontent.com/DaveGamble/cJSON/v1.7.18/cJSON.h`
+- `libcurl` itself is a system library this project can't fetch or vendor — if compilation fails because `curl/curl.h` isn't found, stop and report a clear error naming the missing prerequisite (e.g. "libcurl development headers not found — install libcurl4-openssl-dev (Debian/Ubuntu) or curl (Homebrew) and retry") rather than running a package manager yourself; installing system packages is a host change the user should make and confirm, not something to do silently inside an auto-authorized session
 - Reuse one `CURL` handle across requests rather than creating a new one per call
 - Create a separate function for each distinct API endpoint, with a small struct for its response shape
 - Check every `libcurl`/allocation return value; don't ignore errors
