@@ -467,12 +467,20 @@ class BaseEngineer(ABC):
 
     def _get_run_command(self) -> str:
         """Return the command to run the generated client."""
+        if self.output_language == "java":
+            # Unlike python/node/npx (which happily take a plain relative
+            # filename regardless of the agent's actual cwd, scripts_dir.
+            # parent.parent — see analyze_and_generate's ClaudeAgentOptions),
+            # Maven hard-fails immediately if invoked from a directory with
+            # no pom.xml, no upward search. -f points it straight at the
+            # right project file regardless of cwd, rather than relying on
+            # the agent to cd there itself first.
+            return f'mvn -q -f "{self.scripts_dir}/pom.xml" compile exec:java'
         return {
             "python": "python api_client.py",
             "javascript": "node api_client.js",
             "typescript": "npx tsx api_client.ts",
             "go": "go run api_client.go",
-            "java": "mvn -q compile exec:java",
         }.get(self.output_language, "python api_client.py")
 
     def _get_codegen_instructions(self) -> str:

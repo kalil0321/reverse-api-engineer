@@ -237,9 +237,13 @@ class TestBaseEngineerHelpers:
         eng = self._make_engineer(tmp_path, output_language="go")
         assert eng._get_run_command() == "go run api_client.go"
     def test_get_run_command_java(self, tmp_path):
-        """Run command for Java."""
+        """Run command for Java points -f at this run's own pom.xml, not a
+        bare relative path — the agent's cwd is scripts_dir.parent.parent
+        (see analyze_and_generate), and unlike python/node/npx, Maven
+        hard-fails with no upward search if invoked from a directory with
+        no pom.xml."""
         eng = self._make_engineer(tmp_path, output_language="java")
-        assert eng._get_run_command() == "mvn -q compile exec:java"
+        assert eng._get_run_command() == f'mvn -q -f "{eng.scripts_dir}/pom.xml" compile exec:java'
 
     def test_get_run_command_unknown(self, tmp_path):
         """Unknown language defaults to Python command."""

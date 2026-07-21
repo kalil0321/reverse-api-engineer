@@ -2,7 +2,7 @@
 
 - Use `java.net.http.HttpClient` (built into the JDK since 11) for requests — no HTTP library dependency needed
 - Use Gson for JSON parsing/serialization — the one dependency this needs, since the JDK has no built-in JSON support
-- Create a minimal Maven project (`pom.xml`) with the Gson dependency and the `exec-maven-plugin` configured with `<mainClass>ApiClient</mainClass>`, so the client runs with a single command and no extra flags
+- Create a minimal Maven project (`pom.xml`) with the Gson dependency and the `exec-maven-plugin` configured with `<mainClass>ApiClient</mainClass>`, so the client runs with a single command and no extra flags. A conventional Maven layout only compiles `src/main/java`, but `{client_filename}` is saved at the project root (see below) — override the build's `<sourceDirectory>` to `.` (project root) in the POM so `mvn compile` actually finds and compiles it
 - Create a separate method for each distinct API endpoint, with a small class for its response shape
 - Reuse one `HttpClient` instance across requests rather than creating a new one per call
 - Include a `main` method with example usage
