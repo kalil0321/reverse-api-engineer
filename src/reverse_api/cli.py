@@ -1088,6 +1088,7 @@ def handle_settings(mode_color=THEME_PRIMARY):
             Choice(title="csharp", value="csharp"),
             Choice(title="php", value="php"),
             Choice(title="ruby", value="ruby"),
+            Choice(title="c", value="c"),
             Choice(title="back", value="back"),
         ]
         lang = questionary.select(

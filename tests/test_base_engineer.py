@@ -214,6 +214,10 @@ class TestBaseEngineerHelpers:
         """Ruby extension."""
         eng = self._make_engineer(tmp_path, output_language="ruby")
         assert eng._get_output_extension() == ".rb"
+    def test_get_output_extension_c(self, tmp_path):
+        """C extension."""
+        eng = self._make_engineer(tmp_path, output_language="c")
+        assert eng._get_output_extension() == ".c"
 
     def test_get_output_extension_unknown(self, tmp_path):
         """Unknown language defaults to .py."""
@@ -378,6 +382,17 @@ class TestBaseEngineerHelpers:
         script_arg = tokens[1]
         assert Path(script_arg).is_absolute()
         assert script_arg == str(eng.scripts_dir.resolve() / "api_client.rb")
+    def test_get_run_command_c(self, tmp_path):
+        """Run command for C compiles and runs as one step, using full
+        paths throughout — the agent's cwd is scripts_dir.parent.parent
+        (see analyze_and_generate), not scripts_dir where the source,
+        vendored cJSON, and compiled binary all actually live."""
+        eng = self._make_engineer(tmp_path, output_language="c")
+        expected = (
+            f'cc "{eng.scripts_dir}/api_client.c" "{eng.scripts_dir}/cJSON.c" '
+            f'-lcurl -o "{eng.scripts_dir}/api_client" && "{eng.scripts_dir}/api_client"'
+        )
+        assert eng._get_run_command() == expected
 
     def test_get_run_command_unknown(self, tmp_path):
         """Unknown language defaults to Python command."""
@@ -454,6 +469,12 @@ class TestBaseEngineerBuildPrompt:
         system_prompt, user_message = eng._build_prompts()
         assert "Ruby script" in system_prompt
         assert "net/http" in system_prompt
+    def test_c_prompt(self, tmp_path):
+        """C prompt includes C-specific instructions."""
+        eng = self._make_engineer(tmp_path, output_language="c")
+        system_prompt, user_message = eng._build_prompts()
+        assert "C program" in system_prompt
+        assert "libcurl" in system_prompt
 
     def test_docs_prompt(self, tmp_path):
         """Docs mode prompt includes OpenAPI instructions."""

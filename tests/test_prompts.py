@@ -121,6 +121,16 @@ class TestLoadLanguagePartial:
         assert "Ruby script" in text
         assert "net/http" in text
         assert "/tmp/scripts/api_client.rb" in text
+    def test_c_partial(self):
+        text = load_language_partial(
+            "c",
+            scripts_dir="/tmp/scripts",
+            client_filename="api_client.c",
+            run_command='cc "/tmp/scripts/api_client.c" "/tmp/scripts/cJSON.c" -lcurl -o "/tmp/scripts/api_client" && "/tmp/scripts/api_client"',
+        )
+        assert "C program" in text
+        assert "libcurl" in text
+        assert "/tmp/scripts/api_client.c" in text
 
 
 class TestEngineerTemplates:
