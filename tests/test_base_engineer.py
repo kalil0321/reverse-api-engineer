@@ -202,6 +202,10 @@ class TestBaseEngineerHelpers:
         """Java extension."""
         eng = self._make_engineer(tmp_path, output_language="java")
         assert eng._get_output_extension() == ".java"
+    def test_get_output_extension_csharp(self, tmp_path):
+        """C# extension."""
+        eng = self._make_engineer(tmp_path, output_language="csharp")
+        assert eng._get_output_extension() == ".cs"
 
     def test_get_output_extension_unknown(self, tmp_path):
         """Unknown language defaults to .py."""
@@ -269,6 +273,10 @@ class TestBaseEngineerHelpers:
         pom_arg = tokens[3]
         assert Path(pom_arg).is_absolute()
         assert pom_arg == str(eng.scripts_dir.resolve() / "pom.xml")
+    def test_get_run_command_csharp(self, tmp_path):
+        """Run command for C#."""
+        eng = self._make_engineer(tmp_path, output_language="csharp")
+        assert eng._get_run_command() == "dotnet run"
 
     def test_get_run_command_unknown(self, tmp_path):
         """Unknown language defaults to Python command."""
@@ -327,6 +335,11 @@ class TestBaseEngineerBuildPrompt:
         eng = self._make_engineer(tmp_path, output_language="java")
         system_prompt, user_message = eng._build_prompts()
         assert "Java program" in system_prompt
+    def test_csharp_prompt(self, tmp_path):
+        """C# prompt includes C#-specific instructions."""
+        eng = self._make_engineer(tmp_path, output_language="csharp")
+        system_prompt, user_message = eng._build_prompts()
+        assert "C# program" in system_prompt
         assert "HttpClient" in system_prompt
 
     def test_docs_prompt(self, tmp_path):

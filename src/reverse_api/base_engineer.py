@@ -36,6 +36,7 @@ class BaseEngineer(ABC):
         "typescript": ".ts",
         "go": ".go",
         "java": ".java",
+        "csharp": ".cs",
     }
 
     def __init__(
@@ -444,6 +445,7 @@ class BaseEngineer(ABC):
             "typescript": "TypeScript",
             "go": "Go",
             "java": "Java",
+            "csharp": "C#",
         }.get(self.output_language, "Python")
 
     def _get_existing_client_guidance(self) -> str:
@@ -494,6 +496,7 @@ class BaseEngineer(ABC):
             "javascript": "node api_client.js",
             "typescript": "npx tsx api_client.ts",
             "go": "go run api_client.go",
+            "csharp": "dotnet run",
         }.get(self.output_language, "python api_client.py")
 
     def _get_codegen_instructions(self) -> str:
@@ -610,6 +613,8 @@ class BaseEngineer(ABC):
             )
         elif self.output_language == "java":
             return base + f"\n3. `{self.scripts_dir}/pom.xml` - Maven project file (Gson dependency, exec-maven-plugin)"
+        elif self.output_language == "csharp":
+            return base + f"\n3. `{self.scripts_dir}/ApiClient.csproj` - .NET project file"
         return base
 
     @abstractmethod

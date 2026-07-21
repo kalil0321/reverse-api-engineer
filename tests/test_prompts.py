@@ -91,6 +91,16 @@ class TestLoadLanguagePartial:
         assert "Java program" in text
         assert "HttpClient" in text
         assert "/tmp/scripts/api_client.java" in text
+    def test_csharp_partial(self):
+        text = load_language_partial(
+            "csharp",
+            scripts_dir="/tmp/scripts",
+            client_filename="api_client.cs",
+            run_command="dotnet run",
+        )
+        assert "C# program" in text
+        assert "HttpClient" in text
+        assert "/tmp/scripts/api_client.cs" in text
 
 
 class TestEngineerTemplates:
