@@ -383,16 +383,31 @@ class TestBaseEngineerHelpers:
         assert Path(script_arg).is_absolute()
         assert script_arg == str(eng.scripts_dir.resolve() / "api_client.rb")
     def test_get_run_command_c(self, tmp_path):
-        """Run command for C compiles and runs as one step, using full
-        paths throughout — the agent's cwd is scripts_dir.parent.parent
-        (see analyze_and_generate), not scripts_dir where the source,
-        vendored cJSON, and compiled binary all actually live."""
+        """Run command for C compiles and runs as one step, using full,
+        shell-quoted paths throughout — the agent's cwd is
+        scripts_dir.parent.parent (see analyze_and_generate), not
+        scripts_dir where the source, vendored cJSON, and compiled binary
+        all actually live."""
         eng = self._make_engineer(tmp_path, output_language="c")
-        expected = (
-            f'cc "{eng.scripts_dir}/api_client.c" "{eng.scripts_dir}/cJSON.c" '
-            f'-lcurl -o "{eng.scripts_dir}/api_client" && "{eng.scripts_dir}/api_client"'
-        )
+        source = shlex.quote(f"{eng.scripts_dir}/api_client.c")
+        cjson = shlex.quote(f"{eng.scripts_dir}/cJSON.c")
+        binary = shlex.quote(f"{eng.scripts_dir}/api_client")
+        expected = f"cc {source} {cjson} -lcurl -o {binary} && {binary}"
         assert eng._get_run_command() == expected
+
+    def test_get_run_command_c_quotes_metacharacters(self, tmp_path):
+        """A scripts_dir containing shell metacharacters must round-trip
+        back to the literal path for all three paths (source, cJSON,
+        binary), not be left open to $()/backtick expansion — what the
+        naive f'"{path}"' approach got wrong."""
+        eng = self._make_engineer(tmp_path, output_language="c")
+        eng.scripts_dir = Path("/tmp/weird$(rm -rf ~) dir")
+        tokens = shlex.split(eng._get_run_command())
+        assert tokens[:2] == ["cc", f"{eng.scripts_dir}/api_client.c"]
+        assert tokens[2] == f"{eng.scripts_dir}/cJSON.c"
+        assert tokens[3:6] == ["-lcurl", "-o", f"{eng.scripts_dir}/api_client"]
+        assert tokens[6] == "&&"
+        assert tokens[7] == f"{eng.scripts_dir}/api_client"
 
     def test_get_run_command_unknown(self, tmp_path):
         """Unknown language defaults to Python command."""

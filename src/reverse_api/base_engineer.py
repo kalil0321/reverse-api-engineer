@@ -555,10 +555,13 @@ class BaseEngineer(ABC):
             # agent's cwd for the whole session is scripts_dir.parent.parent
             # (see analyze_and_generate's ClaudeAgentOptions), not
             # scripts_dir where the source/output actually live.
-            source = f"{self.scripts_dir}/{self._get_client_filename()}"
-            cjson = f"{self.scripts_dir}/cJSON.c"
-            binary = f"{self.scripts_dir}/api_client"
-            return f'cc "{source}" "{cjson}" -lcurl -o "{binary}" && "{binary}"'
+            # shlex.quote (not manual double-quoting) so shell metacharacters
+            # in any of these three paths can't be interpreted as command
+            # substitution.
+            source = shlex.quote(f"{self.scripts_dir}/{self._get_client_filename()}")
+            cjson = shlex.quote(f"{self.scripts_dir}/cJSON.c")
+            binary = shlex.quote(f"{self.scripts_dir}/api_client")
+            return f"cc {source} {cjson} -lcurl -o {binary} && {binary}"
         return {
             "python": "python api_client.py",
             "javascript": "node api_client.js",
