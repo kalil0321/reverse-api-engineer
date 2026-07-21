@@ -524,7 +524,11 @@ class BaseEngineer(ABC):
             # and naive f'"{path}"' still lets $()/backticks expand inside
             # double quotes (confirmed live: shlex.quote handles this, plain
             # double-quoting doesn't).
-            path = shlex.quote(f"{self.scripts_dir}/{self._get_client_filename()}")
+            # .resolve(): a relative --output-dir would otherwise be
+            # re-interpreted against the agent's cwd (scripts_dir.parent.
+            # parent) instead of the original cwd it was relative to,
+            # pointing this command at the wrong, doubly-nested location.
+            path = shlex.quote(str(self.scripts_dir.resolve() / self._get_client_filename()))
             return f"php {path}"
         return {
             "python": "python api_client.py",
