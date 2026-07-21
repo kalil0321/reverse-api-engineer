@@ -479,7 +479,11 @@ class BaseEngineer(ABC):
             # double-quoting — output_dir (and so scripts_dir) isn't
             # guaranteed free of shell metacharacters, and naive f'"{path}"'
             # still lets $()/backticks expand inside double quotes.
-            pom = shlex.quote(f"{self.scripts_dir}/pom.xml")
+            # .resolve(): a relative --output-dir would otherwise be
+            # re-interpreted against the agent's cwd (scripts_dir.parent.
+            # parent) instead of the original cwd it was relative to,
+            # pointing -f at the wrong, doubly-nested location.
+            pom = shlex.quote(str(self.scripts_dir.resolve() / "pom.xml"))
             return f"mvn -q -f {pom} compile exec:java"
         return {
             "python": "python api_client.py",
