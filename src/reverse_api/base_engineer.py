@@ -38,6 +38,7 @@ class BaseEngineer(ABC):
         "java": ".java",
         "csharp": ".cs",
         "php": ".php",
+        "ruby": ".rb",
     }
 
     def __init__(
@@ -448,6 +449,7 @@ class BaseEngineer(ABC):
             "java": "Java",
             "csharp": "C#",
             "php": "PHP",
+            "ruby": "Ruby",
         }.get(self.output_language, "Python")
 
     def _get_existing_client_guidance(self) -> str:
@@ -530,6 +532,13 @@ class BaseEngineer(ABC):
             # pointing this command at the wrong, doubly-nested location.
             path = shlex.quote(str(self.scripts_dir.resolve() / self._get_client_filename()))
             return f"php {path}"
+        if self.output_language == "ruby":
+            # Full path, not a bare relative "ruby api_client.rb": the
+            # agent's cwd for the whole session is scripts_dir.parent.parent
+            # (see analyze_and_generate's ClaudeAgentOptions), not
+            # scripts_dir itself where the script is actually saved — the
+            # same working-directory ambiguity fixed for Go/Java/C#/PHP.
+            return f'ruby "{self.scripts_dir}/{self._get_client_filename()}"'
         return {
             "python": "python api_client.py",
             "javascript": "node api_client.js",

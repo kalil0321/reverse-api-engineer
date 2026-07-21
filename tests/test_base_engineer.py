@@ -210,6 +210,10 @@ class TestBaseEngineerHelpers:
         """PHP extension."""
         eng = self._make_engineer(tmp_path, output_language="php")
         assert eng._get_output_extension() == ".php"
+    def test_get_output_extension_ruby(self, tmp_path):
+        """Ruby extension."""
+        eng = self._make_engineer(tmp_path, output_language="ruby")
+        assert eng._get_output_extension() == ".rb"
 
     def test_get_output_extension_unknown(self, tmp_path):
         """Unknown language defaults to .py."""
@@ -343,6 +347,12 @@ class TestBaseEngineerHelpers:
         script_arg = tokens[1]
         assert Path(script_arg).is_absolute()
         assert script_arg == str(eng.scripts_dir.resolve() / "api_client.php")
+    def test_get_run_command_ruby(self, tmp_path):
+        """Run command for Ruby uses the full path, not a bare relative
+        filename — the agent's cwd is scripts_dir.parent.parent (see
+        analyze_and_generate), not scripts_dir where the script lives."""
+        eng = self._make_engineer(tmp_path, output_language="ruby")
+        assert eng._get_run_command() == f'ruby "{eng.scripts_dir}/api_client.rb"'
 
     def test_get_run_command_unknown(self, tmp_path):
         """Unknown language defaults to Python command."""
@@ -413,6 +423,12 @@ class TestBaseEngineerBuildPrompt:
         system_prompt, user_message = eng._build_prompts()
         assert "PHP script" in system_prompt
         assert "curl" in system_prompt
+    def test_ruby_prompt(self, tmp_path):
+        """Ruby prompt includes Ruby-specific instructions."""
+        eng = self._make_engineer(tmp_path, output_language="ruby")
+        system_prompt, user_message = eng._build_prompts()
+        assert "Ruby script" in system_prompt
+        assert "net/http" in system_prompt
 
     def test_docs_prompt(self, tmp_path):
         """Docs mode prompt includes OpenAPI instructions."""
