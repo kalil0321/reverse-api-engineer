@@ -274,12 +274,23 @@ class TestBaseEngineerHelpers:
         assert Path(pom_arg).is_absolute()
         assert pom_arg == str(eng.scripts_dir.resolve() / "pom.xml")
     def test_get_run_command_csharp(self, tmp_path):
-        """Run command for C# points --project at this run's own .csproj,
-        not a bare `dotnet run` — the agent's cwd is scripts_dir.parent.
-        parent (see analyze_and_generate), and dotnet only looks for a
-        project file in the current directory."""
+        """Run command for C# points --project at this run's own (shell-
+        quoted) .csproj, not a bare `dotnet run` — the agent's cwd is
+        scripts_dir.parent.parent (see analyze_and_generate), and dotnet
+        only looks for a project file in the current directory."""
         eng = self._make_engineer(tmp_path, output_language="csharp")
-        assert eng._get_run_command() == f'dotnet run --project "{eng.scripts_dir}/ApiClient.csproj"'
+        expected_csproj = shlex.quote(f"{eng.scripts_dir}/ApiClient.csproj")
+        assert eng._get_run_command() == f"dotnet run --project {expected_csproj}"
+
+    def test_get_run_command_csharp_quotes_metacharacters(self, tmp_path):
+        """A scripts_dir containing shell metacharacters must round-trip
+        back to the literal path, not be left open to $()/backtick
+        expansion — what the naive f'"{path}"' approach got wrong."""
+        eng = self._make_engineer(tmp_path, output_language="csharp")
+        eng.scripts_dir = Path("/tmp/weird$(rm -rf ~) dir")
+        tokens = shlex.split(eng._get_run_command())
+        assert tokens[:2] == ["dotnet", "run"]
+        assert tokens[3] == f"{eng.scripts_dir}/ApiClient.csproj"
 
     def test_get_run_command_unknown(self, tmp_path):
         """Unknown language defaults to Python command."""

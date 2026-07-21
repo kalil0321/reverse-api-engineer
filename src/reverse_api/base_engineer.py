@@ -498,8 +498,12 @@ class BaseEngineer(ABC):
             # a bare `dotnet run` only looks for a project file in the
             # current directory. --project points it straight at this run's
             # own .csproj regardless of cwd, rather than relying on the
-            # agent to cd there itself first.
-            return f'dotnet run --project "{self.scripts_dir}/ApiClient.csproj"'
+            # agent to cd there itself first. shlex.quote(), not manual
+            # double-quoting — output_dir (and so scripts_dir) isn't
+            # guaranteed free of shell metacharacters, and naive f'"{path}"'
+            # still lets $()/backticks expand inside double quotes.
+            csproj = shlex.quote(f"{self.scripts_dir}/ApiClient.csproj")
+            return f"dotnet run --project {csproj}"
         return {
             "python": "python api_client.py",
             "javascript": "node api_client.js",
