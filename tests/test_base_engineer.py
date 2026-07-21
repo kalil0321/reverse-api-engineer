@@ -274,12 +274,12 @@ class TestBaseEngineerHelpers:
         assert Path(pom_arg).is_absolute()
         assert pom_arg == str(eng.scripts_dir.resolve() / "pom.xml")
     def test_get_run_command_csharp(self, tmp_path):
-        """Run command for C# points --project at this run's own (shell-
-        quoted) .csproj, not a bare `dotnet run` — the agent's cwd is
+        """Run command for C# points --project at this run's own (resolved,
+        shell-quoted) .csproj, not a bare `dotnet run` — the agent's cwd is
         scripts_dir.parent.parent (see analyze_and_generate), and dotnet
         only looks for a project file in the current directory."""
         eng = self._make_engineer(tmp_path, output_language="csharp")
-        expected_csproj = shlex.quote(f"{eng.scripts_dir}/ApiClient.csproj")
+        expected_csproj = shlex.quote(str(eng.scripts_dir.resolve() / "ApiClient.csproj"))
         assert eng._get_run_command() == f"dotnet run --project {expected_csproj}"
 
     def test_get_run_command_csharp_quotes_metacharacters(self, tmp_path):
@@ -290,7 +290,20 @@ class TestBaseEngineerHelpers:
         eng.scripts_dir = Path("/tmp/weird$(rm -rf ~) dir")
         tokens = shlex.split(eng._get_run_command())
         assert tokens[:2] == ["dotnet", "run"]
-        assert tokens[3] == f"{eng.scripts_dir}/ApiClient.csproj"
+        assert tokens[3] == str(eng.scripts_dir.resolve() / "ApiClient.csproj")
+
+    def test_get_run_command_csharp_resolves_relative_output_dir(self, tmp_path):
+        """A relative scripts_dir must be resolved to an absolute path before
+        being embedded in the command — otherwise, once the agent's cwd
+        moves to scripts_dir.parent.parent, the same relative string gets
+        re-interpreted from there and points at the wrong, doubly-nested
+        location."""
+        eng = self._make_engineer(tmp_path, output_language="csharp")
+        eng.scripts_dir = Path("relative_output/scripts/run123")
+        tokens = shlex.split(eng._get_run_command())
+        project_arg = tokens[3]
+        assert Path(project_arg).is_absolute()
+        assert project_arg == str(eng.scripts_dir.resolve() / "ApiClient.csproj")
 
     def test_get_run_command_unknown(self, tmp_path):
         """Unknown language defaults to Python command."""

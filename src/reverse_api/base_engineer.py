@@ -502,7 +502,11 @@ class BaseEngineer(ABC):
             # double-quoting — output_dir (and so scripts_dir) isn't
             # guaranteed free of shell metacharacters, and naive f'"{path}"'
             # still lets $()/backticks expand inside double quotes.
-            csproj = shlex.quote(f"{self.scripts_dir}/ApiClient.csproj")
+            # .resolve(): a relative --output-dir would otherwise be
+            # re-interpreted against the agent's cwd (scripts_dir.parent.
+            # parent) instead of the original cwd it was relative to,
+            # pointing --project at the wrong, doubly-nested location.
+            csproj = shlex.quote(str(self.scripts_dir.resolve() / "ApiClient.csproj"))
             return f"dotnet run --project {csproj}"
         return {
             "python": "python api_client.py",
