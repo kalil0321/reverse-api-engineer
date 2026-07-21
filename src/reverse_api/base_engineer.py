@@ -557,10 +557,14 @@ class BaseEngineer(ABC):
             # scripts_dir where the source/output actually live.
             # shlex.quote (not manual double-quoting) so shell metacharacters
             # in any of these three paths can't be interpreted as command
-            # substitution.
-            source = shlex.quote(f"{self.scripts_dir}/{self._get_client_filename()}")
-            cjson = shlex.quote(f"{self.scripts_dir}/cJSON.c")
-            binary = shlex.quote(f"{self.scripts_dir}/api_client")
+            # substitution. .resolve(): a relative --output-dir would
+            # otherwise be re-interpreted against the agent's cwd (scripts_
+            # dir.parent.parent) instead of the original cwd it was relative
+            # to, pointing all three at the wrong, doubly-nested location.
+            resolved = self.scripts_dir.resolve()
+            source = shlex.quote(str(resolved / self._get_client_filename()))
+            cjson = shlex.quote(str(resolved / "cJSON.c"))
+            binary = shlex.quote(str(resolved / "api_client"))
             return f"cc {source} {cjson} -lcurl -o {binary} && {binary}"
         return {
             "python": "python api_client.py",
