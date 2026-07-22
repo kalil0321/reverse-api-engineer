@@ -1,4 +1,4 @@
-"""Design tokens for the CLI, aligned with System_Design.md (dark / terminal)."""
+"""Design tokens for the CLI, aligned with design/design-system.md (dark / terminal)."""
 
 # Core palette (website dark mode)
 COLOR_INK = "#fff7f0"

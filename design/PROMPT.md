@@ -73,9 +73,9 @@ structure (not just color) between variants; every interactive/animated variant
 must degrade gracefully.
 
 ## The design system to work within
-{{For on-brand rae work, PASTE the contents of `System_Design.md` (the canonical
-tokens, fonts + Fraunces axes, icons, shapes) AND `design-system.md` (the rules
-of use — palette discipline, the asterisk motif, neo-brutalist shadows, the
+{{For on-brand rae work, PASTE the contents of `design-system.md` — its Reference
+section (the canonical tokens, fonts + Fraunces axes, icons, shapes) plus the
+rules of use (palette discipline, the asterisk motif, neo-brutalist shadows, the
 no-lucide-on-brand stance). If starting a NEW project, instead write: "Propose a
 complete design system first (palette with one loud accent, a display+body+mono
 type trio, one signature motif, a shadow/shape language), then design the section
@@ -94,7 +94,7 @@ footer. Must use the real brand logos."}}
 ## Tips for driving this prompt well
 
 - **One section per request.** The quality drops if you ask for a whole page at once.
-- **Feed it the real system.** Pasting `System_Design.md` + `design-system.md`
+- **Feed it the real system.** Pasting `design-system.md` (Reference + rules)
   is what keeps 12 variants coherent instead of 12 unrelated styles.
 - **Ask for more if nothing sings.** "Give me 10 more, weirder this time, lean
   into physical-object metaphors" is a great follow-up.

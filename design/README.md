@@ -5,16 +5,17 @@ design playground, so the same level of quality can be reproduced — by you, by
 other people, or by another LLM.
 
 - **README.md** (this file) — the methodology. The *why* and the *how*. Project-agnostic.
-- **design-system.md** — the *opinionated layer* on `rae`'s system: the rules of
-  use, the personality, the judgement. Project-specific.
+- **design-system.md** — the full design system for `rae`: a **Reference**
+  section with the exact tokens/fonts/icons/shapes (mirrored from
+  `website/src/app/global.css`), then the *opinionated layer* on top — the rules
+  of use, the personality, the judgement. Project-specific.
 - **PROMPT.md** — a paste-into-any-LLM prompt that generates this caliber of design.
 - **examples.md** — a worked case study: the actual lab variants and why they work.
 
-> **The canonical token/asset reference is [`../System_Design.md`](../System_Design.md)**
-> — the exact palette, functional tokens, fonts + Fraunces axes, icon inventory,
-> and shape/radius specs, mirrored from `website/src/app/global.css`. The
-> `design-system.md` here deliberately does **not** repeat those tables; it adds
-> the usage rules on top. Need a hex or a radius → read `System_Design.md`.
+> **The canonical token/asset reference lives in [`design-system.md`](./design-system.md)**
+> — its Reference section has the exact palette, functional tokens, fonts +
+> Fraunces axes, icon inventory, and shape/radius specs, mirrored from
+> `website/src/app/global.css`. Need a hex or a radius → read it there.
 
 ---
 
@@ -104,8 +105,8 @@ will be mediocre; that's the point — you're hunting for the two that aren't.
 ## The process that produced this site
 
 1. **Establish the system first.** Tokens, fonts, one motif, the palette —
-   captured in `../System_Design.md` (the raw tokens) and `design-system.md`
-   (the rules of use). Everything downstream pulls from it.
+   captured in `design-system.md` (raw tokens in the Reference section, plus the
+   rules of use). Everything downstream pulls from it.
 2. **Build a `/lab`.** An internal, unlinked, gitignored route that's a gallery
    of labelled variants. Each variant is wrapped in a frame with a one-line
    description of its concept. This is the sketchbook.
