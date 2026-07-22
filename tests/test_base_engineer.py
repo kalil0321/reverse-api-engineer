@@ -210,6 +210,10 @@ class TestBaseEngineerHelpers:
         """PHP extension."""
         eng = self._make_engineer(tmp_path, output_language="php")
         assert eng._get_output_extension() == ".php"
+    def test_get_output_extension_ruby(self, tmp_path):
+        """Ruby extension."""
+        eng = self._make_engineer(tmp_path, output_language="ruby")
+        assert eng._get_output_extension() == ".rb"
 
     def test_get_output_extension_unknown(self, tmp_path):
         """Unknown language defaults to .py."""
@@ -343,6 +347,37 @@ class TestBaseEngineerHelpers:
         script_arg = tokens[1]
         assert Path(script_arg).is_absolute()
         assert script_arg == str(eng.scripts_dir.resolve() / "api_client.php")
+    def test_get_run_command_ruby(self, tmp_path):
+        """Run command for Ruby uses the full, resolved, shell-quoted path,
+        not a bare relative filename — the agent's cwd is scripts_dir.
+        parent.parent (see analyze_and_generate), not scripts_dir where the
+        script lives."""
+        eng = self._make_engineer(tmp_path, output_language="ruby")
+        expected_path = shlex.quote(str(eng.scripts_dir.resolve() / "api_client.rb"))
+        assert eng._get_run_command() == f"ruby {expected_path}"
+
+    def test_get_run_command_ruby_quotes_metacharacters(self, tmp_path):
+        """A scripts_dir containing shell metacharacters must round-trip
+        back to the literal path, not be left open to $()/backtick
+        expansion — what the naive f'"{path}"' approach got wrong."""
+        eng = self._make_engineer(tmp_path, output_language="ruby")
+        eng.scripts_dir = Path("/tmp/weird$(rm -rf ~) dir")
+        tokens = shlex.split(eng._get_run_command())
+        assert tokens[0] == "ruby"
+        assert tokens[1] == str(eng.scripts_dir.resolve() / "api_client.rb")
+
+    def test_get_run_command_ruby_resolves_relative_output_dir(self, tmp_path):
+        """A relative scripts_dir must be resolved to an absolute path before
+        being embedded in the command — otherwise, once the agent's cwd
+        moves to scripts_dir.parent.parent, the same relative string gets
+        re-interpreted from there and points at the wrong, doubly-nested
+        location."""
+        eng = self._make_engineer(tmp_path, output_language="ruby")
+        eng.scripts_dir = Path("relative_output/scripts/run123")
+        tokens = shlex.split(eng._get_run_command())
+        script_arg = tokens[1]
+        assert Path(script_arg).is_absolute()
+        assert script_arg == str(eng.scripts_dir.resolve() / "api_client.rb")
 
     def test_get_run_command_unknown(self, tmp_path):
         """Unknown language defaults to Python command."""
@@ -413,6 +448,12 @@ class TestBaseEngineerBuildPrompt:
         system_prompt, user_message = eng._build_prompts()
         assert "PHP script" in system_prompt
         assert "curl" in system_prompt
+    def test_ruby_prompt(self, tmp_path):
+        """Ruby prompt includes Ruby-specific instructions."""
+        eng = self._make_engineer(tmp_path, output_language="ruby")
+        system_prompt, user_message = eng._build_prompts()
+        assert "Ruby script" in system_prompt
+        assert "net/http" in system_prompt
 
     def test_docs_prompt(self, tmp_path):
         """Docs mode prompt includes OpenAPI instructions."""

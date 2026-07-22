@@ -111,6 +111,16 @@ class TestLoadLanguagePartial:
         assert "PHP script" in text
         assert "curl" in text
         assert "/tmp/scripts/api_client.php" in text
+    def test_ruby_partial(self):
+        text = load_language_partial(
+            "ruby",
+            scripts_dir="/tmp/scripts",
+            client_filename="api_client.rb",
+            run_command='ruby "/tmp/scripts/api_client.rb"',
+        )
+        assert "Ruby script" in text
+        assert "net/http" in text
+        assert "/tmp/scripts/api_client.rb" in text
 
 
 class TestEngineerTemplates:
