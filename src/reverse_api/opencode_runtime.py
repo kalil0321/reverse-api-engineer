@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import threading
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -29,6 +30,7 @@ _START_TIMEOUT_SECONDS = 120.0
 
 _PROCESS: subprocess.Popen[bytes] | None = None
 _PROCESS_URL: str | None = None
+_PROCESS_ENV_OVERRIDES: dict[str, str] = {}
 _PROCESS_LOCK = threading.Lock()
 _ATEXIT_REGISTERED = False
 
@@ -246,15 +248,22 @@ def _server_address(base_url: str) -> tuple[str, int]:
     return host, port
 
 
-def _start_managed_server(base_url: str) -> tuple[subprocess.Popen[bytes], str, bool]:
+def _start_managed_server(
+    base_url: str,
+    env_overrides: Mapping[str, str] | None = None,
+) -> tuple[subprocess.Popen[bytes], str, bool]:
     """Start the configured OpenCode npm package once for this process."""
 
-    global _ATEXIT_REGISTERED, _PROCESS, _PROCESS_URL
+    global _ATEXIT_REGISTERED, _PROCESS, _PROCESS_ENV_OVERRIDES, _PROCESS_URL
+
+    desired_env = dict(env_overrides or {})
 
     with _PROCESS_LOCK:
         if _PROCESS is not None and _PROCESS.poll() is None:
             if _PROCESS_URL != base_url:
                 raise OpenCodeSetupError(f"RAE already manages OpenCode at {_PROCESS_URL}; it cannot also start {base_url} in the same process.")
+            if _PROCESS_ENV_OVERRIDES != desired_env:
+                raise OpenCodeSetupError("The managed OpenCode server needs different provider configuration; restart it and retry.")
             return _PROCESS, opencode_npx_package(), False
 
         host, port = _server_address(base_url)
@@ -266,13 +275,15 @@ def _start_managed_server(base_url: str) -> tuple[subprocess.Popen[bytes], str, 
 
         package = opencode_npx_package()
         argv = [npx, "-y", package, "serve", "--hostname", host, "--port", str(port)]
+        child_env = os.environ.copy()
+        child_env.update(desired_env)
         try:
             process = subprocess.Popen(
                 argv,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                env=os.environ.copy(),
+                env=child_env,
                 start_new_session=True,
             )
         except OSError as e:
@@ -280,6 +291,7 @@ def _start_managed_server(base_url: str) -> tuple[subprocess.Popen[bytes], str, 
 
         _PROCESS = process
         _PROCESS_URL = base_url
+        _PROCESS_ENV_OVERRIDES = desired_env
         if not _ATEXIT_REGISTERED:
             atexit.register(stop_managed_opencode_server)
             _ATEXIT_REGISTERED = True
@@ -290,6 +302,7 @@ async def ensure_opencode_server(
     client: httpx.AsyncClient,
     *,
     base_url: str,
+    env_overrides: Mapping[str, str] | None = None,
     timeout: float = _START_TIMEOUT_SECONDS,
 ) -> OpenCodeServerStatus:
     """Reuse a healthy server or start the configured OpenCode release locally."""
@@ -301,7 +314,12 @@ async def ensure_opencode_server(
         if not isinstance(health, dict):
             raise OpenCodeSetupError("OpenCode returned an invalid health response.")
         version_warning = opencode_version_warning(health)
-        return OpenCodeServerStatus(health=health, version_warning=version_warning)
+        desired_env = dict(env_overrides or {})
+        with _PROCESS_LOCK:
+            restart_managed = _PROCESS is not None and _PROCESS.poll() is None and _PROCESS_URL == base_url and _PROCESS_ENV_OVERRIDES != desired_env
+        if not restart_managed:
+            return OpenCodeServerStatus(health=health, version_warning=version_warning)
+        stop_managed_opencode_server()
     except httpx.HTTPStatusError:
         raise
     except httpx.RequestError as initial_error:
@@ -310,7 +328,7 @@ async def ensure_opencode_server(
                 f"OpenCode is not responding at {base_url} and automatic startup is disabled. Run `opencode serve` first."
             ) from initial_error
 
-    process, package, started = _start_managed_server(base_url)
+    process, package, started = _start_managed_server(base_url, env_overrides)
     deadline = time.monotonic() + timeout
     last_error: Exception | None = None
     while time.monotonic() < deadline:
@@ -352,12 +370,13 @@ async def ensure_opencode_server(
 def stop_managed_opencode_server() -> None:
     """Stop the OpenCode child process started by RAE, if any."""
 
-    global _PROCESS, _PROCESS_URL
+    global _PROCESS, _PROCESS_ENV_OVERRIDES, _PROCESS_URL
 
     with _PROCESS_LOCK:
         process = _PROCESS
         _PROCESS = None
         _PROCESS_URL = None
+        _PROCESS_ENV_OVERRIDES = {}
 
     if process is None or process.poll() is not None:
         return

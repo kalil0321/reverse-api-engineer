@@ -15,6 +15,13 @@ import httpx
 
 from .base_engineer import BaseEngineer
 from .config import DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_PROVIDER
+from .ollama_runtime import (
+    OllamaProviderSetup,
+    OllamaSetupError,
+    opencode_ollama_env,
+    prepare_ollama_model,
+    validate_opencode_ollama_provider,
+)
 from .opencode_runtime import (
     OpenCodeSetupError,
     ensure_opencode_server,
@@ -146,7 +153,16 @@ class OpenCodeEngineer(BaseEngineer):
     async def _prepare_server(self, client: httpx.AsyncClient) -> bool:
         """Ensure OpenCode is healthy, starting the managed runtime if needed."""
         try:
-            server = await ensure_opencode_server(client, base_url=self.BASE_URL)
+            ollama_setup: OllamaProviderSetup | None = None
+            env_overrides: dict[str, str] = {}
+            if self.opencode_provider == "ollama":
+                ollama_setup = await prepare_ollama_model(self.opencode_model)
+                env_overrides = opencode_ollama_env(ollama_setup)
+
+            server = await ensure_opencode_server(client, base_url=self.BASE_URL, env_overrides=env_overrides)
+            if ollama_setup is not None:
+                await validate_opencode_ollama_provider(client, self.opencode_model)
+                self.opencode_ui.ollama_ready(self.opencode_model, ollama_setup.status.started)
             if server.started and server.package:
                 self.opencode_ui.server_started(server.package, self.BASE_URL)
             self.opencode_ui.health_check(server.health)
@@ -164,7 +180,7 @@ class OpenCodeEngineer(BaseEngineer):
             if self.opencode_username != "opencode":
                 self.opencode_ui.console.print(f"[dim]Username: {self.opencode_username}[/dim]")
             return False
-        except OpenCodeSetupError as e:
+        except (OllamaSetupError, OpenCodeSetupError) as e:
             debug_log(f"OpenCode setup failed: {e}")
             self.opencode_ui.error(str(e), unexpected=False)
             return False

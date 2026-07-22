@@ -56,6 +56,58 @@ config_manager = ConfigManager(get_config_path())
 session_manager = SessionManager(get_history_path())
 
 
+def _format_ollama_size(size: int) -> str:
+    if size < 1024:
+        return "cloud"
+    return f"{size / (1024**3):.1f} GB"
+
+
+def _select_ollama_model_for_settings() -> str | None:
+    """Discover installed agent-capable Ollama models and let the user choose."""
+
+    from .ollama_runtime import OllamaSetupError, ensure_ollama_models
+
+    try:
+        status = asyncio.run(ensure_ollama_models())
+    except OllamaSetupError as e:
+        console.print(f" [yellow]error:[/yellow] {e}\n")
+        return None
+
+    models = status.compatible_models
+    if not models:
+        console.print(" [yellow]error:[/yellow] no installed Ollama model supports tools with at least 64k context")
+        console.print(" [dim]Pull a compatible model explicitly, then retry. RAE will not download multi-GB models silently.[/dim]\n")
+        return None
+    if len(models) == 1:
+        console.print(f" [dim]using the only compatible Ollama model: {models[0].name}[/dim]")
+        return models[0].name
+
+    choices = [
+        Choice(
+            title=(
+                f"{model.name}  ({model.parameter_size or 'unknown'}, {_format_ollama_size(model.size)}, "
+                f"{model.context_length // 1024}k context)"
+            ),
+            value=model.name,
+        )
+        for model in models
+    ]
+    choices.append(Choice(title="back", value="back"))
+    selected = questionary.select(
+        " > ollama model",
+        choices=choices,
+        pointer=">",
+        qmark="",
+        style=questionary.Style(
+            [
+                ("pointer", f"fg:{THEME_SECONDARY} bold"),
+                ("highlighted", f"fg:{THEME_SECONDARY} bold"),
+            ]
+        ),
+    ).ask()
+    return None if selected in {None, "back"} else str(selected)
+
+
 def default_model_for_configured_sdk(sdk: str | None = None) -> str:
     """Return the configured default model id for the given SDK (or current config SDK)."""
     s = (sdk or config_manager.get("sdk", "claude") or "claude").lower()
@@ -113,10 +165,6 @@ def _select_opencode_pair_for_settings(mode_color=THEME_PRIMARY) -> tuple[str, s
         if provider.get("id") and isinstance(models, dict) and any(opencode_model_is_selectable(model) for model in models.values()):
             selectable.append(provider)
 
-    if not selectable:
-        console.print(" [yellow]error:[/yellow] OpenCode reported no connected providers with tool-capable models.\n")
-        return None
-
     style = questionary.Style(
         [
             ("pointer", f"fg:{mode_color} bold"),
@@ -134,8 +182,11 @@ def _select_opencode_pair_for_settings(mode_color=THEME_PRIMARY) -> tuple[str, s
             else provider_id
         )
         provider_choices.append(Choice(title=title, value=provider_id))
-    provider_choices.append(Choice(title="back", value="back"))
     provider_ids = {str(provider["id"]) for provider in selectable}
+    if "ollama" not in provider_ids:
+        provider_choices.append(Choice(title="ollama — installed local models", value="ollama"))
+        provider_ids.add("ollama")
+    provider_choices.append(Choice(title="back", value="back"))
     provider_id = questionary.select(
         " > opencode provider",
         choices=provider_choices,
@@ -148,6 +199,9 @@ def _select_opencode_pair_for_settings(mode_color=THEME_PRIMARY) -> tuple[str, s
     ).ask()
     if provider_id is None or provider_id == "back":
         return None
+    if provider_id == "ollama":
+        model_id = _select_ollama_model_for_settings()
+        return ("ollama", model_id) if model_id else None
 
     provider = next(item for item in selectable if item.get("id") == provider_id)
     models = provider["models"]

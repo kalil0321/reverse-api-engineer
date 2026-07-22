@@ -1249,6 +1249,48 @@ class TestOpenCodeEngineerAnalyzeAndGenerate:
                     return eng
 
     @pytest.mark.asyncio
+    async def test_prepare_server_configures_ollama_before_opencode(self, tmp_path):
+        eng = self._make_engineer(tmp_path)
+        eng.opencode_provider = "ollama"
+        eng.opencode_model = "qwen3:4b"
+        client = AsyncMock()
+        ollama_setup = MagicMock()
+        ollama_setup.status.started = False
+        server = MagicMock(started=True, package="opencode-ai@latest", health={"version": "1.18.4"})
+
+        with patch(
+            "reverse_api.opencode_engineer.prepare_ollama_model",
+            new=AsyncMock(return_value=ollama_setup),
+        ) as prepare:
+            with patch(
+                "reverse_api.opencode_engineer.opencode_ollama_env",
+                return_value={"OPENCODE_CONFIG_CONTENT": "{}"},
+            ):
+                with patch(
+                    "reverse_api.opencode_engineer.ensure_opencode_server",
+                    new=AsyncMock(return_value=server),
+                ) as ensure:
+                    with patch(
+                        "reverse_api.opencode_engineer.validate_opencode_ollama_provider",
+                        new=AsyncMock(),
+                    ) as validate:
+                        with patch(
+                            "reverse_api.opencode_engineer.validate_opencode_model",
+                            new=AsyncMock(),
+                        ) as validate_model:
+                            assert await eng._prepare_server(client) is True
+
+        prepare.assert_awaited_once_with("qwen3:4b")
+        ensure.assert_awaited_once_with(
+            client,
+            base_url=eng.BASE_URL,
+            env_overrides={"OPENCODE_CONFIG_CONTENT": "{}"},
+        )
+        validate.assert_awaited_once_with(client, "qwen3:4b")
+        validate_model.assert_awaited_once_with(client, "ollama", "qwen3:4b")
+        eng.opencode_ui.ollama_ready.assert_called_once_with("qwen3:4b", False)
+
+    @pytest.mark.asyncio
     async def test_health_check_401(self, tmp_path):
         """401 on health check returns None."""
         eng = self._make_engineer(tmp_path)

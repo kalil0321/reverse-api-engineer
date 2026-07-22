@@ -14,9 +14,11 @@ from reverse_api import opencode_runtime
 def reset_runtime_state():
     opencode_runtime._PROCESS = None
     opencode_runtime._PROCESS_URL = None
+    opencode_runtime._PROCESS_ENV_OVERRIDES = {}
     yield
     opencode_runtime._PROCESS = None
     opencode_runtime._PROCESS_URL = None
+    opencode_runtime._PROCESS_ENV_OVERRIDES = {}
 
 
 def _health_response(version: str = "1.18.4") -> MagicMock:
@@ -162,6 +164,7 @@ async def test_starts_latest_package_without_global_opencode(monkeypatch: pytest
                 status = await opencode_runtime.ensure_opencode_server(
                     client,
                     base_url="http://127.0.0.1:4096",
+                    env_overrides={"OPENCODE_CONFIG_CONTENT": "{}"},
                     timeout=1,
                 )
 
@@ -180,6 +183,7 @@ async def test_starts_latest_package_without_global_opencode(monkeypatch: pytest
         "4096",
     ]
     assert popen.call_args.kwargs["env"]["OPENCODE_SERVER_PASSWORD"] == "secret"
+    assert popen.call_args.kwargs["env"]["OPENCODE_CONFIG_CONTENT"] == "{}"
 
 
 @pytest.mark.asyncio
@@ -191,6 +195,33 @@ async def test_disabled_auto_start_has_actionable_error(monkeypatch: pytest.Monk
 
     with pytest.raises(opencode_runtime.OpenCodeSetupError, match="disabled"):
         await opencode_runtime.ensure_opencode_server(client, base_url="http://127.0.0.1:4096")
+
+
+@pytest.mark.asyncio
+async def test_restarts_managed_server_when_provider_config_changes():
+    client = AsyncMock()
+    client.get = AsyncMock(side_effect=[_health_response(), _health_response()])
+    old_process = MagicMock()
+    old_process.poll.return_value = None
+    new_process = MagicMock()
+    new_process.poll.return_value = None
+    opencode_runtime._PROCESS = old_process
+    opencode_runtime._PROCESS_URL = "http://127.0.0.1:4096"
+    opencode_runtime._PROCESS_ENV_OVERRIDES = {"OPENCODE_CONFIG_CONTENT": '{"old":true}'}
+
+    with patch.object(opencode_runtime, "_config_manager_snapshot", return_value={}):
+        with patch.object(opencode_runtime.shutil, "which", side_effect=lambda name: f"/bin/{name}"):
+            with patch.object(opencode_runtime.subprocess, "Popen", return_value=new_process):
+                status = await opencode_runtime.ensure_opencode_server(
+                    client,
+                    base_url="http://127.0.0.1:4096",
+                    env_overrides={"OPENCODE_CONFIG_CONTENT": '{"ollama":true}'},
+                    timeout=1,
+                )
+
+    assert status.started is True
+    old_process.terminate.assert_called_once_with()
+    assert opencode_runtime._PROCESS_ENV_OVERRIDES == {"OPENCODE_CONFIG_CONTENT": '{"ollama":true}'}
 
 
 @pytest.mark.asyncio
