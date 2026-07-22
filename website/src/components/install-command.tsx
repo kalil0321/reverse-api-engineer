@@ -21,11 +21,11 @@ export function InstallCommand() {
   return (
     <button
       onClick={copy}
-      className="inline-flex items-center gap-2 cursor-pointer group"
+      className="group inline-flex w-full cursor-pointer items-center justify-center gap-1.5 sm:gap-2"
       aria-label="Copy install command to clipboard"
     >
       <span className="font-mono text-xs text-fd-primary select-none">$</span>
-      <code className="font-mono text-xs text-ink-soft tracking-wide select-none group-hover:text-ink transition-colors duration-150">
+      <code className="select-none whitespace-nowrap font-mono text-[10px] tracking-tight text-ink-soft transition-colors duration-150 group-hover:text-ink sm:text-xs sm:tracking-wide">
         {COMMAND}
       </code>
       <span className="flex-shrink-0 w-3">

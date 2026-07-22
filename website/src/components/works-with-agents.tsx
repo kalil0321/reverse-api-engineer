@@ -16,13 +16,13 @@ export function WorksWithAgents() {
         *
       </span>
 
-      <div className="relative mx-auto max-w-7xl px-6 lg:px-10 py-24 md:py-32">
+      <div className="relative mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-24 md:py-32 lg:px-10">
         {/* Split-flap board — the board itself stays dark (like a real
             departure display) so it reads as a physical object on any page bg. */}
-        <div className="mx-auto max-w-2xl space-y-2.5 rounded-2xl bg-[#0d0a07] p-6 md:p-8 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.5)]">
+        <div className="mx-auto max-w-2xl space-y-2.5 rounded-xl bg-[#0d0a07] p-4 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.5)] sm:rounded-2xl sm:p-6 md:p-8">
           <div className="flex items-center justify-between px-1 pb-1 font-mono text-[10px] uppercase tracking-[0.22em] text-white/35">
             <span>agent</span>
-            <span>status</span>
+            <span className="hidden sm:inline">status</span>
           </div>
           {AGENTS.map((a, ai) => (
             <div key={a.key} className="flex items-center gap-3">
@@ -30,7 +30,10 @@ export function WorksWithAgents() {
                 <BrandIcon agent={a} className="size-4 text-white/85" />
               </span>
               {/* flap tiles spelling the agent name */}
-              <div className="flex gap-px" style={{ perspective: '420px' }}>
+              <span className="min-w-0 truncate font-mono text-xs tracking-[0.08em] text-white/90 sm:hidden">
+                {a.name.toUpperCase()}
+              </span>
+              <div className="hidden gap-px sm:flex" style={{ perspective: '420px' }}>
                 {a.name.toUpperCase().slice(0, 16).split('').map((ch, ci) => (
                   <span
                     key={ci}
@@ -41,7 +44,7 @@ export function WorksWithAgents() {
                   </span>
                 ))}
               </div>
-              <span className="ml-auto shrink-0 font-mono text-[11px] text-fd-primary">SUPPORTED</span>
+              <span className="ml-auto hidden shrink-0 font-mono text-[11px] text-fd-primary sm:inline">SUPPORTED</span>
             </div>
           ))}
         </div>

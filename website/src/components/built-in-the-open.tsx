@@ -12,14 +12,14 @@ const CARDS = [
   {
     id: '003',
     title: 'You own the output',
-    note: 'rae writes plain Python files straight into your project. No SDK to depend on, no service that can go away — just code you can read and edit.',
+    note: 'rae writes plain source files straight into your project. No SDK to depend on, no service that can go away — just code you can read and edit.',
   },
 ];
 
 export function BuiltInTheOpen() {
   return (
-    <section className="bg-[#e8e3f0] dark:bg-[#15101e] min-h-[100svh] flex items-center">
-      <div className="w-full mx-auto max-w-7xl px-6 lg:px-10 py-24 md:py-36">
+    <section className="flex items-center bg-[#e8e3f0] dark:bg-[#15101e] md:min-h-[100svh]">
+      <div className="mx-auto w-full max-w-7xl px-4 py-20 sm:px-6 sm:py-24 md:py-36 lg:px-10">
         <div className="mb-12 md:mb-14 flex justify-end">
           <div className="text-right max-w-2xl">
             <h2

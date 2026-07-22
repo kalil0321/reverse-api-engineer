@@ -33,7 +33,7 @@
 1. You give it a website and a goal ("fetch all Apple jobs").
 2. A browser visits the site, either driven by you or by an AI agent.
 3. Network traffic is captured to a HAR file.
-4. Claude reads the traffic and writes you a working API client (Python, JS, or TS).
+4. Your configured model reads the traffic and writes a working API client in Python, JavaScript, TypeScript, Go, Java, C#, PHP, Ruby, or C.
 
 No more manually opening DevTools, copying cURL commands, and gluing together a client.
 
