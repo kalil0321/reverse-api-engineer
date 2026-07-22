@@ -24,7 +24,7 @@ from .agent_browser import (
 )
 from .engineer import ClaudeEngineer
 from .opencode_engineer import OpenCodeEngineer, debug_log, format_error
-from .utils import get_har_dir
+from .utils import build_sdk_env, get_har_dir
 
 # Suppress claude_agent_sdk logs
 logging.getLogger("claude_agent_sdk").setLevel(logging.WARNING)
@@ -192,6 +192,10 @@ class ClaudeAutoEngineer(ClaudeEngineer):
         self.ui.header(self.run_id, self.prompt, self.model, mode="agent")
         self.ui.start_analysis()
 
+        # Fresh SDK session, fresh context window: clear any overflow state
+        # left over from a previous run on a reused engineer instance.
+        self._context_overflowed = False
+
         if self.agent_provider == "agent-browser":
             ab_setup = ensure_agent_browser_runtime()
             print_agent_browser_setup_notices(self.ui.console, ab_setup)
@@ -212,7 +216,7 @@ class ClaudeAutoEngineer(ClaudeEngineer):
                 can_use_tool=self._handle_tool_permission,
                 cwd=str(self.scripts_dir.parent.parent),
                 model=self.model,
-                env={"CLAUDECODE": ""},
+                env=build_sdk_env(),
                 stderr=self._handle_cli_stderr,
             )
         else:
@@ -224,7 +228,7 @@ class ClaudeAutoEngineer(ClaudeEngineer):
                 can_use_tool=self._handle_tool_permission,
                 cwd=str(self.scripts_dir.parent.parent),
                 model=self.model,
-                env={"CLAUDECODE": ""},
+                env=build_sdk_env(),
                 stderr=self._handle_cli_stderr,
             )
 
@@ -252,6 +256,11 @@ class ClaudeAutoEngineer(ClaudeEngineer):
                     result = await self._process_streaming_response(client)
                     if result is not None:
                         last_result = result
+                    elif self._context_overflowed:
+                        # The conversation exceeds the context window; every
+                        # further query would fail the same way, so end the
+                        # follow-up loop instead of offering another turn.
+                        return last_result
 
         except KeyboardInterrupt:
             self.ui.console.print("\n  [dim]run aborted[/dim]")

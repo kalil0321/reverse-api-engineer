@@ -798,3 +798,75 @@ class TestPathValidationExceptions:
             with patch.object(Path, "resolve", side_effect=RuntimeError("symlink loop")):
                 with pytest.raises(ValueError, match="Invalid path"):
                     get_har_dir("valid_id")
+
+
+class TestBuildSdkEnv:
+    """Test SDK subprocess environment construction."""
+
+    def test_default_sets_autocompact_override(self, monkeypatch):
+        """A proactive compaction window and lowered threshold apply by default."""
+        from reverse_api.utils import AUTOCOMPACT_PCT, AUTOCOMPACT_WINDOW, build_sdk_env
+
+        monkeypatch.delenv("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", raising=False)
+        monkeypatch.delenv("CLAUDE_CODE_AUTO_COMPACT_WINDOW", raising=False)
+        env = build_sdk_env()
+        assert env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] == AUTOCOMPACT_PCT
+        assert env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == AUTOCOMPACT_WINDOW
+        assert env["CLAUDECODE"] == ""
+
+    def test_user_window_wins(self, monkeypatch):
+        """An explicit user CLAUDE_CODE_AUTO_COMPACT_WINDOW is not clobbered."""
+        from reverse_api.utils import build_sdk_env
+
+        monkeypatch.setenv("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "500000")
+        env = build_sdk_env()
+        assert "CLAUDE_CODE_AUTO_COMPACT_WINDOW" not in env
+
+    def test_user_override_wins(self, monkeypatch):
+        """An explicit user CLAUDE_AUTOCOMPACT_PCT_OVERRIDE is not clobbered."""
+        from reverse_api.utils import build_sdk_env
+
+        monkeypatch.setenv("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "60")
+        env = build_sdk_env()
+        # The SDK merges our dict on top of os.environ, so omitting the key
+        # leaves the user's value in effect.
+        assert "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" not in env
+        assert env["CLAUDECODE"] == ""
+
+    def test_empty_user_override_wins(self, monkeypatch):
+        """An explicit empty override (opting back into the CLI default)
+        is also respected, not replaced with our threshold."""
+        from reverse_api.utils import build_sdk_env
+
+        monkeypatch.setenv("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "")
+        env = build_sdk_env()
+        assert "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" not in env
+
+
+class TestIsContextOverflowError:
+    """Test context-window overflow error detection."""
+
+    def test_prompt_too_long(self):
+        from reverse_api.utils import is_context_overflow_error
+
+        assert is_context_overflow_error("API Error: 400 Prompt is too long")
+
+    def test_conversation_too_long(self):
+        from reverse_api.utils import is_context_overflow_error
+
+        assert is_context_overflow_error(
+            "Error during compaction: Error: Conversation too long."
+        )
+
+    def test_input_and_max_tokens_variant(self):
+        from reverse_api.utils import is_context_overflow_error
+
+        assert is_context_overflow_error(
+            "input length and max_tokens exceed context limit"
+        )
+
+    def test_unrelated_error(self):
+        from reverse_api.utils import is_context_overflow_error
+
+        assert not is_context_overflow_error("Unknown error")
+        assert not is_context_overflow_error("rate limit exceeded")

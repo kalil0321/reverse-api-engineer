@@ -18,6 +18,7 @@ from claude_agent_sdk import (
 )
 
 from .base_engineer import BaseEngineer
+from .utils import build_sdk_env, is_context_overflow_error
 
 # Suppress claude_agent_sdk logs
 logging.getLogger("claude_agent_sdk").setLevel(logging.WARNING)
@@ -26,6 +27,22 @@ logging.getLogger("claude_agent_sdk._internal.transport.subprocess_cli").setLeve
 
 class ClaudeEngineer(BaseEngineer):
     """Uses Claude Agent SDK to analyze HAR files and generate Python API scripts."""
+
+    # Set when the session dies with a context-window overflow ("Prompt is
+    # too long"). The conversation itself exceeds the model's limit at that
+    # point, so no further query on the same client can succeed and the
+    # follow-up loop must not offer another turn.
+    _context_overflowed = False
+
+    def _print_context_overflow_help(self) -> None:
+        """Explain a context-window overflow and how to continue."""
+        self.ui.console.print()
+        self.ui.console.print("  [yellow]The session ran out of context window (too much captured traffic for one conversation).[/yellow]")
+        self.ui.console.print("  [dim]This session can't continue, but progress is saved: generated files are in[/dim]")
+        self.ui.console.print(f"  [dim]{self.scripts_dir}[/dim]")
+        self.ui.console.print(f"  [dim]Start a new run for this target (run id: {self.run_id}) to keep iterating —[/dim]")
+        self.ui.console.print("  [dim]it picks up the existing client and HAR from disk. A shorter browsing[/dim]")
+        self.ui.console.print("  [dim]session (fewer pages before closing the browser) also keeps the HAR smaller.[/dim]")
 
     async def _handle_tool_permission(self, tool_name: str, input_data: dict[str, Any], context: ToolPermissionContext) -> PermissionResultAllow:
         """Handle tool permission requests, with interactive UI for AskUserQuestion."""
@@ -90,8 +107,12 @@ class ClaudeEngineer(BaseEngineer):
 
             elif isinstance(message, ResultMessage):
                 if message.is_error:
-                    self.ui.error(message.result or "Unknown error")
-                    self.message_store.save_error(message.result or "Unknown error")
+                    error_text = message.result or "Unknown error"
+                    self.ui.error(error_text)
+                    self.message_store.save_error(error_text)
+                    if is_context_overflow_error(error_text):
+                        self._context_overflowed = True
+                        self._print_context_overflow_help()
                     return None
                 else:
                     script_path = str(self.scripts_dir / self._get_client_filename())
@@ -145,6 +166,10 @@ class ClaudeEngineer(BaseEngineer):
         self.ui.header(self.run_id, self.prompt, self.model, self.sdk, mode="engineer")
         self.ui.start_analysis()
 
+        # Fresh SDK session, fresh context window: clear any overflow state
+        # left over from a previous run on a reused engineer instance.
+        self._context_overflowed = False
+
         system_prompt, user_message = self._build_prompts()
         self.message_store.save_prompt(user_message)
 
@@ -154,7 +179,7 @@ class ClaudeEngineer(BaseEngineer):
             can_use_tool=self._handle_tool_permission,
             cwd=str(self.scripts_dir.parent.parent),
             model=self.model,
-            env={"CLAUDECODE": ""},
+            env=build_sdk_env(),
             stderr=self._handle_cli_stderr,
         )
 
@@ -182,6 +207,11 @@ class ClaudeEngineer(BaseEngineer):
                     result = await self._process_streaming_response(client)
                     if result is not None:
                         last_result = result
+                    elif self._context_overflowed:
+                        # The conversation exceeds the context window; every
+                        # further query would fail the same way, so end the
+                        # follow-up loop instead of offering another turn.
+                        return last_result
 
         except KeyboardInterrupt:
             self.ui.console.print("\n  [dim]run aborted[/dim]")

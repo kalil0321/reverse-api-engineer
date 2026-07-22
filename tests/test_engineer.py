@@ -732,3 +732,137 @@ class TestClaudeEngineerAnalyzeAndGenerate:
             with patch.object(eng, "_prompt_follow_up", new_callable=AsyncMock, return_value=None):
                 result = await eng.analyze_and_generate()
                 assert result is not None
+
+
+class TestContextOverflowHandling:
+    """Test context-window overflow ("Prompt is too long") handling."""
+
+    def _make_engineer(self, tmp_path):
+        har_path = tmp_path / "test.har"
+        har_path.touch()
+        with patch("reverse_api.base_engineer.get_scripts_dir", return_value=tmp_path / "scripts"):
+            with patch("reverse_api.base_engineer.MessageStore"):
+                return ClaudeEngineer(
+                    run_id="test123",
+                    har_path=har_path,
+                    prompt="test prompt",
+                    output_dir=str(tmp_path),
+                )
+
+    def _make_client(self, result_message):
+        client = MagicMock()
+
+        async def receive():
+            yield result_message
+
+        client.receive_response = receive
+        return client
+
+    @pytest.mark.asyncio
+    async def test_overflow_error_sets_flag_and_prints_help(self, tmp_path):
+        """A 'Prompt is too long' result flags the session as unrecoverable."""
+        from claude_agent_sdk import ResultMessage
+
+        eng = self._make_engineer(tmp_path)
+        msg = MagicMock(spec=ResultMessage)
+        msg.is_error = True
+        msg.result = "API Error: 400 Prompt is too long"
+
+        with patch.object(eng, "_print_context_overflow_help") as mock_help:
+            result = await eng._process_streaming_response(self._make_client(msg))
+
+        assert result is None
+        assert eng._context_overflowed is True
+        mock_help.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_other_error_does_not_set_flag(self, tmp_path):
+        """A non-overflow error leaves the follow-up loop available."""
+        from claude_agent_sdk import ResultMessage
+
+        eng = self._make_engineer(tmp_path)
+        msg = MagicMock(spec=ResultMessage)
+        msg.is_error = True
+        msg.result = "Some other failure"
+
+        with patch.object(eng, "_print_context_overflow_help") as mock_help:
+            result = await eng._process_streaming_response(self._make_client(msg))
+
+        assert result is None
+        assert eng._context_overflowed is False
+        mock_help.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_follow_up_loop_exits_after_overflow(self, tmp_path):
+        """After an overflow mid-follow-up, the loop returns the last result
+        instead of prompting for another turn on a dead session."""
+        eng = self._make_engineer(tmp_path)
+
+        first_result = {"script_path": "x", "usage": {}}
+        responses = iter([first_result, None])
+
+        async def fake_process(client):
+            value = next(responses)
+            if value is None:
+                eng._context_overflowed = True
+            return value
+
+        follow_ups = AsyncMock(side_effect=["make it faster", "should not be asked"])
+
+        mock_client = AsyncMock()
+        with patch.object(eng, "_process_streaming_response", side_effect=fake_process):
+            with patch.object(eng, "_prompt_follow_up", follow_ups):
+                with patch("reverse_api.engineer.ClaudeSDKClient") as mock_sdk:
+                    mock_sdk.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+                    mock_sdk.return_value.__aexit__ = AsyncMock(return_value=False)
+
+                    result = await eng.analyze_and_generate()
+
+        assert result == first_result
+        # Only one follow-up should have been requested before the loop ended.
+        assert follow_ups.await_count == 1
+
+
+class TestSdkEnvWiring:
+    """Test that SDK sessions get the auto-compact env override."""
+
+    def _make_engineer(self, tmp_path):
+        har_path = tmp_path / "test.har"
+        har_path.touch()
+        with patch("reverse_api.base_engineer.get_scripts_dir", return_value=tmp_path / "scripts"):
+            with patch("reverse_api.base_engineer.MessageStore"):
+                return ClaudeEngineer(
+                    run_id="test123",
+                    har_path=har_path,
+                    prompt="test prompt",
+                    output_dir=str(tmp_path),
+                )
+
+    @pytest.mark.asyncio
+    async def test_options_env_includes_autocompact_override(self, tmp_path, monkeypatch):
+        """ClaudeAgentOptions receives the lowered auto-compact threshold."""
+        from reverse_api.utils import AUTOCOMPACT_PCT, AUTOCOMPACT_WINDOW
+
+        monkeypatch.delenv("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", raising=False)
+        monkeypatch.delenv("CLAUDE_CODE_AUTO_COMPACT_WINDOW", raising=False)
+        eng = self._make_engineer(tmp_path)
+
+        mock_client = AsyncMock()
+
+        async def empty_receive():
+            return
+            yield
+
+        mock_client.receive_response = empty_receive
+
+        with patch("reverse_api.engineer.ClaudeAgentOptions") as mock_options:
+            with patch("reverse_api.engineer.ClaudeSDKClient") as mock_sdk:
+                mock_sdk.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+                mock_sdk.return_value.__aexit__ = AsyncMock(return_value=False)
+
+                await eng.analyze_and_generate()
+
+        env = mock_options.call_args.kwargs["env"]
+        assert env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] == AUTOCOMPACT_PCT
+        assert env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == AUTOCOMPACT_WINDOW
+        assert env["CLAUDECODE"] == ""

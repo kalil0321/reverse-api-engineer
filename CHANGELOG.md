@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Ollama setup**: OpenCode mode can discover tool-capable Ollama models, start an installed daemon, and inject provider configuration without modifying the user's `opencode.json`.
 
 ### Fixed
+- **"Prompt is too long" session deadlock** (#93): Claude SDK sessions now run with proactive auto-compaction configured per the Claude Code docs — `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (capped by the CLI to the model's real context window) plus `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=85` — leaving enough headroom that a max-size HAR read landing near the threshold no longer jumps straight past the hard context limit. Both variables are respected if the user sets them explicitly. When the window is exhausted anyway, the error is now explained (progress is saved on disk; start a new run for the same target to continue) and the follow-up prompt is no longer offered on the dead session, where every further message would fail with the same error.
 - **OpenCode permissions**: Permission V2 events now reply through OpenCode's current, non-deprecated permission endpoint while retaining compatibility with older servers.
 - **OpenCode errors**: Known authentication, model configuration, and temporary provider-availability failures now produce one actionable message without the unexpected-error issue prompt.
 - **OpenCode TUI prompt echo**: Streamed text is now restricted to assistant message IDs, preventing RAE's internal browser and reverse-engineering instructions from appearing as model output.
