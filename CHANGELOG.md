@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`run`/`list` now work for every output language**: `discover_scripts()` previously only found `.py` files, so `reverse-api-engineer run <run_id>` failed with "No Python scripts found" for JS/TS/Go/Java/C#/PHP/Ruby/C clients. Discovery now covers all supported extensions (excluding build dirs and the vendored cJSON sources), and the run command dispatches to the right toolchain per language (compile+execute for C), with a clear error when the required tool isn't on PATH.
+- **Windows-safe run-command quoting**: the Java/C#/PHP/Ruby/C run commands quoted paths with POSIX-only `shlex.quote`, which cmd.exe/PowerShell parse incorrectly for paths containing spaces. Paths are now quoted per-platform (`subprocess.list2cmdline` on Windows).
+
 ### Added
 - **Go output language**: `output_language: "go"` is now supported alongside python/javascript/typescript, generating a standard-library-first (`net/http`, `encoding/json`) Go program, with the same auth-hardcoding/refresh and bot-detection-fallback guidance as the other languages.
 - **Java output language**: `output_language: "java"` is now supported alongside python/javascript/typescript, generating a small Maven project using `java.net.http.HttpClient` (JDK 11+, no HTTP library dependency) and Gson for JSON, with the same auth-hardcoding/refresh guidance as the other languages.

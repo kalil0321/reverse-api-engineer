@@ -251,6 +251,44 @@ class TestDiscoverScripts:
         with pytest.raises(ValueError, match="too long"):
             discover_scripts("a" * 65)
 
+    def test_finds_all_language_extensions(self, scripts_dir_empty, tmp_path):
+        for name in [
+            "api_client.py", "api_client.js", "api_client.ts", "api_client.go",
+            "api_client.java", "api_client.cs", "api_client.php",
+            "api_client.rb", "api_client.c",
+        ]:
+            (scripts_dir_empty / name).write_text("")
+        with patch("reverse_api.utils.get_base_output_dir", return_value=tmp_path):
+            scripts = discover_scripts("abc123def456")
+        assert len(scripts) == 9
+
+    def test_excludes_vendored_cjson(self, scripts_dir_empty, tmp_path):
+        (scripts_dir_empty / "api_client.c").write_text("")
+        (scripts_dir_empty / "cJSON.c").write_text("")
+        (scripts_dir_empty / "cJSON.h").write_text("")
+        with patch("reverse_api.utils.get_base_output_dir", return_value=tmp_path):
+            scripts = discover_scripts("abc123def456")
+        assert [s.name for s in scripts] == ["api_client.c"]
+
+    def test_excludes_build_dirs(self, scripts_dir_empty, tmp_path):
+        (scripts_dir_empty / "api_client.cs").write_text("")
+        for d in ["node_modules", "bin", "obj", "target"]:
+            sub = scripts_dir_empty / d
+            sub.mkdir()
+            (sub / "generated.cs").write_text("")
+        with patch("reverse_api.utils.get_base_output_dir", return_value=tmp_path):
+            scripts = discover_scripts("abc123def456")
+        assert [s.name for s in scripts] == ["api_client.cs"]
+
+    def test_excludes_non_script_support_files(self, scripts_dir_empty, tmp_path):
+        (scripts_dir_empty / "api_client.java").write_text("")
+        (scripts_dir_empty / "pom.xml").write_text("")
+        (scripts_dir_empty / "go.mod").write_text("")
+        (scripts_dir_empty / "ApiClient.csproj").write_text("")
+        with patch("reverse_api.utils.get_base_output_dir", return_value=tmp_path):
+            scripts = discover_scripts("abc123def456")
+        assert [s.name for s in scripts] == ["api_client.java"]
+
 
 class TestDiscoverScriptsRunMetadata:
     """Test discover_scripts with run_metadata (stored path) fallback."""
@@ -361,7 +399,7 @@ class TestRunCommandLs:
         from reverse_api.cli import main
         result = cli_runner.invoke(main, ["run", "111222333444", "--ls"])
         assert result.exit_code == 1
-        assert "No Python scripts" in result.output
+        assert "No runnable scripts" in result.output
 
     def test_ls_with_fuzzy_name(self, cli_runner, mock_cli_env):
         from reverse_api.cli import main
@@ -461,7 +499,7 @@ class TestRunCommandNoScripts:
         from reverse_api.cli import main
         result = cli_runner.invoke(main, ["run", "111222333444"])
         assert result.exit_code == 1
-        assert "No Python scripts" in result.output
+        assert "No runnable scripts" in result.output
 
     def test_no_scripts_shows_prompt_preview(self, cli_runner, mock_cli_env):
         from reverse_api.cli import main
@@ -684,3 +722,88 @@ class TestExtractMissingModule:
         from reverse_api.cli import _extract_missing_module
         stderr = "ModuleNotFoundError: No module named 'requests\n'"
         assert _extract_missing_module(stderr) is None
+
+
+# ---------------------------------------------------------------------------
+# build_script_commands tests
+# ---------------------------------------------------------------------------
+
+class TestBuildScriptCommands:
+    """Test per-language command dispatch for the run subcommand."""
+
+    def test_javascript(self, tmp_path):
+        from reverse_api.utils import build_script_commands
+        script = tmp_path / "api_client.js"
+        steps, tool = build_script_commands(script)
+        assert steps == [["node", str(script)]]
+        assert tool == "node"
+
+    def test_typescript(self, tmp_path):
+        from reverse_api.utils import build_script_commands
+        script = tmp_path / "api_client.ts"
+        steps, tool = build_script_commands(script, ("--flag",))
+        assert steps == [["npx", "tsx", str(script), "--flag"]]
+        assert tool == "npx"
+
+    def test_go(self, tmp_path):
+        from reverse_api.utils import build_script_commands
+        script = tmp_path / "api_client.go"
+        steps, tool = build_script_commands(script)
+        assert steps == [["go", "run", str(script)]]
+        assert tool == "go"
+
+    def test_java(self, tmp_path):
+        from reverse_api.utils import build_script_commands
+        script = tmp_path / "api_client.java"
+        steps, tool = build_script_commands(script)
+        assert steps == [["mvn", "-q", "-f", str(tmp_path / "pom.xml"), "compile", "exec:exec"]]
+        assert tool == "mvn"
+
+    def test_java_rejects_script_args(self, tmp_path):
+        from reverse_api.utils import build_script_commands
+        with pytest.raises(ValueError, match="not supported for Java"):
+            build_script_commands(tmp_path / "api_client.java", ("--x",))
+
+    def test_csharp_passes_args_after_separator(self, tmp_path):
+        from reverse_api.utils import build_script_commands
+        script = tmp_path / "api_client.cs"
+        steps, tool = build_script_commands(script, ("--x",))
+        assert steps == [["dotnet", "run", "--project", str(tmp_path / "ApiClient.csproj"), "--", "--x"]]
+        assert tool == "dotnet"
+
+    def test_php(self, tmp_path):
+        from reverse_api.utils import build_script_commands
+        script = tmp_path / "api_client.php"
+        steps, tool = build_script_commands(script)
+        assert steps == [["php", str(script)]]
+        assert tool == "php"
+
+    def test_ruby(self, tmp_path):
+        from reverse_api.utils import build_script_commands
+        script = tmp_path / "api_client.rb"
+        steps, tool = build_script_commands(script)
+        assert steps == [["ruby", str(script)]]
+        assert tool == "ruby"
+
+    def test_c_compiles_then_runs_with_vendored_cjson(self, tmp_path):
+        from reverse_api.utils import build_script_commands
+        script = tmp_path / "api_client.c"
+        (tmp_path / "cJSON.c").write_text("")
+        steps, tool = build_script_commands(script, ("--x",))
+        binary = str(tmp_path / "api_client")
+        assert steps == [
+            ["cc", str(script), str(tmp_path / "cJSON.c"), "-lcurl", "-o", binary],
+            [binary, "--x"],
+        ]
+        assert tool == "cc"
+
+    def test_c_without_cjson(self, tmp_path):
+        from reverse_api.utils import build_script_commands
+        script = tmp_path / "api_client.c"
+        steps, _ = build_script_commands(script)
+        assert steps[0] == ["cc", str(script), "-lcurl", "-o", str(tmp_path / "api_client")]
+
+    def test_unsupported_extension_raises(self, tmp_path):
+        from reverse_api.utils import build_script_commands
+        with pytest.raises(ValueError, match="unsupported script type"):
+            build_script_commands(tmp_path / "api_client.xyz")

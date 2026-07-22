@@ -8,6 +8,7 @@
 - Reuse one `CURL` handle across requests rather than creating a new one per call
 - Create a separate function for each distinct API endpoint, with a small struct for its response shape
 - Check every `libcurl`/allocation return value; don't ignore errors
+- Keep the code warning-clean under `-Wall -Wextra` — no unused parameters or variables
 - Include a `main` function with example usage
 
 **Authentication & credentials:**
