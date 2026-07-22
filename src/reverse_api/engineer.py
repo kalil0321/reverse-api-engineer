@@ -232,7 +232,7 @@ def run_reverse_engineering(
         cursor_setting_sources: Optional explicit list (overrides cursor_web_search), e.g. ["project","user","all"].
         enable_sync: Enable real-time file syncing during engineering
         is_fresh: Whether to start fresh (ignore previous scripts)
-        output_language: Target language - "python", "javascript", "typescript", "go", "java", "csharp", "php", or "ruby"
+        output_language: Target language - "python", "javascript", "typescript", "go", "java", "csharp", "php", "ruby", or "c"
         output_mode: Output mode - "client" for API client code, "docs" for OpenAPI specification
     """
     if sdk == "opencode":

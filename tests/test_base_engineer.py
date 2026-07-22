@@ -214,6 +214,10 @@ class TestBaseEngineerHelpers:
         """Ruby extension."""
         eng = self._make_engineer(tmp_path, output_language="ruby")
         assert eng._get_output_extension() == ".rb"
+    def test_get_output_extension_c(self, tmp_path):
+        """C extension."""
+        eng = self._make_engineer(tmp_path, output_language="c")
+        assert eng._get_output_extension() == ".c"
 
     def test_get_output_extension_unknown(self, tmp_path):
         """Unknown language defaults to .py."""
@@ -378,6 +382,50 @@ class TestBaseEngineerHelpers:
         script_arg = tokens[1]
         assert Path(script_arg).is_absolute()
         assert script_arg == str(eng.scripts_dir.resolve() / "api_client.rb")
+    def test_get_run_command_c(self, tmp_path):
+        """Run command for C compiles and runs as one step, using full,
+        resolved, shell-quoted paths throughout — the agent's cwd is
+        scripts_dir.parent.parent (see analyze_and_generate), not
+        scripts_dir where the source, vendored cJSON, and compiled binary
+        all actually live."""
+        eng = self._make_engineer(tmp_path, output_language="c")
+        resolved = eng.scripts_dir.resolve()
+        source = shlex.quote(str(resolved / "api_client.c"))
+        cjson = shlex.quote(str(resolved / "cJSON.c"))
+        binary = shlex.quote(str(resolved / "api_client"))
+        expected = f"cc {source} {cjson} -lcurl -o {binary} && {binary}"
+        assert eng._get_run_command() == expected
+
+    def test_get_run_command_c_quotes_metacharacters(self, tmp_path):
+        """A scripts_dir containing shell metacharacters must round-trip
+        back to the literal path for all three paths (source, cJSON,
+        binary), not be left open to $()/backtick expansion — what the
+        naive f'"{path}"' approach got wrong."""
+        eng = self._make_engineer(tmp_path, output_language="c")
+        eng.scripts_dir = Path("/tmp/weird$(rm -rf ~) dir")
+        resolved = eng.scripts_dir.resolve()
+        tokens = shlex.split(eng._get_run_command())
+        assert tokens[:2] == ["cc", str(resolved / "api_client.c")]
+        assert tokens[2] == str(resolved / "cJSON.c")
+        assert tokens[3:6] == ["-lcurl", "-o", str(resolved / "api_client")]
+        assert tokens[6] == "&&"
+        assert tokens[7] == str(resolved / "api_client")
+
+    def test_get_run_command_c_resolves_relative_output_dir(self, tmp_path):
+        """A relative scripts_dir must be resolved to an absolute path for
+        all three paths (source, cJSON, binary) before being embedded in
+        the command — otherwise, once the agent's cwd moves to
+        scripts_dir.parent.parent, the same relative string gets
+        re-interpreted from there and points at the wrong, doubly-nested
+        location."""
+        eng = self._make_engineer(tmp_path, output_language="c")
+        eng.scripts_dir = Path("relative_output/scripts/run123")
+        resolved = eng.scripts_dir.resolve()
+        tokens = shlex.split(eng._get_run_command())
+        assert Path(tokens[1]).is_absolute()
+        assert tokens[1] == str(resolved / "api_client.c")
+        assert tokens[2] == str(resolved / "cJSON.c")
+        assert tokens[5] == str(resolved / "api_client")
 
     def test_get_run_command_unknown(self, tmp_path):
         """Unknown language defaults to Python command."""
@@ -454,6 +502,12 @@ class TestBaseEngineerBuildPrompt:
         system_prompt, user_message = eng._build_prompts()
         assert "Ruby script" in system_prompt
         assert "net/http" in system_prompt
+    def test_c_prompt(self, tmp_path):
+        """C prompt includes C-specific instructions."""
+        eng = self._make_engineer(tmp_path, output_language="c")
+        system_prompt, user_message = eng._build_prompts()
+        assert "C program" in system_prompt
+        assert "libcurl" in system_prompt
 
     def test_docs_prompt(self, tmp_path):
         """Docs mode prompt includes OpenAPI instructions."""

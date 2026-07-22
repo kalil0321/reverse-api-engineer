@@ -39,6 +39,7 @@ class BaseEngineer(ABC):
         "csharp": ".cs",
         "php": ".php",
         "ruby": ".rb",
+        "c": ".c",
     }
 
     def __init__(
@@ -450,6 +451,7 @@ class BaseEngineer(ABC):
             "csharp": "C#",
             "php": "PHP",
             "ruby": "Ruby",
+            "c": "C",
         }.get(self.output_language, "Python")
 
     def _get_existing_client_guidance(self) -> str:
@@ -546,6 +548,24 @@ class BaseEngineer(ABC):
             # pointing this command at the wrong, doubly-nested location.
             path = shlex.quote(str(self.scripts_dir.resolve() / self._get_client_filename()))
             return f"ruby {path}"
+        if self.output_language == "c":
+            # Unlike every other language here, C needs an explicit compile
+            # step before it can run at all — one shell command chains
+            # both. Full paths throughout, not bare relative filenames: the
+            # agent's cwd for the whole session is scripts_dir.parent.parent
+            # (see analyze_and_generate's ClaudeAgentOptions), not
+            # scripts_dir where the source/output actually live.
+            # shlex.quote (not manual double-quoting) so shell metacharacters
+            # in any of these three paths can't be interpreted as command
+            # substitution. .resolve(): a relative --output-dir would
+            # otherwise be re-interpreted against the agent's cwd (scripts_
+            # dir.parent.parent) instead of the original cwd it was relative
+            # to, pointing all three at the wrong, doubly-nested location.
+            resolved = self.scripts_dir.resolve()
+            source = shlex.quote(str(resolved / self._get_client_filename()))
+            cjson = shlex.quote(str(resolved / "cJSON.c"))
+            binary = shlex.quote(str(resolved / "api_client"))
+            return f"cc {source} {cjson} -lcurl -o {binary} && {binary}"
         return {
             "python": "python api_client.py",
             "javascript": "node api_client.js",
@@ -669,6 +689,11 @@ class BaseEngineer(ABC):
             return base + f"\n3. `{self.scripts_dir}/pom.xml` - Maven project file (Gson dependency, exec-maven-plugin)"
         elif self.output_language == "csharp":
             return base + f"\n3. `{self.scripts_dir}/ApiClient.csproj` - .NET project file"
+        elif self.output_language == "c":
+            return base + (
+                f"\n3. `{self.scripts_dir}/cJSON.c` and `{self.scripts_dir}/cJSON.h` - "
+                "Vendored JSON library"
+            )
         return base
 
     @abstractmethod

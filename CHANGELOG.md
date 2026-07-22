@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **C# output language**: `output_language: "csharp"` is now supported alongside python/javascript/typescript, generating a minimal .NET project using `System.Net.Http.HttpClient` and `System.Text.Json` (both part of the .NET 5+ base class library — no NuGet dependency needed), with the same auth-hardcoding/refresh guidance as the other languages.
 - **PHP output language**: `output_language: "php"` is now supported alongside python/javascript/typescript, generating a script using the `curl` and `json_encode`/`json_decode` core extensions (`ext-curl`, `ext-json` — no Composer dependency needed), with the same auth-hardcoding/refresh guidance as the other languages.
 - **Ruby output language**: `output_language: "ruby"` is now supported alongside python/javascript/typescript, generating a script using `net/http` and `json` (both part of Ruby's standard library — no gem/Bundler dependency needed), with the same auth-hardcoding/refresh guidance as the other languages.
+- **C output language**: `output_language: "c"` is now supported alongside python/javascript/typescript, generating a program using `libcurl` for HTTP and a vendored `cJSON` for JSON (C has neither in its standard library), compiled and run as a single `{run_command}` step, with the same auth-hardcoding/refresh guidance as the other languages.
 
 ## [0.10.0] - 2026-06-01
 
