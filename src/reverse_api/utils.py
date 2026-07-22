@@ -11,6 +11,23 @@ import httpx
 
 from . import __version__
 
+# One entry per supported output language. BaseEngineer's extension map is
+# built from this, and discover_scripts()/build_script_commands() key off the
+# extensions, so adding a language here is the single required registration.
+OUTPUT_LANGUAGE_EXTENSIONS = {
+    "python": ".py",
+    "javascript": ".js",
+    "typescript": ".ts",
+    "go": ".go",
+    "java": ".java",
+    "csharp": ".cs",
+    "php": ".php",
+    "ruby": ".rb",
+    "c": ".c",
+}
+
+SCRIPT_EXTENSIONS = frozenset(OUTPUT_LANGUAGE_EXTENSIONS.values())
+
 
 def check_for_updates() -> str | None:
     """Check PyPI for newer version.
@@ -631,7 +648,7 @@ def resolve_run(identifier: str, session_manager, *, interactive: bool = True) -
 
 
 def discover_scripts(run_id: str, output_dir: str | None = None, run_metadata: dict | None = None) -> list[Path]:
-    """Find all executable Python scripts in a run's script directory.
+    """Find all runnable generated scripts in a run's script directory.
 
     Tries the stored script path from run metadata first, then falls back
     to the current output_dir config.
@@ -642,7 +659,9 @@ def discover_scripts(run_id: str, output_dir: str | None = None, run_metadata: d
         run_metadata: Optional run dict with paths.script_path to resolve from
 
     Returns:
-        Sorted list of .py file Paths (excludes __pycache__, .venv, __init__.py)
+        Sorted list of script Paths in any supported output language
+        (excludes build/venv directories and support files like __init__.py
+        and the vendored cJSON sources)
 
     Raises:
         ValueError: If run_id contains invalid characters
@@ -672,16 +691,81 @@ def discover_scripts(run_id: str, output_dir: str | None = None, run_metadata: d
     if not scripts_dir.exists():
         return []
 
-    exclude_dirs = {"__pycache__", ".venv"}
-    exclude_files = {"__init__.py"}
+    # Support files that share a script extension but are never the client
+    # itself: package markers and the vendored cJSON library (C output).
+    # Build/venv directories (__pycache__, .venv, node_modules, bin, obj,
+    # target) need no explicit filter: iterdir() doesn't recurse, and
+    # matching names in *parent* components (e.g. a custom output_dir under
+    # /tmp/target) must not exclude anything.
+    exclude_files = {"__init__.py", "cJSON.c", "cJSON.h"}
 
-    scripts = []
-    for f in scripts_dir.iterdir():
-        if f.is_file() and f.suffix == ".py" and f.name not in exclude_files:
-            scripts.append(f)
-    scripts = [s for s in scripts if not any(part in exclude_dirs for part in s.parts)]
+    scripts = [
+        f
+        for f in scripts_dir.iterdir()
+        if f.is_file() and f.suffix in SCRIPT_EXTENSIONS and f.name not in exclude_files
+    ]
 
     return sorted(scripts, key=lambda p: p.name)
+
+
+def build_script_commands(script: Path, script_args: tuple[str, ...] = ()) -> tuple[list[list[str]], str]:
+    """Build the subprocess command(s) that run a non-Python generated client.
+
+    Python clients are executed by the caller's shared-venv flow and are not
+    handled here. Commands use absolute paths so they work from any cwd; run
+    them with cwd=script.parent so relative artifacts (cookie jars, build
+    output) land next to the script.
+
+    Args:
+        script: Path to the client script (any supported non-.py extension)
+        script_args: Extra arguments to pass through to the client
+
+    Returns:
+        (steps, tool): ordered argv lists to run (C compiles then executes,
+        everything else is a single step) and the executable that must be on
+        PATH for them to work.
+
+    Raises:
+        ValueError: For unsupported extensions, or script_args with a Java
+            client (mvn exec's program arguments are fixed in the pom).
+    """
+    # Resolve before building argv: callers run these with cwd=script.parent,
+    # and a relative script path (from a relative output_dir) would otherwise
+    # be re-resolved by the child against that new cwd and fail to start.
+    script = script.resolve()
+    d = script.parent
+    suffix = script.suffix
+    if suffix == ".js":
+        return [["node", str(script), *script_args]], "node"
+    if suffix == ".ts":
+        return [["npx", "tsx", str(script), *script_args]], "npx"
+    if suffix == ".go":
+        return [["go", "run", str(script), *script_args]], "go"
+    if suffix == ".java":
+        if script_args:
+            raise ValueError(
+                "script arguments are not supported for Java clients: "
+                "mvn exec:exec's program arguments are fixed in the pom.xml"
+            )
+        return [["mvn", "-q", "-f", str(d / "pom.xml"), "compile", "exec:exec"]], "mvn"
+    if suffix == ".cs":
+        cmd = ["dotnet", "run", "--project", str(d / "ApiClient.csproj")]
+        if script_args:
+            cmd += ["--", *script_args]
+        return [cmd], "dotnet"
+    if suffix == ".php":
+        return [["php", str(script), *script_args]], "php"
+    if suffix == ".rb":
+        return [["ruby", str(script), *script_args]], "ruby"
+    if suffix == ".c":
+        binary = d / script.stem
+        compile_cmd = ["cc", str(script)]
+        cjson = d / "cJSON.c"
+        if cjson.exists():
+            compile_cmd.append(str(cjson))
+        compile_cmd += ["-lcurl", "-o", str(binary)]
+        return [compile_cmd, [str(binary), *script_args]], "cc"
+    raise ValueError(f"unsupported script type: {script.name}")
 
 
 def extract_domain_from_har(har_path: Path) -> str | None:

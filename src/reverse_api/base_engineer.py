@@ -3,6 +3,8 @@
 import asyncio
 import os
 import shlex
+import subprocess
+import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -13,7 +15,13 @@ from .messages import MessageStore
 from .session import SessionManager
 from .sync import FileSyncWatcher, get_available_directory
 from .tui import THEME_PRIMARY, THEME_SECONDARY, ClaudeUI
-from .utils import generate_folder_name, get_docs_dir, get_history_path, get_scripts_dir
+from .utils import (
+    OUTPUT_LANGUAGE_EXTENSIONS,
+    generate_folder_name,
+    get_docs_dir,
+    get_history_path,
+    get_scripts_dir,
+)
 
 DEBUG = os.environ.get("DEBUG", "0") == "1"
 
@@ -30,17 +38,9 @@ NON_INTERACTIVE_ASK_USER_MESSAGE = (
 class BaseEngineer(ABC):
     """Abstract base class for API reverse engineering implementations."""
 
-    _OUTPUT_LANGUAGE_EXTENSIONS = {
-        "python": ".py",
-        "javascript": ".js",
-        "typescript": ".ts",
-        "go": ".go",
-        "java": ".java",
-        "csharp": ".cs",
-        "php": ".php",
-        "ruby": ".rb",
-        "c": ".c",
-    }
+    # Single source of truth lives in utils.OUTPUT_LANGUAGE_EXTENSIONS so
+    # script discovery and the run command dispatch stay in sync with codegen.
+    _OUTPUT_LANGUAGE_EXTENSIONS = OUTPUT_LANGUAGE_EXTENSIONS
 
     def __init__(
         self,
@@ -474,6 +474,23 @@ class BaseEngineer(ABC):
             return "openapi.json"
         return f"api_client{self._get_output_extension()}"
 
+    @staticmethod
+    def _quote_path(path) -> str:
+        """Shell-quote a path for the platform's default shell.
+
+        shlex.quote is POSIX-only: cmd.exe/PowerShell pass its single quotes
+        through literally, so a spaced Windows path would break apart.
+        list2cmdline applies the double-quoting rules cmd.exe/CreateProcess
+        parse. Known boundary: PowerShell still expands `$` and backtick
+        inside double quotes, and no quoting satisfies cmd.exe and PowerShell
+        simultaneously for such paths — cmd-safe is the chosen baseline, and
+        paths whose components contain `$`/backtick are not supported on
+        Windows.
+        """
+        if sys.platform == "win32":
+            return subprocess.list2cmdline([str(path)])
+        return shlex.quote(str(path))
+
     def _get_run_command(self) -> str:
         """Return the command to run the generated client."""
         if self.output_language == "java":
@@ -495,7 +512,7 @@ class BaseEngineer(ABC):
             # exec:java invokes main() reflectively in-process, which fails
             # on the package-private ApiClient class the Java partial
             # requires ("symbolic reference class is not accessible").
-            pom = shlex.quote(str(self.scripts_dir.resolve() / "pom.xml"))
+            pom = self._quote_path(str(self.scripts_dir.resolve() / "pom.xml"))
             return f"mvn -q -f {pom} compile exec:exec"
         if self.output_language == "csharp":
             # Unlike python/node/npx (which happily take a plain relative
@@ -512,7 +529,7 @@ class BaseEngineer(ABC):
             # re-interpreted against the agent's cwd (scripts_dir.parent.
             # parent) instead of the original cwd it was relative to,
             # pointing --project at the wrong, doubly-nested location.
-            csproj = shlex.quote(str(self.scripts_dir.resolve() / "ApiClient.csproj"))
+            csproj = self._quote_path(str(self.scripts_dir.resolve() / "ApiClient.csproj"))
             return f"dotnet run --project {csproj}"
         if self.output_language == "php":
             # Full path, not a bare relative "php api_client.php": the
@@ -532,7 +549,7 @@ class BaseEngineer(ABC):
             # re-interpreted against the agent's cwd (scripts_dir.parent.
             # parent) instead of the original cwd it was relative to,
             # pointing this command at the wrong, doubly-nested location.
-            path = shlex.quote(str(self.scripts_dir.resolve() / self._get_client_filename()))
+            path = self._quote_path(str(self.scripts_dir.resolve() / self._get_client_filename()))
             return f"php {path}"
         if self.output_language == "ruby":
             # Full path, not a bare relative "ruby api_client.rb": the
@@ -546,7 +563,7 @@ class BaseEngineer(ABC):
             # re-interpreted against the agent's cwd (scripts_dir.parent.
             # parent) instead of the original cwd it was relative to,
             # pointing this command at the wrong, doubly-nested location.
-            path = shlex.quote(str(self.scripts_dir.resolve() / self._get_client_filename()))
+            path = self._quote_path(str(self.scripts_dir.resolve() / self._get_client_filename()))
             return f"ruby {path}"
         if self.output_language == "c":
             # Unlike every other language here, C needs an explicit compile
@@ -562,9 +579,9 @@ class BaseEngineer(ABC):
             # dir.parent.parent) instead of the original cwd it was relative
             # to, pointing all three at the wrong, doubly-nested location.
             resolved = self.scripts_dir.resolve()
-            source = shlex.quote(str(resolved / self._get_client_filename()))
-            cjson = shlex.quote(str(resolved / "cJSON.c"))
-            binary = shlex.quote(str(resolved / "api_client"))
+            source = self._quote_path(str(resolved / self._get_client_filename()))
+            cjson = self._quote_path(str(resolved / "cJSON.c"))
+            binary = self._quote_path(str(resolved / "api_client"))
             return f"cc {source} {cjson} -lcurl -o {binary} && {binary}"
         return {
             "python": "python api_client.py",

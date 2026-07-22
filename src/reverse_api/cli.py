@@ -2663,6 +2663,27 @@ def _extract_missing_module(stderr: str) -> str | None:
     return missing
 
 
+def _run_non_python_script(script, script_args) -> None:
+    """Run a non-Python generated client with its language's toolchain and exit."""
+    import shutil
+    import subprocess
+
+    from .utils import build_script_commands
+
+    try:
+        steps, tool = build_script_commands(script, script_args)
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
+    if shutil.which(tool) is None:
+        raise click.ClickException(f"cannot run {script.name}: '{tool}' is missing from PATH — install it and retry")
+    returncode = 0
+    for cmd in steps:
+        returncode = subprocess.run(cmd, cwd=str(script.parent)).returncode
+        if returncode != 0:
+            break
+    raise SystemExit(returncode)
+
+
 def _run_script_machine_payload(
     *,
     identifier: str,
@@ -2691,7 +2712,7 @@ def _run_script_machine_payload(
                 identifier=identifier,
                 run_id=run_id,
                 scripts=scripts,
-                error=f"No Python scripts found for run {run_id}",
+                error=f"No runnable scripts found for run {run_id}",
                 error_kind_hint="engine_failure",
             )
 
@@ -2728,6 +2749,50 @@ def _run_script_machine_payload(
             )
 
         emit_event("script_selected", run_id=run_id, script_path=str(script))
+
+        if script.suffix != ".py":
+            import shutil
+
+            from .utils import build_script_commands
+
+            try:
+                steps, tool = build_script_commands(script, script_args)
+            except ValueError as e:
+                return _build_run_payload(
+                    identifier=identifier,
+                    run_id=run_id,
+                    script_path=str(script),
+                    script_args=script_args,
+                    scripts=scripts,
+                    error=str(e),
+                    error_kind_hint="misuse",
+                )
+            if shutil.which(tool) is None:
+                return _build_run_payload(
+                    identifier=identifier,
+                    run_id=run_id,
+                    script_path=str(script),
+                    script_args=script_args,
+                    scripts=scripts,
+                    error=f"cannot run {script.name}: '{tool}' is missing from PATH — install it and retry",
+                    error_kind_hint="config_invalid",
+                )
+            result = None
+            for cmd in steps:
+                emit_event("process_started", run_id=run_id, script_path=str(script))
+                result = subprocess.run(cmd, cwd=str(script.parent), capture_output=True, text=True)
+                if result.returncode != 0:
+                    break
+            return _build_run_payload(
+                identifier=identifier,
+                run_id=run_id,
+                script_path=str(script),
+                script_args=script_args,
+                returncode=result.returncode,
+                stdout=result.stdout or "",
+                stderr=result.stderr or "",
+                scripts=scripts,
+            )
 
         from .utils import get_base_output_dir as _get_base
 
@@ -2930,7 +2995,7 @@ def run_script(ctx, identifier, script_args, file_name, list_scripts, no_interac
         console.print(f"{scripts[0].parent}", style="dim")
 
     if not scripts:
-        console.print(f"[red]No Python scripts found for run {run_id}[/red]")
+        console.print(f"[red]No runnable scripts found for run {run_id}[/red]")
         raise SystemExit(1)
 
     # --ls: just list and exit
@@ -2973,6 +3038,10 @@ def run_script(ctx, identifier, script_args, file_name, list_scripts, no_interac
         ).ask()
         if script is None:
             raise click.Abort()
+
+    # Non-Python clients: dispatch on extension, no venv involved
+    if script.suffix != ".py":
+        _run_non_python_script(script, script_args)
 
     # Shared venv at ~/.reverse-api/runs/.venv (with requests pre-installed)
     from .utils import get_base_output_dir as _get_base
