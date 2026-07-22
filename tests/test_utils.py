@@ -798,3 +798,56 @@ class TestPathValidationExceptions:
             with patch.object(Path, "resolve", side_effect=RuntimeError("symlink loop")):
                 with pytest.raises(ValueError, match="Invalid path"):
                     get_har_dir("valid_id")
+
+
+class TestBuildSdkEnv:
+    """Test SDK subprocess environment construction."""
+
+    def test_default_sets_autocompact_override(self, monkeypatch):
+        """A lowered auto-compact threshold is applied by default."""
+        from reverse_api.utils import AUTOCOMPACT_PCT, build_sdk_env
+
+        monkeypatch.delenv("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", raising=False)
+        env = build_sdk_env()
+        assert env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] == AUTOCOMPACT_PCT
+        assert env["CLAUDECODE"] == ""
+
+    def test_user_override_wins(self, monkeypatch):
+        """An explicit user CLAUDE_AUTOCOMPACT_PCT_OVERRIDE is not clobbered."""
+        from reverse_api.utils import build_sdk_env
+
+        monkeypatch.setenv("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "60")
+        env = build_sdk_env()
+        # The SDK merges our dict on top of os.environ, so omitting the key
+        # leaves the user's value in effect.
+        assert "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" not in env
+        assert env["CLAUDECODE"] == ""
+
+
+class TestIsContextOverflowError:
+    """Test context-window overflow error detection."""
+
+    def test_prompt_too_long(self):
+        from reverse_api.utils import is_context_overflow_error
+
+        assert is_context_overflow_error("API Error: 400 Prompt is too long")
+
+    def test_conversation_too_long(self):
+        from reverse_api.utils import is_context_overflow_error
+
+        assert is_context_overflow_error(
+            "Error during compaction: Error: Conversation too long."
+        )
+
+    def test_input_and_max_tokens_variant(self):
+        from reverse_api.utils import is_context_overflow_error
+
+        assert is_context_overflow_error(
+            "input length and max_tokens exceed context limit"
+        )
+
+    def test_unrelated_error(self):
+        from reverse_api.utils import is_context_overflow_error
+
+        assert not is_context_overflow_error("Unknown error")
+        assert not is_context_overflow_error("rate limit exceeded")

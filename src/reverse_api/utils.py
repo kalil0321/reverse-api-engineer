@@ -29,6 +29,48 @@ OUTPUT_LANGUAGE_EXTENSIONS = {
 
 SCRIPT_EXTENSIONS = frozenset(OUTPUT_LANGUAGE_EXTENSIONS.values())
 
+# Claude Code auto-compacts at 92% of the context window, which leaves less
+# headroom (~16k tokens on a 200k window) than a single max-size tool result
+# (Read caps at ~25k tokens). A large HAR read landing between the compact
+# check and the next API request can therefore jump straight past the hard
+# limit, after which every request — including the compaction request itself —
+# fails with "Prompt is too long" (github.com/kalil0321/reverse-api-engineer
+# issues/93). 85% keeps at least ~30k tokens of headroom.
+AUTOCOMPACT_PCT = "85"
+
+# Substrings (lowercase) identifying the API's context-window-exhausted
+# errors as surfaced through the CLI's result message.
+_CONTEXT_OVERFLOW_MARKERS = (
+    "prompt is too long",
+    "conversation too long",
+    "exceed context limit",
+)
+
+
+def build_sdk_env() -> dict[str, str]:
+    """Environment overrides for Claude Agent SDK subprocesses.
+
+    The SDK merges these on top of os.environ, so an explicit
+    CLAUDE_AUTOCOMPACT_PCT_OVERRIDE set by the user wins over our default.
+    CLAUDECODE is cleared so the CLI doesn't think it's nested inside
+    another Claude Code session.
+    """
+    env = {"CLAUDECODE": ""}
+    if not os.environ.get("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"):
+        env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] = AUTOCOMPACT_PCT
+    return env
+
+
+def is_context_overflow_error(message: str) -> bool:
+    """Return True if an SDK error message means the context window overflowed.
+
+    Once this happens the session is unrecoverable: the conversation itself
+    exceeds the model's context limit, so every subsequent request (including
+    auto-compaction) fails with the same error.
+    """
+    lowered = message.lower()
+    return any(marker in lowered for marker in _CONTEXT_OVERFLOW_MARKERS)
+
 
 def check_for_updates() -> str | None:
     """Check PyPI for newer version.
