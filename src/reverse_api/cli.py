@@ -2675,7 +2675,7 @@ def _run_non_python_script(script, script_args) -> None:
     except ValueError as e:
         raise click.ClickException(str(e)) from e
     if shutil.which(tool) is None:
-        raise click.ClickException(f"'{tool}' not found on PATH (required to run {script.name})")
+        raise click.ClickException(f"cannot run {script.name}: '{tool}' is missing from PATH — install it and retry")
     returncode = 0
     for cmd in steps:
         returncode = subprocess.run(cmd, cwd=str(script.parent)).returncode
@@ -2774,7 +2774,7 @@ def _run_script_machine_payload(
                     script_path=str(script),
                     script_args=script_args,
                     scripts=scripts,
-                    error=f"'{tool}' not found on PATH (required to run {script.name})",
+                    error=f"cannot run {script.name}: '{tool}' is missing from PATH — install it and retry",
                     error_kind_hint="config_invalid",
                 )
             result = None

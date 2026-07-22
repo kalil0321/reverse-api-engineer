@@ -807,3 +807,13 @@ class TestBuildScriptCommands:
         from reverse_api.utils import build_script_commands
         with pytest.raises(ValueError, match="unsupported script type"):
             build_script_commands(tmp_path / "api_client.xyz")
+
+    def test_paths_with_spaces_stay_intact_in_argv(self, tmp_path):
+        """argv lists are passed to subprocess without a shell, so spaced
+        paths must survive as single arguments — no quoting layer involved."""
+        from reverse_api.utils import build_script_commands
+        d = tmp_path / "my scripts"
+        d.mkdir()
+        script = d / "api_client.php"
+        steps, _ = build_script_commands(script)
+        assert steps == [["php", str(script)]]

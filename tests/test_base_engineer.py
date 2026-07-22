@@ -432,6 +432,24 @@ class TestBaseEngineerHelpers:
         eng = self._make_engineer(tmp_path, output_language="rust")
         assert eng._get_run_command() == "python api_client.py"
 
+    def test_quote_path_posix(self, monkeypatch):
+        """POSIX platforms use shlex.quote (single quotes for spaces)."""
+        from reverse_api import base_engineer as be
+
+        monkeypatch.setattr(be.sys, "platform", "linux")
+        from reverse_api.base_engineer import BaseEngineer
+
+        assert BaseEngineer._quote_path("/tmp/my dir/pom.xml") == "'/tmp/my dir/pom.xml'"
+
+    def test_quote_path_windows(self, monkeypatch):
+        """Windows uses list2cmdline double-quoting that cmd.exe/PowerShell parse."""
+        from reverse_api import base_engineer as be
+
+        monkeypatch.setattr(be.sys, "platform", "win32")
+        from reverse_api.base_engineer import BaseEngineer
+
+        assert BaseEngineer._quote_path(r"C:\Users\John Smith\pom.xml") == '"C:\\Users\\John Smith\\pom.xml"'
+
 
 class TestBaseEngineerBuildPrompt:
     """Test _build_analysis_prompt method."""
