@@ -143,6 +143,7 @@ def _select_opencode_pair_for_settings(mode_color=THEME_PRIMARY) -> tuple[str, s
         qmark="",
         style=style,
         use_search_filter=True,
+        use_jk_keys=False,
     ).ask()
     if provider_id is None or provider_id == "back":
         return None
@@ -180,6 +181,7 @@ def _select_opencode_pair_for_settings(mode_color=THEME_PRIMARY) -> tuple[str, s
         qmark="",
         style=style,
         use_search_filter=True,
+        use_jk_keys=False,
     ).ask()
     if model_id is None or model_id == "back":
         return None

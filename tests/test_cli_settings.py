@@ -63,7 +63,9 @@ def test_opencode_pair_picker_uses_live_tool_capable_catalog():
     model_choices = select.call_args_list[1].kwargs["choices"]
     assert [choice.value for choice in model_choices] == ["big-pickle", "back"]
     assert "free" in model_choices[0].title
+    assert select.call_args_list[0].kwargs["use_jk_keys"] is False
     assert select.call_args_list[1].kwargs["use_search_filter"] is True
+    assert select.call_args_list[1].kwargs["use_jk_keys"] is False
 
 
 def test_opencode_pair_is_saved_atomically():
