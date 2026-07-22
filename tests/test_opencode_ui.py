@@ -56,6 +56,30 @@ class TestOpenCodeUI:
         output = console.file.getvalue()
         assert "1.2.3" in output
 
+    def test_server_started(self):
+        """Managed server startup shows package and address."""
+        ui, console = self._make_ui()
+        ui.server_started("opencode-ai@latest", "http://127.0.0.1:4096")
+        output = console.file.getvalue()
+        assert "opencode-ai@latest" in output
+        assert "127.0.0.1:4096" in output
+
+    def test_compatibility_warning(self):
+        """Compatibility warning is visible and concise."""
+        ui, console = self._make_ui()
+        ui.compatibility_warning("OpenCode is older than the tested version.")
+        output = console.file.getvalue()
+        assert "warning:" in output
+        assert "older than the tested version" in output
+
+    def test_ollama_ready(self):
+        """Ollama status shows whether RAE started or reused the daemon."""
+        ui, console = self._make_ui()
+        ui.ollama_ready("qwen3:4b", started=True)
+        output = console.file.getvalue()
+        assert "started" in output
+        assert "qwen3:4b" in output
+
     def test_session_created(self):
         """Session created shows truncated ID."""
         ui, console = self._make_ui()
@@ -218,6 +242,30 @@ class TestOpenCodeUI:
         output = console.file.getvalue()
         assert "error" in output
         assert "Something went wrong" in output
+        assert "unexpected error" in output.lower()
+
+    def test_expected_provider_error_omits_issue_cta(self):
+        """Known provider availability errors should not ask for an issue report."""
+        ui, console = self._make_ui()
+        ui.error(
+            "OpenCode has no serving provider available for this model right now. "
+            "Try another free model or retry later."
+        )
+        output = console.file.getvalue()
+        assert "no serving provider available" in output
+        assert "unexpected error" not in output.lower()
+
+    def test_permission_failure_omits_issue_cta(self):
+        """A rejected OpenCode permission reply is an expected runtime failure."""
+        ui, console = self._make_ui()
+        ui.error("Permission approval failed for write: OpenCode returned HTTP 403.")
+        assert "unexpected error" not in console.file.getvalue().lower()
+
+    def test_explicit_expected_error_omits_issue_cta(self):
+        """Callers can explicitly classify an error as expected."""
+        ui, console = self._make_ui()
+        ui.error("Authentication failed", unexpected=False)
+        assert "unexpected error" not in console.file.getvalue().lower()
 
     def test_error_rich_markup(self):
         """Error with Rich markup passes through."""

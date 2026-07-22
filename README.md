@@ -87,8 +87,13 @@ Settings live in `~/.reverse-api/config.json` and can be edited via `/settings` 
   "agent_browser_notes": "",
   "claude_code_model": "claude-sonnet-4-6",
   "collector_model": "claude-sonnet-4-6",
-  "opencode_model": "claude-sonnet-4-6",
-  "opencode_provider": "anthropic",
+  "ollama_auto_start": true,
+  "ollama_base_url": "http://127.0.0.1:11434",
+  "opencode_auto_start": true,
+  "opencode_base_url": "http://127.0.0.1:4096",
+  "opencode_model": "big-pickle",
+  "opencode_npx_package": "opencode-ai@latest",
+  "opencode_provider": "opencode",
   "copilot_model": "gpt-5",
   "cursor_model": "composer-2.5",
   "output_dir": null,
@@ -100,6 +105,8 @@ Settings live in `~/.reverse-api/config.json` and can be edited via `/settings` 
 
 - **Models**: Sonnet 4.6 (default), Opus 4.6 (most capable), Haiku 4.5 (fastest). For OpenCode see [models.dev](https://models.dev).
 - **SDK**: `claude` (default), `opencode`, `cursor`, or `copilot` (GitHub Copilot).
+- **OpenCode setup**: with `sdk: "opencode"`, RAE reuses an existing server or downloads/starts `opencode-ai@latest` through `npx`; a global OpenCode installation is not required. Fresh configurations default to the free `opencode/big-pickle` model. `/settings` shows a loading spinner, then offers a searchable **OpenCode Provider / Model** picker populated from the server's connected, tool-capable catalog and marks free OpenCode options. Before creating a session, RAE validates the saved pair again and suggests currently available free models when configuration is invalid. Compatible older servers are reused with a version warning. Node.js 20+ is required for automatic startup. Password-protected servers use `OPENCODE_SERVER_PASSWORD` and optional `OPENCODE_SERVER_USERNAME`. Override startup with `OPENCODE_BASE_URL`, `RAE_OPENCODE_PACKAGE`, or `RAE_OPENCODE_AUTO_START=0`.
+- **Ollama through OpenCode**: choose provider `ollama` in `/settings`; RAE starts an installed Ollama daemon if needed, lists only installed models with tool calling and 64k+ context, and supplies OpenCode's provider config inline. Models are never downloaded silently. Override with `RAE_OLLAMA_BASE_URL` or `RAE_OLLAMA_AUTO_START=0`.
 - **Output language**: `python`, `javascript`, `typescript`, `go`, `java`, `csharp`, `php`, `ruby`, or `c`. C needs a POSIX toolchain (`cc`, libcurl headers) — macOS/Linux, or WSL/MSYS2 on Windows.
 
 ## CLI

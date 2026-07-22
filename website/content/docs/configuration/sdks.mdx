@@ -27,13 +27,65 @@ or use a non-Anthropic provider.
 ```json
 {
   "sdk": "opencode",
-  "opencode_model": "claude-opus-4-6",
-  "opencode_provider": "anthropic"
+  "opencode_auto_start": true,
+  "opencode_base_url": "http://127.0.0.1:4096",
+  "opencode_model": "big-pickle",
+  "opencode_npx_package": "opencode-ai@latest",
+  "opencode_provider": "opencode"
 }
 ```
 
-OpenCode must be running locally before the CLI starts. Model identifiers
-are defined by OpenCode itself, see [models.dev](https://models.dev).
+RAE reuses an existing OpenCode server. If none is listening, it downloads and
+starts the latest `opencode-ai` release through `npx`, then stops that child
+process when RAE exits. A global OpenCode installation is not required.
+Automatic setup needs Node.js 20+; the first run downloads the OpenCode npm
+package and later runs use npm's cache. Fresh configurations use the free
+`opencode/big-pickle` model by default.
+
+Set `opencode_auto_start` to `false` when you manage the server yourself. The
+environment variables `OPENCODE_BASE_URL`, `RAE_OPENCODE_PACKAGE`, and
+`RAE_OPENCODE_AUTO_START` override the matching settings. Provider credentials
+and model identifiers remain OpenCode configuration. Password-protected servers
+use `OPENCODE_SERVER_PASSWORD` and optional `OPENCODE_SERVER_USERNAME`; these
+variables are inherited by an auto-started server. See
+[OpenCode providers](https://opencode.ai/docs/providers/) and
+[models.dev](https://models.dev).
+
+RAE validates the configured provider/model pair against OpenCode's connected
+provider catalog before creating a session. Invalid pairs fail immediately and
+include valid alternatives plus currently exposed free, tool-capable models.
+Existing compatible servers are reused; versions older than RAE's tested
+OpenCode release display an upgrade warning.
+
+### Ollama through OpenCode
+
+In `/settings`, set the OpenCode provider to `ollama`. RAE connects to the
+configured Ollama daemon (default `http://127.0.0.1:11434`) and offers the
+installed models that advertise tool calling and at least 64k context. Picking
+one updates both `opencode_provider` and `opencode_model`.
+
+```json
+{
+  "sdk": "opencode",
+  "opencode_provider": "ollama",
+  "opencode_model": "qwen3.5",
+  "ollama_auto_start": true,
+  "ollama_base_url": "http://127.0.0.1:11434"
+}
+```
+
+RAE reuses a running Ollama daemon or starts `ollama serve` when the CLI is
+installed. It passes an inline provider definition to an auto-started OpenCode
+server, so it does not overwrite `opencode.json`. If you run OpenCode yourself,
+that existing server must already expose the selected Ollama model; RAE reports
+the exact remediation when it does not.
+
+Model downloads are intentionally explicit because they can consume many
+gigabytes: run `ollama pull <model>` yourself, then select it. Override daemon
+discovery with `RAE_OLLAMA_BASE_URL` and disable startup with
+`RAE_OLLAMA_AUTO_START=0`. See Ollama's
+[OpenCode integration](https://docs.ollama.com/integrations/opencode) for the
+upstream context-window guidance.
 
 ## Copilot
 

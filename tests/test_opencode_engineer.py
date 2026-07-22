@@ -17,6 +17,35 @@ from reverse_api.opencode_engineer import (
 )
 
 
+def _valid_catalog_response() -> MagicMock:
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json.return_value = {
+        "default": {"opencode": "big-pickle"},
+        "providers": [
+            {
+                "id": "opencode",
+                "models": {
+                    "big-pickle": {
+                        "status": "active",
+                        "capabilities": {"toolcall": True},
+                    }
+                },
+            },
+            {
+                "id": "anthropic",
+                "models": {
+                    "claude-opus-4-6": {
+                        "status": "active",
+                        "capabilities": {"toolcall": True},
+                    }
+                },
+            }
+        ],
+    }
+    return response
+
+
 class TestDebugLog:
     """Test debug_log function."""
 
@@ -190,8 +219,8 @@ class TestOpenCodeEngineerInit:
                         prompt="test prompt",
                         output_dir=str(tmp_path),
                     )
-                    assert eng.opencode_provider == "anthropic"
-                    assert eng.opencode_model == "claude-opus-4-6"
+                    assert eng.opencode_provider == "opencode"
+                    assert eng.opencode_model == "big-pickle"
 
 
 class TestOpenCodeEngineerAuth:
@@ -254,6 +283,7 @@ class TestOpenCodeEngineerHandlePartUpdate:
                         output_dir=str(tmp_path),
                     )
                     eng._session_id = "session_abc"
+                    eng._assistant_message_ids.add("message_assistant")
                     return eng
 
     @pytest.mark.asyncio
@@ -267,6 +297,7 @@ class TestOpenCodeEngineerHandlePartUpdate:
                 "type": "text",
                 "text": "x" * 100,
                 "sessionID": "session_abc",
+                "messageID": "message_assistant",
             },
             "delta": None,
         }
@@ -285,10 +316,30 @@ class TestOpenCodeEngineerHandlePartUpdate:
                 "type": "text",
                 "text": "ok",
                 "sessionID": "session_abc",
+                "messageID": "message_assistant",
             },
             "delta": None,
         }
         await eng._handle_part_update(properties, seen_parts)
+        eng.message_store.save_thinking.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_user_text_part_is_not_rendered(self, tmp_path):
+        """The submitted internal prompt must not appear as assistant output."""
+        eng = self._make_engineer(tmp_path)
+        properties = {
+            "part": {
+                "id": "part-user",
+                "messageID": "message_user",
+                "type": "text",
+                "text": "There is no HAR file — capture all network data.",
+                "sessionID": "session_abc",
+            }
+        }
+
+        await eng._handle_part_update(properties, set())
+
+        eng.opencode_ui.update_text.assert_not_called()
         eng.message_store.save_thinking.assert_not_called()
 
     @pytest.mark.asyncio
@@ -544,6 +595,42 @@ class TestOpenCodeEngineerStreamEvents:
         eng.opencode_ui.permission_approved.assert_called_with("write")
 
     @pytest.mark.asyncio
+    async def test_permission_v2_event_uses_current_reply_endpoint(self, tmp_path):
+        """OpenCode 1.18 permission.v2 events use the non-deprecated endpoint."""
+        eng = self._make_engineer(tmp_path)
+
+        lines = [
+            (
+                'data: {"type":"permission.v2.asked","properties":{"id":"per_1","sessionID":"session_abc",'
+                '"action":"write","resources":["/tmp/client.py"]}}'
+            ),
+            'data: {"type":"session.idle","properties":{"sessionID":"session_abc"}}',
+        ]
+        mock_response = AsyncMock()
+
+        async def mock_aiter_lines():
+            for line in lines:
+                yield line
+
+        mock_response.aiter_lines = mock_aiter_lines
+        stream = AsyncMock()
+        stream.__aenter__ = AsyncMock(return_value=mock_response)
+        stream.__aexit__ = AsyncMock(return_value=False)
+
+        mock_client = AsyncMock()
+        mock_client.stream = MagicMock(return_value=stream)
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=204))
+
+        await eng._stream_events(mock_client)
+
+        mock_client.post.assert_awaited_once_with(
+            "/api/session/session_abc/permission/per_1/reply",
+            json={"reply": "always"},
+        )
+        eng.opencode_ui.permission_requested.assert_called_once_with("write", "/tmp/client.py")
+        eng.opencode_ui.permission_approved.assert_called_once_with("write")
+
+    @pytest.mark.asyncio
     async def test_todo_updated_event(self, tmp_path):
         """todo.updated event updates UI."""
         eng = self._make_engineer(tmp_path)
@@ -682,6 +769,7 @@ class TestOpenCodeEngineerStreamEvents:
         await eng._stream_events(mock_client)
         assert "Auth error" in eng._last_error
         assert "anthropic" in eng._last_error
+        eng.opencode_ui.error.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_session_error_api_error(self, tmp_path):
@@ -710,6 +798,40 @@ class TestOpenCodeEngineerStreamEvents:
         await eng._stream_events(mock_client)
         assert "API error" in eng._last_error
         assert "429" in eng._last_error
+        eng.opencode_ui.error.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_session_error_no_provider_available(self, tmp_path):
+        """Zen capacity errors are explained without being displayed twice."""
+        eng = self._make_engineer(tmp_path)
+
+        lines = [
+            "data: "
+            '{"type":"session.error","properties":{"sessionID":"session_abc",'
+            '"error":{"name":"APIError","data":{"message":"No provider available","statusCode":401}}}}',
+        ]
+
+        mock_response = AsyncMock()
+
+        async def mock_aiter_lines():
+            for line in lines:
+                yield line
+
+        mock_response.aiter_lines = mock_aiter_lines
+
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=mock_response)
+        cm.__aexit__ = AsyncMock(return_value=False)
+
+        mock_client = AsyncMock()
+        mock_client.stream = MagicMock(return_value=cm)
+
+        await eng._stream_events(mock_client)
+        assert eng._last_error == (
+            "OpenCode has no serving provider available for this model right now. "
+            "Try another free model or retry later."
+        )
+        eng.opencode_ui.error.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_session_error_aborted(self, tmp_path):
@@ -941,6 +1063,120 @@ class TestOpenCodeEngineerStreamEvents:
             mock_handle.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_stream_renders_only_assistant_text(self, tmp_path):
+        """Parts arriving before their roles are known are safely buffered."""
+        eng = self._make_engineer(tmp_path)
+        lines = [
+            'data: {"type":"message.part.updated","properties":{"sessionID":"session_abc",'
+            '"part":{"id":"part_user","messageID":"message_user","sessionID":"session_abc",'
+            '"type":"text","text":"There is no HAR file — capture all network data."}}}',
+            'data: {"type":"message.part.updated","properties":{"sessionID":"session_abc",'
+            '"part":{"id":"part_assistant","messageID":"message_assistant","sessionID":"session_abc",'
+            '"type":"text","text":"Assistant answer","time":{"start":1,"end":2}}}}',
+            'data: {"type":"message.updated","properties":{"sessionID":"session_abc",'
+            '"info":{"id":"message_user","sessionID":"session_abc","role":"user"}}}',
+            'data: {"type":"message.updated","properties":{"sessionID":"session_abc",'
+            '"info":{"id":"message_assistant","sessionID":"session_abc","role":"assistant"}}}',
+            'data: {"type":"session.idle","properties":{"sessionID":"session_abc"}}',
+        ]
+        mock_response = AsyncMock()
+
+        async def mock_aiter_lines():
+            for line in lines:
+                yield line
+
+        mock_response.aiter_lines = mock_aiter_lines
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=mock_response)
+        cm.__aexit__ = AsyncMock(return_value=False)
+        mock_client = AsyncMock()
+        mock_client.stream = MagicMock(return_value=cm)
+
+        await eng._stream_events(mock_client)
+
+        eng.opencode_ui.update_text.assert_called_once_with("Assistant answer", None)
+        assert eng._pending_text_parts == {}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "idle_event",
+        [
+            'data: {"type":"session.idle","properties":{"sessionID":"session_abc"}}',
+            'data: {"type":"session.status","properties":{"sessionID":"session_abc","status":{"type":"idle"}}}',
+        ],
+    )
+    async def test_idle_reconciles_buffered_assistant_role(self, tmp_path, idle_event):
+        """Idle resolves buffered roles from final state without waiting on SSE order."""
+        eng = self._make_engineer(tmp_path)
+        lines = [
+            'data: {"type":"message.part.updated","properties":{"sessionID":"session_abc",'
+            '"part":{"id":"part_user","messageID":"message_user","sessionID":"session_abc",'
+            '"type":"text","text":"Internal user prompt"}}}',
+            'data: {"type":"message.part.updated","properties":{"sessionID":"session_abc",'
+            '"part":{"id":"part_assistant","messageID":"message_assistant","sessionID":"session_abc",'
+            '"type":"text","text":"Late assistant answer"}}}',
+            idle_event,
+            'data: {"type":"message.updated","properties":{"sessionID":"session_abc",'
+            '"info":{"id":"message_assistant","sessionID":"session_abc","role":"assistant"}}}',
+        ]
+        mock_response = AsyncMock()
+
+        async def mock_aiter_lines():
+            for line in lines:
+                yield line
+
+        mock_response.aiter_lines = mock_aiter_lines
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=mock_response)
+        cm.__aexit__ = AsyncMock(return_value=False)
+        mock_client = AsyncMock()
+        mock_client.stream = MagicMock(return_value=cm)
+        final_response = MagicMock(status_code=200)
+        final_response.json.return_value = [
+            {"info": {"id": "message_user", "sessionID": "session_abc", "role": "user"}},
+            {"info": {"id": "message_assistant", "sessionID": "session_abc", "role": "assistant"}},
+        ]
+        mock_client.get = AsyncMock(return_value=final_response)
+
+        await eng._stream_events(mock_client)
+
+        assert eng._last_error is None
+        eng.opencode_ui.update_text.assert_called_once_with("Late assistant answer", None)
+        assert eng._pending_text_parts == {}
+        mock_client.get.assert_awaited_once_with("/session/session_abc/message")
+
+    @pytest.mark.asyncio
+    async def test_idle_with_unresolved_buffer_reports_specific_error(self, tmp_path):
+        """A closed stream cannot turn unresolved buffered output into success."""
+        eng = self._make_engineer(tmp_path)
+        lines = [
+            'data: {"type":"message.part.updated","properties":{"sessionID":"session_abc",'
+            '"part":{"id":"part_assistant","messageID":"message_assistant","sessionID":"session_abc",'
+            '"type":"text","text":"Unresolved answer"}}}',
+            'data: {"type":"session.idle","properties":{"sessionID":"session_abc"}}',
+        ]
+        mock_response = AsyncMock()
+
+        async def mock_aiter_lines():
+            for line in lines:
+                yield line
+
+        mock_response.aiter_lines = mock_aiter_lines
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=mock_response)
+        cm.__aexit__ = AsyncMock(return_value=False)
+        mock_client = AsyncMock()
+        mock_client.stream = MagicMock(return_value=cm)
+        final_response = MagicMock(status_code=200)
+        final_response.json.return_value = []
+        mock_client.get = AsyncMock(return_value=final_response)
+
+        await eng._stream_events(mock_client)
+
+        assert eng._last_error == "OpenCode completed without role metadata for buffered message(s): message_assistant."
+        eng.opencode_ui.update_text.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_empty_and_non_data_lines_skipped(self, tmp_path):
         """Empty lines and non-data lines are skipped."""
         eng = self._make_engineer(tmp_path)
@@ -1043,7 +1279,7 @@ class TestOpenCodeEngineerStreamEvents:
 
     @pytest.mark.asyncio
     async def test_permission_approval_fails(self, tmp_path):
-        """Permission approval failure is handled gracefully."""
+        """Permission transport failures stop the stream immediately."""
         eng = self._make_engineer(tmp_path)
 
         lines = [
@@ -1068,7 +1304,36 @@ class TestOpenCodeEngineerStreamEvents:
         mock_client.post = AsyncMock(side_effect=Exception("permission failed"))
 
         await eng._stream_events(mock_client)
-        # Should not raise
+        assert eng._last_error == "Permission approval failed for write: permission failed"
+        eng.opencode_ui.session_status.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_permission_rejection_reports_status_and_stops_stream(self, tmp_path):
+        """A rejected permission reply is fatal instead of timing out later."""
+        eng = self._make_engineer(tmp_path)
+        lines = [
+            'data: {"type":"permission.v2.asked","properties":{"id":"perm1","sessionID":"session_abc","action":"write"}}',
+            'data: {"type":"session.idle","properties":{"sessionID":"session_abc"}}',
+        ]
+        mock_response = AsyncMock()
+
+        async def mock_aiter_lines():
+            for line in lines:
+                yield line
+
+        mock_response.aiter_lines = mock_aiter_lines
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=mock_response)
+        cm.__aexit__ = AsyncMock(return_value=False)
+        mock_client = AsyncMock()
+        mock_client.stream = MagicMock(return_value=cm)
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=403))
+
+        await eng._stream_events(mock_client)
+
+        assert eng._last_error == "Permission approval failed for write: OpenCode returned HTTP 403."
+        eng.opencode_ui.permission_approved.assert_not_called()
+        eng.opencode_ui.session_status.assert_not_called()
 
 
 class TestOpenCodeEngineerAnalyzeAndGenerate:
@@ -1091,6 +1356,48 @@ class TestOpenCodeEngineerAnalyzeAndGenerate:
                     eng.scripts_dir = tmp_path / "scripts"
                     eng.scripts_dir.mkdir(parents=True, exist_ok=True)
                     return eng
+
+    @pytest.mark.asyncio
+    async def test_prepare_server_configures_ollama_before_opencode(self, tmp_path):
+        eng = self._make_engineer(tmp_path)
+        eng.opencode_provider = "ollama"
+        eng.opencode_model = "qwen3:4b"
+        client = AsyncMock()
+        ollama_setup = MagicMock()
+        ollama_setup.status.started = False
+        server = MagicMock(started=True, package="opencode-ai@latest", health={"version": "1.18.4"})
+
+        with patch(
+            "reverse_api.opencode_engineer.prepare_ollama_model",
+            new=AsyncMock(return_value=ollama_setup),
+        ) as prepare:
+            with patch(
+                "reverse_api.opencode_engineer.opencode_ollama_env",
+                return_value={"OPENCODE_CONFIG_CONTENT": "{}"},
+            ):
+                with patch(
+                    "reverse_api.opencode_engineer.ensure_opencode_server",
+                    new=AsyncMock(return_value=server),
+                ) as ensure:
+                    with patch(
+                        "reverse_api.opencode_engineer.validate_opencode_ollama_provider",
+                        new=AsyncMock(),
+                    ) as validate:
+                        with patch(
+                            "reverse_api.opencode_engineer.validate_opencode_model",
+                            new=AsyncMock(),
+                        ) as validate_model:
+                            assert await eng._prepare_server(client) is True
+
+        prepare.assert_awaited_once_with("qwen3:4b")
+        ensure.assert_awaited_once_with(
+            client,
+            base_url=eng.BASE_URL,
+            env_overrides={"OPENCODE_CONFIG_CONTENT": "{}"},
+        )
+        validate.assert_awaited_once_with(client, "qwen3:4b")
+        validate_model.assert_awaited_once_with(client, "ollama", "qwen3:4b")
+        eng.opencode_ui.ollama_ready.assert_called_once_with("qwen3:4b", False)
 
     @pytest.mark.asyncio
     async def test_health_check_401(self, tmp_path):
@@ -1209,6 +1516,8 @@ class TestOpenCodeEngineerAnalyzeAndGenerate:
         async def mock_get(path, **kwargs):
             if path == "/global/health":
                 return health_response
+            if path == "/config/providers":
+                return _valid_catalog_response()
             if "/message" in path:
                 return messages_response
             return MagicMock()
@@ -1315,6 +1624,8 @@ class TestOpenCodeEngineerAnalyzeAndGenerate:
             get_count[0] += 1
             if path == "/global/health":
                 return health_response
+            if path == "/config/providers":
+                return _valid_catalog_response()
             if "/message" in path:
                 raise Exception("message fetch failed")
             return MagicMock()

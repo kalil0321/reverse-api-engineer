@@ -45,6 +45,26 @@ def _sdk_result_message(*, is_error: bool = False, result: str | None = None) ->
     )
 
 
+def _valid_catalog_response() -> MagicMock:
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json.return_value = {
+        "default": {"anthropic": "claude-opus-4-6"},
+        "providers": [
+            {
+                "id": "anthropic",
+                "models": {
+                    "claude-opus-4-6": {
+                        "status": "active",
+                        "capabilities": {"toolcall": True},
+                    }
+                },
+            }
+        ],
+    }
+    return response
+
+
 class TestClaudeAutoEngineerInit:
     """Test ClaudeAutoEngineer initialization."""
 
@@ -915,6 +935,8 @@ class TestOpenCodeAutoEngineerAnalyze:
         async def mock_get(path, **kwargs):
             if path == "/global/health":
                 return mock_health
+            if path == "/config/providers":
+                return _valid_catalog_response()
             if "/message" in path:
                 return mock_messages
             return MagicMock()
@@ -1099,6 +1121,8 @@ class TestOpenCodeAutoEngineerAnalyze:
         async def mock_get(path, **kwargs):
             if path == "/global/health":
                 return mock_health
+            if path == "/config/providers":
+                return _valid_catalog_response()
             if "/message" in path:
                 return mock_messages
             return MagicMock()
@@ -1157,6 +1181,8 @@ class TestOpenCodeAutoEngineerAnalyze:
         async def mock_get(path, **kwargs):
             if path == "/global/health":
                 return mock_health
+            if path == "/config/providers":
+                return _valid_catalog_response()
             return MagicMock()
 
         async def mock_post(path, **kwargs):

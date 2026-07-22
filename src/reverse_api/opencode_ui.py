@@ -45,6 +45,19 @@ class OpenCodeUI:
         version = health.get("version", "unknown")
         self.console.print(f"  [dim]server: OpenCode v{version}[/dim]")
 
+    def server_started(self, package: str, base_url: str) -> None:
+        """Display managed server startup."""
+        self.console.print(f"  [dim]started: {package} at {base_url}[/dim]")
+
+    def compatibility_warning(self, message: str) -> None:
+        """Display a concise warning for an older or unknown server version."""
+        self.console.print(f"  [yellow]warning:[/yellow] {message}")
+
+    def ollama_ready(self, model: str, started: bool = False) -> None:
+        """Display the validated Ollama model and daemon state."""
+        action = "started" if started else "connected"
+        self.console.print(f"  [dim]ollama: {action}, using {model}[/dim]")
+
     def session_created(self, session_id: str) -> None:
         """Display session creation."""
         self.console.print(f"  [dim]session: {session_id[:16]}...[/dim]")
@@ -222,7 +235,7 @@ class OpenCodeUI:
             self.console.print(f" [dim]synced:[/dim]   [white]{local_path}[/white]")
         self.console.print()
 
-    def error(self, message: str) -> None:
+    def error(self, message: str, *, unexpected: bool | None = None) -> None:
         """Display error message with Rich formatting support."""
         self.console.print()
         # Check if message already contains Rich markup (from format_error)
@@ -232,7 +245,22 @@ class OpenCodeUI:
         else:
             # Simple error format
             self.console.print(f" [dim]![/dim] [red]error:[/red] {message}")
-        self.console.print(f" [dim]{ERROR_CTA}[/dim]")
+        if unexpected is None:
+            normalized = message.casefold()
+            expected_markers = (
+                "api error (401): no provider available",
+                "no serving provider available",
+                "auth error",
+                "authentication failed",
+                "invalid opencode model pairing",
+                "model not found:",
+                "does not support tool calling",
+                "permission approval failed",
+                "aborted",
+            )
+            unexpected = not any(marker in normalized for marker in expected_markers)
+        if unexpected:
+            self.console.print(f" [dim]{ERROR_CTA}[/dim]")
 
     def permission_requested(self, perm_type: str, title: str) -> None:
         """Display when a permission is requested."""

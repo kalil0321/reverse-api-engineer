@@ -14,6 +14,20 @@ from typing import Any
 import httpx
 
 from .base_engineer import BaseEngineer
+from .config import DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_PROVIDER
+from .ollama_runtime import (
+    OllamaProviderSetup,
+    OllamaSetupError,
+    opencode_ollama_env,
+    prepare_ollama_model,
+    validate_opencode_ollama_provider,
+)
+from .opencode_runtime import (
+    OpenCodeSetupError,
+    ensure_opencode_server,
+    opencode_base_url,
+    validate_opencode_model,
+)
 from .opencode_ui import OpenCodeUI
 
 # Enable debug mode with OPENCODE_DEBUG=1
@@ -110,8 +124,9 @@ class OpenCodeEngineer(BaseEngineer):
 
     def __init__(self, *args, **kwargs):
         # Pop OpenCode-specific kwargs before passing to parent class
-        self.opencode_provider = kwargs.pop("opencode_provider", "anthropic")
-        self.opencode_model = kwargs.pop("opencode_model", "claude-opus-4-6")
+        self.opencode_provider = kwargs.pop("opencode_provider", DEFAULT_OPENCODE_PROVIDER)
+        self.opencode_model = kwargs.pop("opencode_model", DEFAULT_OPENCODE_MODEL)
+        self.BASE_URL = opencode_base_url()
 
         super().__init__(*args, **kwargs)
 
@@ -123,6 +138,9 @@ class OpenCodeEngineer(BaseEngineer):
         self._last_event_time = 0.0
         self._work_started = False  # Track if any real work has been done
         self._busy_time: float | None = None  # When session became busy
+        self._assistant_message_ids: set[str] = set()
+        self._message_roles: dict[str, str] = {}
+        self._pending_text_parts: dict[str, list[dict[str, Any]]] = {}
 
         # Read OpenCode server authentication from environment variables
         self.opencode_password = os.environ.get("OPENCODE_SERVER_PASSWORD")
@@ -133,6 +151,46 @@ class OpenCodeEngineer(BaseEngineer):
         if self.opencode_password:
             return httpx.BasicAuth(self.opencode_username, self.opencode_password)
         return None
+
+    async def _prepare_server(self, client: httpx.AsyncClient) -> bool:
+        """Ensure OpenCode is healthy, starting the managed runtime if needed."""
+        try:
+            ollama_setup: OllamaProviderSetup | None = None
+            env_overrides: dict[str, str] = {}
+            if self.opencode_provider == "ollama":
+                ollama_setup = await prepare_ollama_model(self.opencode_model)
+                env_overrides = opencode_ollama_env(ollama_setup)
+
+            server = await ensure_opencode_server(client, base_url=self.BASE_URL, env_overrides=env_overrides)
+            if ollama_setup is not None:
+                await validate_opencode_ollama_provider(client, self.opencode_model)
+                self.opencode_ui.ollama_ready(self.opencode_model, ollama_setup.status.started)
+            if server.started and server.package:
+                self.opencode_ui.server_started(server.package, self.BASE_URL)
+            self.opencode_ui.health_check(server.health)
+            if server.version_warning:
+                self.opencode_ui.compatibility_warning(server.version_warning)
+            model_id = self.MODEL_MAP.get(self.opencode_model, self.opencode_model)
+            await validate_opencode_model(client, self.opencode_provider, model_id)
+            return True
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code != 401:
+                raise
+            debug_log("Health check failed: authentication required")
+            self.opencode_ui.error("Authentication failed. OpenCode server requires a password.", unexpected=False)
+            self.opencode_ui.console.print("\n[dim]Please set OPENCODE_SERVER_PASSWORD environment variable[/dim]")
+            if self.opencode_username != "opencode":
+                self.opencode_ui.console.print(f"[dim]Username: {self.opencode_username}[/dim]")
+            return False
+        except (OllamaSetupError, OpenCodeSetupError) as e:
+            debug_log(f"OpenCode setup failed: {e}")
+            self.opencode_ui.error(str(e), unexpected=False)
+            return False
+        except Exception as e:
+            debug_log(f"Health check failed: {e}")
+            self.opencode_ui.error(f"OpenCode server not responding. Is it running on {self.BASE_URL}?")
+            self.opencode_ui.console.print("\n[dim]RAE can auto-start OpenCode when Node.js and npx are available.[/dim]")
+            return False
 
     async def analyze_and_generate(self) -> dict[str, Any] | None:
         """Run the reverse engineering analysis with OpenCode."""
@@ -146,25 +204,7 @@ class OpenCodeEngineer(BaseEngineer):
         try:
             auth = self._get_auth()
             async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=600.0, auth=auth) as client:
-                # Health check
-                try:
-                    health_r = await client.get("/global/health")
-                    health_r.raise_for_status()
-                    health = health_r.json()
-                    self.opencode_ui.health_check(health)
-                except httpx.HTTPStatusError as e:
-                    if e.response.status_code == 401:
-                        debug_log(f"Health check failed: Authentication required")
-                        self.opencode_ui.error("Authentication failed. OpenCode server requires a password.")
-                        self.opencode_ui.console.print("\n[dim]Please set OPENCODE_SERVER_PASSWORD environment variable[/dim]")
-                        if self.opencode_username != "opencode":
-                            self.opencode_ui.console.print(f"[dim]Username: {self.opencode_username}[/dim]")
-                        return None
-                    raise
-                except Exception as e:
-                    debug_log(f"Health check failed: {e}")
-                    self.opencode_ui.error(f"OpenCode server not responding. Is it running on {self.BASE_URL}?")
-                    self.opencode_ui.console.print("\n[dim]Please run: opencode serve[/dim]")
+                if not await self._prepare_server(client):
                     return None
 
                 # Create a new session
@@ -202,7 +242,6 @@ class OpenCodeEngineer(BaseEngineer):
                     await asyncio.wait_for(event_task, timeout=600.0)
                 except TimeoutError:
                     self._last_error = "Session timed out (10 min)"
-                    self.opencode_ui.error(self._last_error)
 
                 # Stop streaming UI
                 self.opencode_ui.stop_streaming()
@@ -252,7 +291,7 @@ class OpenCodeEngineer(BaseEngineer):
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 401:
-                self.opencode_ui.error("Authentication failed. OpenCode server requires a password.")
+                self.opencode_ui.error("Authentication failed. OpenCode server requires a password.", unexpected=False)
                 self.opencode_ui.console.print("\n[dim]Please set OPENCODE_SERVER_PASSWORD environment variable[/dim]")
                 if self.opencode_username != "opencode":
                     self.opencode_ui.console.print(f"[dim]Username: {self.opencode_username}[/dim]")
@@ -341,13 +380,29 @@ class OpenCodeEngineer(BaseEngineer):
                     debug_log(f"Event: {event_type}")
 
                     # Handle different event types
-                    if event_type == "message.part.updated":
+                    if event_type == "message.updated":
+                        info = properties.get("info", {})
+                        event_sid = properties.get("sessionID") or info.get("sessionID")
+                        message_id = info.get("id")
+                        if event_sid == self._session_id and message_id:
+                            message_id = str(message_id)
+                            role = str(info.get("role") or "")
+                            self._message_roles[message_id] = role
+                            pending = self._pending_text_parts.pop(message_id, [])
+                            if role == "assistant":
+                                self._assistant_message_ids.add(message_id)
+                                for pending_properties in pending:
+                                    await self._handle_part_update(pending_properties, seen_parts)
+
+                    elif event_type == "message.part.updated":
                         await self._handle_part_update(properties, seen_parts)
 
                     elif event_type == "session.idle":
                         event_sid = properties.get("sessionID")
                         debug_log(f"session.idle: sessionID={event_sid}, our session={self._session_id}")
                         if event_sid == self._session_id:
+                            if not await self._reconcile_pending_text_parts(client, seen_parts):
+                                return
                             debug_log("Our session is idle, returning!")
                             self.opencode_ui.session_status("idle")
                             return  # Done!
@@ -378,15 +433,21 @@ class OpenCodeEngineer(BaseEngineer):
                                     debug_log("Suspiciously fast idle - checking for errors")
                                     # Try to get session details to check for error
                                     await self._check_session_error(client)
+                                if self._last_error:
+                                    return
+                                if not await self._reconcile_pending_text_parts(client, seen_parts):
+                                    return
                                 debug_log("Our session status is idle, returning!")
                                 return  # Done!
 
-                    elif event_type == "permission.updated" or event_type == "permission.asked":
+                    elif event_type in {"permission.updated", "permission.asked", "permission.v2.asked"}:
                         # Auto-approve permissions so the agent can proceed
                         permission_id = properties.get("id")
                         perm_session = properties.get("sessionID")
-                        perm_type = properties.get("type", "")
-                        perm_title = properties.get("title", "")
+                        is_v2 = event_type == "permission.v2.asked"
+                        perm_type = properties.get("type") or properties.get("permission") or properties.get("action") or "permission"
+                        resources = properties.get("resources") or properties.get("patterns") or []
+                        perm_title = properties.get("title") or ", ".join(resources) or perm_type
 
                         debug_log(f"{event_type}: id={permission_id}, type={perm_type}, title={perm_title}")
 
@@ -398,15 +459,30 @@ class OpenCodeEngineer(BaseEngineer):
                             # OpenCode expects: "once" | "always" | "reject"
                             debug_log(f"Auto-approving permission {permission_id}")
                             try:
-                                perm_response = await client.post(
-                                    f"/session/{self._session_id}/permissions/{permission_id}",
-                                    json={"response": "always"},  # "once", "always", or "reject"
-                                )
+                                if is_v2:
+                                    perm_response = await client.post(
+                                        f"/api/session/{self._session_id}/permission/{permission_id}/reply",
+                                        json={"reply": "always"},
+                                    )
+                                else:
+                                    perm_response = await client.post(
+                                        f"/session/{self._session_id}/permissions/{permission_id}",
+                                        json={"response": "always"},  # Legacy OpenCode permission API
+                                    )
                                 debug_log(f"Permission response: {perm_response.status_code}")
-                                if perm_response.status_code == 200:
+                                if 200 <= perm_response.status_code < 300:
                                     self.opencode_ui.permission_approved(perm_type)
+                                else:
+                                    self._last_error = (
+                                        f"Permission approval failed for {perm_type}: "
+                                        f"OpenCode returned HTTP {perm_response.status_code}."
+                                    )
+                                    debug_log(self._last_error)
+                                    return
                             except Exception as pe:
-                                debug_log(f"Permission approval failed: {pe}")
+                                self._last_error = f"Permission approval failed for {perm_type}: {pe}"
+                                debug_log(self._last_error)
+                                return
 
                     elif event_type == "todo.updated":
                         todos = properties.get("todos", [])
@@ -462,7 +538,13 @@ class OpenCodeEngineer(BaseEngineer):
                             elif error_name == "APIError":
                                 msg = error_data.get("message", "API error")
                                 status = error_data.get("statusCode", "")
-                                self._last_error = f"API error{' (' + str(status) + ')' if status else ''}: {msg}"
+                                if str(status) == "401" and str(msg).casefold() == "no provider available":
+                                    self._last_error = (
+                                        "OpenCode has no serving provider available for this model right now. "
+                                        "Try another free model or retry later."
+                                    )
+                                else:
+                                    self._last_error = f"API error{' (' + str(status) + ')' if status else ''}: {msg}"
                             elif error_name == "MessageAbortedError":
                                 self._last_error = "Aborted"
                             else:
@@ -471,7 +553,6 @@ class OpenCodeEngineer(BaseEngineer):
                         else:
                             self._last_error = str(error_obj)
 
-                        self.opencode_ui.error(self._last_error)
                         return
 
         except httpx.ReadError as e:
@@ -480,6 +561,43 @@ class OpenCodeEngineer(BaseEngineer):
         except Exception as e:
             self._last_error = format_error(e)
             debug_log(f"Exception in _stream_events: {self._last_error}")
+
+    async def _reconcile_pending_text_parts(self, client: httpx.AsyncClient, seen_parts: set) -> bool:
+        """Resolve buffered text roles from OpenCode's final session state."""
+
+        if not self._pending_text_parts:
+            return True
+        try:
+            response = await client.get(f"/session/{self._session_id}/message")
+            if not 200 <= response.status_code < 300:
+                self._last_error = f"Could not reconcile final OpenCode messages: HTTP {response.status_code}."
+                return False
+            messages = response.json()
+        except Exception as e:
+            self._last_error = f"Could not reconcile final OpenCode messages: {e}"
+            return False
+        if not isinstance(messages, list):
+            self._last_error = "Could not reconcile final OpenCode messages: invalid response."
+            return False
+
+        for message in messages:
+            info = message.get("info", {}) if isinstance(message, dict) else {}
+            message_id = str(info.get("id") or "")
+            role = str(info.get("role") or "")
+            if not message_id or not role or message_id not in self._pending_text_parts:
+                continue
+            self._message_roles[message_id] = role
+            pending = self._pending_text_parts.pop(message_id)
+            if role == "assistant":
+                self._assistant_message_ids.add(message_id)
+                for pending_properties in pending:
+                    await self._handle_part_update(pending_properties, seen_parts)
+
+        if self._pending_text_parts:
+            unresolved = ", ".join(sorted(self._pending_text_parts))
+            self._last_error = f"OpenCode completed without role metadata for buffered message(s): {unresolved}."
+            return False
+        return True
 
     async def _check_session_error(self, client: httpx.AsyncClient):
         """Check session for errors when we get suspiciously fast idle."""
@@ -508,9 +626,6 @@ class OpenCodeEngineer(BaseEngineer):
                         msg = error_data.get("message", "") if isinstance(error_data, dict) else str(error_data)
                         self._last_error = f"{error_name}: {msg}" if msg else error_name
 
-                    if self._last_error:
-                        self.opencode_ui.error(self._last_error)
-
             # Also check messages for errors
             msg_r = await client.get(f"/session/{self._session_id}/message")
             if msg_r.status_code == 200:
@@ -532,7 +647,6 @@ class OpenCodeEngineer(BaseEngineer):
                                     self._last_error = f"Model not found: {provider}/{model}"
                                     if suggestions:
                                         self._last_error += f"\n  Did you mean: {', '.join(suggestions)}?"
-                                    self.opencode_ui.error(self._last_error)
                                     return
         except Exception as e:
             debug_log(f"Error checking session: {e}")
@@ -557,12 +671,13 @@ class OpenCodeEngineer(BaseEngineer):
             text = part.get("text", "")
             debug_log(f"Handling text part: id={part_id}, delta={'yes' if delta else 'no'}, len={len(text)}")
 
-            # Filter out known prompt text patterns that get echoed back
-            # This prevents the tag context section from appearing in streaming output
-            # Check for the specific tag context pattern that appears at the end of prompts
-            tag_context_pattern = "By default, treat this as an iterative refinement"
-            if tag_context_pattern in text and "Note: Full message history is available" in text:
-                debug_log(f"Filtering out echoed tag context from streaming output")
+            message_id = str(part.get("messageID") or "")
+            if message_id and message_id not in self._message_roles and message_id not in self._assistant_message_ids:
+                debug_log(f"Buffering text until role is known for message {message_id}")
+                self._pending_text_parts.setdefault(message_id, []).append(properties)
+                return
+            if message_id not in self._assistant_message_ids:
+                debug_log(f"Skipping text for non-assistant message {message_id or 'unknown'}")
                 return
 
             # Use delta for incremental updates if available

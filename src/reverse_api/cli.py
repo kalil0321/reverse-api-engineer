@@ -20,7 +20,7 @@ from rich.console import Console
 
 from . import __version__
 from .browser import ManualBrowser
-from .config import ConfigManager
+from .config import DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_PROVIDER, ConfigManager
 from .engineer import run_reverse_engineering
 from .messages import MessageStore
 from .session import SessionManager
@@ -56,16 +56,191 @@ config_manager = ConfigManager(get_config_path())
 session_manager = SessionManager(get_history_path())
 
 
+def _format_ollama_size(size: int) -> str:
+    if size < 1024:
+        return "cloud"
+    return f"{size / (1024**3):.1f} GB"
+
+
+def _select_ollama_model_for_settings() -> str | None:
+    """Discover installed agent-capable Ollama models and let the user choose."""
+
+    from .ollama_runtime import OllamaSetupError, ensure_ollama_models
+
+    try:
+        status = asyncio.run(ensure_ollama_models())
+    except OllamaSetupError as e:
+        console.print(f" [yellow]error:[/yellow] {e}\n")
+        return None
+
+    models = status.compatible_models
+    if not models:
+        console.print(" [yellow]error:[/yellow] no installed Ollama model supports tools with at least 64k context")
+        console.print(" [dim]Pull a compatible model explicitly, then retry. RAE will not download multi-GB models silently.[/dim]\n")
+        return None
+    if len(models) == 1:
+        console.print(f" [dim]using the only compatible Ollama model: {models[0].name}[/dim]")
+        return models[0].name
+
+    choices = [
+        Choice(
+            title=(
+                f"{model.name}  ({model.parameter_size or 'unknown'}, {_format_ollama_size(model.size)}, "
+                f"{model.context_length // 1024}k context)"
+            ),
+            value=model.name,
+        )
+        for model in models
+    ]
+    choices.append(Choice(title="back", value="back"))
+    selected = questionary.select(
+        " > ollama model",
+        choices=choices,
+        pointer=">",
+        qmark="",
+        style=questionary.Style(
+            [
+                ("pointer", f"fg:{THEME_SECONDARY} bold"),
+                ("highlighted", f"fg:{THEME_SECONDARY} bold"),
+            ]
+        ),
+    ).ask()
+    return None if selected in {None, "back"} else str(selected)
+
+
 def default_model_for_configured_sdk(sdk: str | None = None) -> str:
     """Return the configured default model id for the given SDK (or current config SDK)."""
     s = (sdk or config_manager.get("sdk", "claude") or "claude").lower()
     if s == "opencode":
-        return config_manager.get("opencode_model", "claude-opus-4-6")
+        return config_manager.get("opencode_model", DEFAULT_OPENCODE_MODEL)
     if s == "copilot":
         return config_manager.get("copilot_model", "gpt-5")
     if s == "cursor":
         return config_manager.get("cursor_model", "composer-2.5")
     return config_manager.get("claude_code_model", "claude-sonnet-4-6")
+
+
+async def _load_opencode_catalog_for_settings() -> dict:
+    """Start or reuse OpenCode and load its live provider/model catalog."""
+    import httpx
+
+    from .opencode_runtime import (
+        ensure_opencode_server,
+        get_opencode_model_catalog,
+        opencode_base_url,
+    )
+
+    base_url = opencode_base_url()
+    password = os.environ.get("OPENCODE_SERVER_PASSWORD")
+    username = os.environ.get("OPENCODE_SERVER_USERNAME", "opencode")
+    auth = httpx.BasicAuth(username, password) if password else None
+    async with httpx.AsyncClient(base_url=base_url, timeout=120.0, auth=auth) as client:
+        await ensure_opencode_server(client, base_url=base_url)
+        return await get_opencode_model_catalog(client)
+
+
+def _select_opencode_pair_for_settings(mode_color=THEME_PRIMARY) -> tuple[str, str] | None:
+    """Select a valid tool-capable provider/model pair from the live OpenCode catalog."""
+    from .opencode_runtime import opencode_model_is_free, opencode_model_is_selectable
+
+    try:
+        with console.status(" Loading OpenCode providers and models...", spinner="dots"):
+            catalog = asyncio.run(_load_opencode_catalog_for_settings())
+    except Exception as e:
+        response = getattr(e, "response", None)
+        if getattr(response, "status_code", None) == 401:
+            console.print(
+                " [yellow]error:[/yellow] OpenCode authentication failed. "
+                "Set OPENCODE_SERVER_PASSWORD (and OPENCODE_SERVER_USERNAME when customized).\n"
+            )
+        else:
+            console.print(f" [yellow]error:[/yellow] could not load OpenCode providers and models: {e}\n")
+        return None
+
+    providers = [provider for provider in catalog.get("providers", []) if isinstance(provider, dict)]
+    defaults = catalog.get("default") if isinstance(catalog.get("default"), dict) else {}
+    selectable = []
+    for provider in providers:
+        models = provider.get("models")
+        if provider.get("id") and isinstance(models, dict) and any(opencode_model_is_selectable(model) for model in models.values()):
+            selectable.append(provider)
+
+    style = questionary.Style(
+        [
+            ("pointer", f"fg:{mode_color} bold"),
+            ("highlighted", f"fg:{mode_color} bold"),
+        ]
+    )
+    current_provider = config_manager.get("opencode_provider", "")
+    provider_choices = []
+    for provider in selectable:
+        provider_id = str(provider["id"])
+        provider_name = str(provider.get("name") or "")
+        title = (
+            f"{provider_id} — {provider_name}"
+            if provider_name and provider_name != provider_id
+            else provider_id
+        )
+        provider_choices.append(Choice(title=title, value=provider_id))
+    provider_ids = {str(provider["id"]) for provider in selectable}
+    if "ollama" not in provider_ids:
+        provider_choices.append(Choice(title="ollama — installed local models", value="ollama"))
+        provider_ids.add("ollama")
+    provider_choices.append(Choice(title="back", value="back"))
+    provider_id = questionary.select(
+        " > opencode provider",
+        choices=provider_choices,
+        default=current_provider if current_provider in provider_ids else None,
+        pointer=">",
+        qmark="",
+        style=style,
+        use_search_filter=True,
+        use_jk_keys=False,
+    ).ask()
+    if provider_id is None or provider_id == "back":
+        return None
+    if provider_id == "ollama":
+        model_id = _select_ollama_model_for_settings()
+        return ("ollama", model_id) if model_id else None
+
+    provider = next(item for item in selectable if item.get("id") == provider_id)
+    models = provider["models"]
+    current_model = config_manager.get("opencode_model", "") if provider_id == current_provider else ""
+    default_model = str(defaults.get(provider_id) or "")
+    model_ids = [str(model_id) for model_id, model in models.items() if opencode_model_is_selectable(model)]
+    model_ids.sort(key=lambda model_id: (model_id not in {current_model, default_model}, model_id))
+    model_choices = []
+    for model_id in model_ids:
+        model = models[model_id]
+        model_name = str(model.get("name") or "")
+        title = f"{model_id} — {model_name}" if model_name and model_name != model_id else model_id
+        markers = []
+        if opencode_model_is_free(provider_id, model_id, model):
+            markers.append("free")
+        if model_id == default_model:
+            markers.append("default")
+        if markers:
+            title += f"  ({', '.join(markers)})"
+        model_choices.append(Choice(title=title, value=model_id))
+    model_choices.append(Choice(title="back", value="back"))
+    selected_default = None
+    if current_model in model_ids:
+        selected_default = current_model
+    elif default_model in model_ids:
+        selected_default = default_model
+    model_id = questionary.select(
+        " > opencode model",
+        choices=model_choices,
+        default=selected_default,
+        pointer=">",
+        qmark="",
+        style=style,
+        use_search_filter=True,
+        use_jk_keys=False,
+    ).ask()
+    if model_id is None or model_id == "back":
+        return None
+    return str(provider_id), str(model_id)
 
 
 # Schema version for --json outputs. Wrappers can query it via
@@ -979,6 +1154,12 @@ def repl_loop():
 
 
 def handle_settings(mode_color=THEME_PRIMARY):
+    """Keep the settings menu open until the user explicitly goes back."""
+    while _handle_settings_action(mode_color):
+        pass
+
+
+def _handle_settings_action(mode_color=THEME_PRIMARY) -> bool:
     """Display and manage settings with improved layout and descriptions."""
     from rich.table import Table
 
@@ -1008,8 +1189,7 @@ def handle_settings(mode_color=THEME_PRIMARY):
         Choice(title="Copilot Model", value="copilot_model"),
         Choice(title="Cursor Model", value="cursor_model"),
         Choice(title="Cursor Web Search", value="cursor_web_search"),
-        Choice(title="OpenCode Model", value="opencode_model"),
-        Choice(title="OpenCode Provider", value="opencode_provider"),
+        Choice(title="OpenCode Provider / Model", value="opencode_pair"),
         Choice(title="Output Directory", value="output_dir"),
         Choice(title="Output Language", value="output_language"),
         Choice(title="Real-time Sync", value="real_time_sync"),
@@ -1033,7 +1213,7 @@ def handle_settings(mode_color=THEME_PRIMARY):
     ).ask()
 
     if action is None or action == "back":
-        return  # Exit settings to main prompt
+        return False  # Exit settings to main prompt
 
     if action == "claude_code_model":
         model_choices = [Choice(title=c["name"].lower(), value=c["value"]) for c in get_model_choices()]
@@ -1162,27 +1342,12 @@ def handle_settings(mode_color=THEME_PRIMARY):
                 console.print(" [dim]avoid browsing sensitive sites while the agent is active.[/dim]")
             console.print()
 
-    elif action == "opencode_provider":
-        current = config_manager.get("opencode_provider", "anthropic")
-        new_provider = questionary.text(
-            " > opencode provider",
-            default=current or "anthropic",
-            instruction="(e.g., 'anthropic', 'openai', 'google')",
-            qmark="",
-            style=questionary.Style(
-                [
-                    ("question", f"fg:{THEME_SECONDARY}"),
-                    ("instruction", f"fg:{THEME_DIM} italic"),
-                ]
-            ),
-        ).ask()
-        if new_provider is not None:
-            new_provider = new_provider.strip()
-            if not new_provider:
-                console.print(" [yellow]error:[/yellow] opencode provider cannot be empty\n")
-            else:
-                config_manager.set("opencode_provider", new_provider)
-                console.print(f" [dim]updated[/dim] opencode provider: {new_provider}\n")
+    elif action == "opencode_pair":
+        pair = _select_opencode_pair_for_settings(mode_color)
+        if pair is not None:
+            provider_id, model_id = pair
+            config_manager.update({"opencode_provider": provider_id, "opencode_model": model_id})
+            console.print(f" [dim]updated[/dim] opencode: {provider_id}/{model_id}\n")
 
     elif action == "copilot_model":
         current = config_manager.get("copilot_model", "gpt-5")
@@ -1249,28 +1414,6 @@ def handle_settings(mode_color=THEME_PRIMARY):
             config_manager.set("cursor_web_search", pick)
             console.print(f" [dim]updated[/dim] cursor web search: {'on' if pick else 'off'}\n")
 
-    elif action == "opencode_model":
-        current = config_manager.get("opencode_model", "claude-opus-4-6")
-        new_model = questionary.text(
-            " > opencode model",
-            default=current or "claude-opus-4-6",
-            instruction="(e.g., 'claude-sonnet-4-6', 'claude-opus-4-6')",
-            qmark="",
-            style=questionary.Style(
-                [
-                    ("question", f"fg:{THEME_SECONDARY}"),
-                    ("instruction", f"fg:{THEME_DIM} italic"),
-                ]
-            ),
-        ).ask()
-        if new_model is not None:
-            new_model = new_model.strip()
-            if not new_model:
-                console.print(" [yellow]error:[/yellow] opencode model cannot be empty\n")
-            else:
-                config_manager.set("opencode_model", new_model)
-                console.print(f" [dim]updated[/dim] opencode model: {new_model}\n")
-
     elif action == "real_time_sync":
         current = config_manager.get("real_time_sync", True)
         sync_choices = [
@@ -1312,6 +1455,8 @@ def handle_settings(mode_color=THEME_PRIMARY):
         if new_dir is not None:
             config_manager.set("output_dir", new_dir if new_dir.strip() else None)
             console.print(" [dim]updated[/dim] output directory\n")
+
+    return True
 
 
 def handle_history(mode_color=THEME_PRIMARY):
@@ -1940,8 +2085,8 @@ def run_auto_capture(
                 prompt=prompt,
                 output_dir=output_dir,
                 agent_provider=agent_provider,
-                opencode_provider=config_manager.get("opencode_provider", "anthropic"),
-                opencode_model=model or config_manager.get("opencode_model", "claude-opus-4-6"),
+                opencode_provider=config_manager.get("opencode_provider", DEFAULT_OPENCODE_PROVIDER),
+                opencode_model=model or config_manager.get("opencode_model", DEFAULT_OPENCODE_MODEL),
                 enable_sync=config_manager.get("real_time_sync", False),
                 sdk=sdk,
                 output_language=output_language,
@@ -2257,8 +2402,8 @@ def run_engineer(
             model=model,
             output_dir=output_dir,
             sdk=sdk,
-            opencode_provider=config_manager.get("opencode_provider", "anthropic"),
-            opencode_model=config_manager.get("opencode_model", "claude-opus-4-6"),
+            opencode_provider=config_manager.get("opencode_provider", DEFAULT_OPENCODE_PROVIDER),
+            opencode_model=config_manager.get("opencode_model", DEFAULT_OPENCODE_MODEL),
             enable_sync=enable_sync,
             additional_instructions=additional_instructions,
             is_fresh=is_fresh,

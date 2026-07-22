@@ -48,8 +48,8 @@ The full default config:
   "cursor_web_search": true,
   "cursor_setting_sources": null,
   "copilot_model": "gpt-5",
-  "opencode_model": "claude-opus-4-6",
-  "opencode_provider": "anthropic",
+  "opencode_model": "big-pickle",
+  "opencode_provider": "opencode",
   "output_dir": null,
   "output_language": "python",
   "real_time_sync": true,
@@ -59,9 +59,15 @@ The full default config:
 
 ## OpenCode users
 
-If you've configured the OpenCode SDK, see [models.dev](https://models.dev)
-for the available model IDs. Set them via the `opencode_model` and
-`opencode_provider` keys in the config.
+If you've configured the OpenCode SDK, choose **OpenCode Provider / Model** in
+`/settings`. RAE loads the connected providers and active tool-capable models
+from your OpenCode server, marks free OpenCode options, and saves the pair
+together. Advanced users can still edit the `opencode_model` and
+`opencode_provider` keys directly.
+
+For Ollama, set `opencode_provider` to `ollama`. The `/settings` flow discovers
+installed models and only offers those that report tool calling plus the 64k
+context OpenCode requires. RAE does not pull models automatically.
 
 ## Copilot and Cursor users
 

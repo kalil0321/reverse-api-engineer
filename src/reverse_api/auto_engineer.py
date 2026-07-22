@@ -378,24 +378,7 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
         try:
             auth = self._get_auth()
             async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=600.0, auth=auth) as client:
-                try:
-                    health_r = await client.get("/global/health")
-                    health_r.raise_for_status()
-                    health = health_r.json()
-                    self.opencode_ui.health_check(health)
-                except httpx.HTTPStatusError as e:
-                    if e.response.status_code == 401:
-                        debug_log(f"Health check failed: Authentication required")
-                        self.opencode_ui.error("Authentication failed. OpenCode server requires a password.")
-                        self.opencode_ui.console.print("\n[dim]Please set OPENCODE_SERVER_PASSWORD environment variable[/dim]")
-                        if self.opencode_username != "opencode":
-                            self.opencode_ui.console.print(f"[dim]Username: {self.opencode_username}[/dim]")
-                        return None
-                    raise
-                except Exception as e:
-                    debug_log(f"Health check failed: {e}")
-                    self.opencode_ui.error(f"OpenCode server not responding. Is it running on {self.BASE_URL}?")
-                    self.opencode_ui.console.print("\n[dim]Please run: opencode serve[/dim]")
+                if not await self._prepare_server(client):
                     return None
 
                 # Create session first
@@ -440,7 +423,6 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
                     await asyncio.wait_for(event_task, timeout=600.0)
                 except TimeoutError:
                     self._last_error = "Session timed out (10 min)"
-                    self.opencode_ui.error(self._last_error)
 
                 # Stop streaming UI
                 self.opencode_ui.stop_streaming()
@@ -496,7 +478,7 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 401:
-                self.opencode_ui.error("Authentication failed. OpenCode server requires a password.")
+                self.opencode_ui.error("Authentication failed. OpenCode server requires a password.", unexpected=False)
                 self.opencode_ui.console.print("\n[dim]Please set OPENCODE_SERVER_PASSWORD environment variable[/dim]")
                 if self.opencode_username != "opencode":
                     self.opencode_ui.console.print(f"[dim]Username: {self.opencode_username}[/dim]")

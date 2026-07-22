@@ -1,6 +1,7 @@
 """Utility functions for run ID generation and path management."""
 
 import asyncio
+import os
 import platform
 import re
 import uuid
@@ -151,26 +152,37 @@ async def _generate_folder_name_opencode_async(prompt: str, session_id: str = No
     """
     import json
 
-    import httpx
+    from .config import DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_PROVIDER, ConfigManager
+    from .ollama_runtime import opencode_ollama_env, prepare_ollama_model, validate_opencode_ollama_provider
+    from .opencode_runtime import ensure_opencode_server, opencode_base_url, validate_opencode_model
 
-    from .config import ConfigManager
-
-    BASE_URL = "http://127.0.0.1:4096"
+    base_url = opencode_base_url()
 
     # Get config for provider and model
     config_manager = ConfigManager(get_config_path())
-    opencode_provider = config_manager.get("opencode_provider", "anthropic")
-    opencode_model = config_manager.get("opencode_model", "claude-opus-4-6")
+    opencode_provider = config_manager.get("opencode_provider", DEFAULT_OPENCODE_PROVIDER)
+    opencode_model = config_manager.get("opencode_model", DEFAULT_OPENCODE_MODEL)
 
     from .prompts import FOLDER_NAME_PROMPT
 
     folder_prompt = FOLDER_NAME_PROMPT.format(prompt=prompt)
 
-    async with httpx.AsyncClient(base_url=BASE_URL, timeout=15.0) as client:
+    password = os.environ.get("OPENCODE_SERVER_PASSWORD")
+    username = os.environ.get("OPENCODE_SERVER_USERNAME", "opencode")
+    auth = httpx.BasicAuth(username, password) if password else None
+
+    async with httpx.AsyncClient(base_url=base_url, timeout=15.0, auth=auth) as client:
         try:
-            await client.get("/global/health")
+            env_overrides: dict[str, str] = {}
+            if opencode_provider == "ollama":
+                ollama_setup = await prepare_ollama_model(opencode_model)
+                env_overrides = opencode_ollama_env(ollama_setup)
+            await ensure_opencode_server(client, base_url=base_url, env_overrides=env_overrides)
+            if opencode_provider == "ollama":
+                await validate_opencode_ollama_provider(client, opencode_model)
+            await validate_opencode_model(client, opencode_provider, opencode_model)
         except Exception as e:
-            raise Exception("OpenCode server not responding") from e
+            raise Exception(f"OpenCode server not responding: {e}") from e
 
         session_created = False
         if session_id is None:

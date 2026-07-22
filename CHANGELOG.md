@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **OpenCode setup**: RAE now reuses an existing server or downloads/starts `opencode-ai@latest` through `npx` without requiring a global OpenCode install, with configurable auto-start, package, and base URL settings plus password inheritance. Fresh configurations default to free `opencode/big-pickle`. Provider/model pairs are validated before session creation, invalid configurations include current free-model suggestions, and older compatible servers show an upgrade warning. `/settings` shows a loading spinner, uses a live searchable provider/model picker, saves the pair atomically, and remains open across related changes until Back is selected.
+- **Ollama setup**: OpenCode mode can discover tool-capable Ollama models, start an installed daemon, and inject provider configuration without modifying the user's `opencode.json`.
+
 ### Fixed
+- **OpenCode permissions**: Permission V2 events now reply through OpenCode's current, non-deprecated permission endpoint while retaining compatibility with older servers.
+- **OpenCode errors**: Known authentication, model configuration, and temporary provider-availability failures now produce one actionable message without the unexpected-error issue prompt.
+- **OpenCode TUI prompt echo**: Streamed text is now restricted to assistant message IDs, preventing RAE's internal browser and reverse-engineering instructions from appearing as model output.
 - **`run`/`list` now work for every output language**: `discover_scripts()` previously only found `.py` files, so `reverse-api-engineer run <run_id>` failed with "No Python scripts found" for JS/TS/Go/Java/C#/PHP/Ruby/C clients. Discovery now covers all supported extensions (excluding build dirs and the vendored cJSON sources), and the run command dispatches to the right toolchain per language (compile+execute for C), with a clear error when the required tool isn't on PATH.
 - **Windows-safe run-command quoting**: the Java/C#/PHP/Ruby/C run commands quoted paths with POSIX-only `shlex.quote`, which cmd.exe/PowerShell parse incorrectly for paths containing spaces. Paths are now quoted per-platform (`subprocess.list2cmdline` on Windows).
 
