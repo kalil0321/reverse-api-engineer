@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-22
+
 ### Changed
 - **OpenCode setup**: RAE now reuses an existing server or downloads/starts `opencode-ai@latest` through `npx` without requiring a global OpenCode install, with configurable auto-start, package, and base URL settings plus password inheritance. Fresh configurations default to free `opencode/big-pickle`. Provider/model pairs are validated before session creation, invalid configurations include current free-model suggestions, and older compatible servers show an upgrade warning. `/settings` shows a loading spinner, uses a live searchable provider/model picker, saves the pair atomically, and remains open across related changes until Back is selected.
 - **Ollama setup**: OpenCode mode can discover tool-capable Ollama models, start an installed daemon, and inject provider configuration without modifying the user's `opencode.json`.
