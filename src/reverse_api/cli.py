@@ -1841,6 +1841,20 @@ def run_manual_capture(prompt=None, url=None, reverse_engineer=True, model=None,
     """Shared logic for manual capture."""
     output_dir = output_dir or config_manager.get("output_dir")
 
+    # Manual mode drives a local Playwright browser, which ships in the optional
+    # [manual] extra. Fail fast — before prompting the user or recording a run —
+    # so a base-only install never leaves a phantom "manual" run in history.
+    try:
+        from .browser import ManualBrowser
+    except ImportError as exc:
+        raise click.ClickException(
+            "Manual capture mode requires the Playwright browser stack, which is "
+            "not installed by default. Install it with:\n\n"
+            "    pip install 'reverse-api-engineer[manual]'\n"
+            "    playwright install chromium\n\n"
+            "(Agent mode does not need this.)"
+        ) from exc
+
     if prompt is None:
         options = prompt_interactive_options(
             prompt=prompt,
@@ -1870,16 +1884,6 @@ def run_manual_capture(prompt=None, url=None, reverse_engineer=True, model=None,
         sdk=sdk,
         paths={"har_dir": str(get_har_dir(run_id, output_dir))},
     )
-
-    try:
-        from .browser import ManualBrowser
-    except ImportError as exc:
-        raise click.ClickException(
-            "Manual capture mode requires the Playwright browser stack, which is "
-            "not installed by default. Install it with:\n\n"
-            "    pip install 'reverse-api-engineer[manual]'\n\n"
-            "(Agent mode does not need this.)"
-        ) from exc
 
     browser = ManualBrowser(run_id=run_id, prompt=prompt, output_dir=output_dir)
     har_path = browser.start(start_url=url)
