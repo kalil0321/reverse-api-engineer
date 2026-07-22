@@ -55,6 +55,35 @@ public final class FlowStore {
         flows.first(where: { $0.id == id })
     }
 
+    /// Remove the given flows from both the in-memory list and the database.
+    /// Safe to call with empty/unknown ids. Bails out without touching the
+    /// in-memory list if the database delete fails so the two sides don't
+    /// drift apart silently — caller can retry.
+    public func delete(ids: Set<UUID>) async {
+        guard !ids.isEmpty else { return }
+        let snapshot = generation.bump()
+        let database = self.database
+        let stringIDs = ids.map { $0.uuidString }
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                try await database.write { db in
+                    _ = try PersistedFlow
+                        .filter(stringIDs.contains(PersistedFlow.Columns.id))
+                        .deleteAll(db)
+                }
+            }.value
+        } catch {
+            logger.error("failed to delete \(ids.count) flow(s): \(error)")
+            return
+        }
+        guard generation.value == snapshot else { return }
+        let removed = flows.filter { ids.contains($0.id) }
+        flows.removeAll { ids.contains($0.id) }
+        for flow in removed {
+            updateFilterOptions(removing: flow)
+        }
+    }
+
     private func handle(_ event: FlowEvent) {
         switch event {
         case .started(let flow):
