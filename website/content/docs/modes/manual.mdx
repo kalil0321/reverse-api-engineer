@@ -11,6 +11,16 @@ Manual mode runs the full pipeline with you in the driver's seat.
   caption="Drive the browser yourself, get a client when you're done."
 />
 
+<Callout type="info" title="Requires the browser extra">
+Manual mode drives a local Playwright browser, which ships in the optional
+`[manual]` extra (agent mode doesn't need it). Install it once:
+
+```bash
+uv tool install "reverse-api-engineer[manual]"   # or: pip install "reverse-api-engineer[manual]"
+playwright install chromium
+```
+</Callout>
+
 ## How it works
 
 <Steps>

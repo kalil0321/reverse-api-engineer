@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Playwright is now an optional `[manual]` extra**: agent mode (the default) captures through browser MCP servers over `npx` and never imports the Python Playwright package, so `playwright` and `playwright-stealth` moved out of the base dependencies into a `[manual]` optional-dependency group. This keeps the base install (and any runtime that bundles the package) lightweight. Manual capture mode now requires `pip install "reverse-api-engineer[manual]"`; running it without the extra prints an actionable install hint instead of an import error.
+
 ## [0.11.0] - 2026-07-22
 
 ### Changed

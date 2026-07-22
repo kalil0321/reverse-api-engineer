@@ -41,6 +41,14 @@ No more manually opening DevTools, copying cURL commands, and gluing together a 
 
 ```bash
 uv tool install reverse-api-engineer   # or: pip install reverse-api-engineer
+```
+
+Agent mode (the default) captures through browser MCP servers over `npx` and
+needs no extra Python packages. **Manual mode** drives a local Playwright
+browser, which ships in the optional `[manual]` extra:
+
+```bash
+uv tool install "reverse-api-engineer[manual]"   # or: pip install "reverse-api-engineer[manual]"
 playwright install chromium
 ```
 
@@ -177,7 +185,7 @@ uv sync
 uv run reverse-api-engineer
 ```
 
-Build: `./scripts/clean_build.sh`. Requires Python 3.11+, Playwright browsers, and an API key for agent mode.
+Build: `./scripts/clean_build.sh`. Requires Python 3.11+ and an API key for agent mode. Manual mode additionally needs the `[manual]` extra plus `playwright install chromium`.
 
 ## License
 

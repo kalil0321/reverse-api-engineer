@@ -1,6 +1,6 @@
 ---
 title: Installation
-description: Install Reverse API Engineer with uv or pip, then set up Playwright browsers.
+description: Install Reverse API Engineer with uv or pip; add the [manual] extra for manual-mode capture.
 ---
 
 <Callout type="info" title="What you'll need">
@@ -28,13 +28,27 @@ description: Install Reverse API Engineer with uv or pip, then set up Playwright
   </Tab>
 </Tabs>
 
-## Install Playwright browsers
+## Manual mode: install the browser stack
 
-This downloads the Chromium build that powers manual and agent capture:
+Agent mode (the default) drives capture through browser MCP servers over `npx`
+and needs no extra Python packages. **Manual mode** drives a local Playwright
+browser, which ships in the optional `[manual]` extra. Install the extra, then
+download the Chromium build:
 
-```bash
-playwright install chromium
-```
+<Tabs items={['uv (recommended)', 'pip']}>
+  <Tab value="uv (recommended)">
+    ```bash
+    uv tool install "reverse-api-engineer[manual]"
+    playwright install chromium
+    ```
+  </Tab>
+  <Tab value="pip">
+    ```bash
+    pip install "reverse-api-engineer[manual]"
+    playwright install chromium
+    ```
+  </Tab>
+</Tabs>
 
 ## Verify the install
 

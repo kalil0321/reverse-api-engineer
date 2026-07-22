@@ -12,8 +12,8 @@ Thank you for your interest in contributing! This document provides guidelines a
 
 2. **Install dependencies**
    ```bash
-   uv sync
-   playwright install chromium
+   uv sync --all-extras
+   playwright install chromium   # for manual-mode capture (Playwright ships in the [manual] extra)
    ```
 
 3. **Run locally**
