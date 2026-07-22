@@ -25,6 +25,8 @@ DEFAULT_CONFIG = {
     "opencode_auto_start": True,
     "opencode_base_url": "http://127.0.0.1:4096",
     "opencode_npx_package": "opencode-ai@latest",
+    "ollama_auto_start": True,
+    "ollama_base_url": "http://127.0.0.1:11434",
     "output_dir": None,  # None means use ~/.reverse-api/runs
     "output_language": "python",  # "python", "javascript", "typescript", "go", "java", "csharp", "php", "ruby", or "c"
     "real_time_sync": True,  # Enable real-time file sync during engineering

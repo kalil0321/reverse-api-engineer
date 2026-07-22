@@ -156,6 +156,8 @@ class TestDefaultConfig:
             "opencode_auto_start",
             "opencode_base_url",
             "opencode_npx_package",
+            "ollama_auto_start",
+            "ollama_base_url",
             "output_dir",
             "output_language",
             "real_time_sync",
@@ -176,3 +178,5 @@ class TestDefaultConfig:
         assert DEFAULT_CONFIG["opencode_model"] == "big-pickle"
         assert DEFAULT_CONFIG["opencode_auto_start"] is True
         assert DEFAULT_CONFIG["opencode_npx_package"] == "opencode-ai@latest"
+        assert DEFAULT_CONFIG["ollama_auto_start"] is True
+        assert DEFAULT_CONFIG["ollama_base_url"] == "http://127.0.0.1:11434"

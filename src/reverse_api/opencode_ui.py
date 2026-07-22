@@ -53,6 +53,11 @@ class OpenCodeUI:
         """Display a concise warning for an older or unknown server version."""
         self.console.print(f"  [yellow]warning:[/yellow] {message}")
 
+    def ollama_ready(self, model: str, started: bool = False) -> None:
+        """Display the validated Ollama model and daemon state."""
+        action = "started" if started else "connected"
+        self.console.print(f"  [dim]ollama: {action}, using {model}[/dim]")
+
     def session_created(self, session_id: str) -> None:
         """Display session creation."""
         self.console.print(f"  [dim]session: {session_id[:16]}...[/dim]")

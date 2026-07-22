@@ -72,6 +72,14 @@ class TestOpenCodeUI:
         assert "warning:" in output
         assert "older than the tested version" in output
 
+    def test_ollama_ready(self):
+        """Ollama status shows whether RAE started or reused the daemon."""
+        ui, console = self._make_ui()
+        ui.ollama_ready("qwen3:4b", started=True)
+        output = console.file.getvalue()
+        assert "started" in output
+        assert "qwen3:4b" in output
+
     def test_session_created(self):
         """Session created shows truncated ID."""
         ui, console = self._make_ui()

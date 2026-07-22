@@ -65,6 +65,10 @@ from your OpenCode server, marks free OpenCode options, and saves the pair
 together. Advanced users can still edit the `opencode_model` and
 `opencode_provider` keys directly.
 
+For Ollama, set `opencode_provider` to `ollama`. The `/settings` flow discovers
+installed models and only offers those that report tool calling plus the 64k
+context OpenCode requires. RAE does not pull models automatically.
+
 ## Copilot and Cursor users
 
 Copilot uses `copilot_model` (default `gpt-5`). Cursor uses `cursor_model`

@@ -57,6 +57,36 @@ include valid alternatives plus currently exposed free, tool-capable models.
 Existing compatible servers are reused; versions older than RAE's tested
 OpenCode release display an upgrade warning.
 
+### Ollama through OpenCode
+
+In `/settings`, set the OpenCode provider to `ollama`. RAE connects to the
+configured Ollama daemon (default `http://127.0.0.1:11434`) and offers the
+installed models that advertise tool calling and at least 64k context. Picking
+one updates both `opencode_provider` and `opencode_model`.
+
+```json
+{
+  "sdk": "opencode",
+  "opencode_provider": "ollama",
+  "opencode_model": "qwen3.5",
+  "ollama_auto_start": true,
+  "ollama_base_url": "http://127.0.0.1:11434"
+}
+```
+
+RAE reuses a running Ollama daemon or starts `ollama serve` when the CLI is
+installed. It passes an inline provider definition to an auto-started OpenCode
+server, so it does not overwrite `opencode.json`. If you run OpenCode yourself,
+that existing server must already expose the selected Ollama model; RAE reports
+the exact remediation when it does not.
+
+Model downloads are intentionally explicit because they can consume many
+gigabytes: run `ollama pull <model>` yourself, then select it. Override daemon
+discovery with `RAE_OLLAMA_BASE_URL` and disable startup with
+`RAE_OLLAMA_AUTO_START=0`. See Ollama's
+[OpenCode integration](https://docs.ollama.com/integrations/opencode) for the
+upstream context-window guidance.
+
 ## Copilot
 
 Uses the GitHub Copilot SDK when the optional Copilot dependency and token are
