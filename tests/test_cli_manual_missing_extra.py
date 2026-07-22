@@ -6,11 +6,14 @@ base-only install, entering manual mode must raise an actionable install hint
 history that later "operate on the latest run" flows could target.
 """
 
+import io
 import sys
 from unittest.mock import MagicMock, patch
 
 import click
 import pytest
+from rich.console import Console
+from rich.markup import escape
 
 from reverse_api.cli import run_manual_capture
 
@@ -41,3 +44,17 @@ class TestManualModeMissingExtra:
     def test_records_no_run(self):
         _, mock_session = self._run()
         mock_session.add_run.assert_not_called()
+
+    def test_extra_name_survives_rich_rendering(self):
+        """The CLI prints errors through Rich, which parses `[manual]` as a
+        markup tag and would drop it — leaving `pip install
+        'reverse-api-engineer'` (wrong). The render path must escape the message
+        so the extra name reaches the user intact.
+        """
+        err, _ = self._run()
+        buf = io.StringIO()
+        # Mirror the REPL error handler: exception text into a markup string.
+        Console(file=buf, force_terminal=False, no_color=True).print(
+            f" [red]error:[/red] {escape(str(err))}"
+        )
+        assert "reverse-api-engineer[manual]" in buf.getvalue()

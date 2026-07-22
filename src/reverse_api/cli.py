@@ -17,6 +17,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style as PtStyle
 from questionary import Choice
 from rich.console import Console
+from rich.markup import escape
 
 from . import __version__
 from .config import DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_PROVIDER, ConfigManager
@@ -69,7 +70,7 @@ def _select_ollama_model_for_settings() -> str | None:
     try:
         status = asyncio.run(ensure_ollama_models())
     except OllamaSetupError as e:
-        console.print(f" [yellow]error:[/yellow] {e}\n")
+        console.print(f" [yellow]error:[/yellow] {escape(str(e))}\n")
         return None
 
     models = status.compatible_models
@@ -153,7 +154,7 @@ def _select_opencode_pair_for_settings(mode_color=THEME_PRIMARY) -> tuple[str, s
                 "Set OPENCODE_SERVER_PASSWORD (and OPENCODE_SERVER_USERNAME when customized).\n"
             )
         else:
-            console.print(f" [yellow]error:[/yellow] could not load OpenCode providers and models: {e}\n")
+            console.print(f" [yellow]error:[/yellow] could not load OpenCode providers and models: {escape(str(e))}\n")
         return None
 
     providers = [provider for provider in catalog.get("providers", []) if isinstance(provider, dict)]
@@ -1148,7 +1149,7 @@ def repl_loop():
             console.print("\n [dim]terminated[/dim]")
             return
         except Exception as e:
-            console.print(f" [red]error:[/red] {e}")
+            console.print(f" [red]error:[/red] {escape(str(e))}")
             console.print(f" [dim]{ERROR_CTA}[/dim]")
 
 
@@ -1631,7 +1632,7 @@ def handle_messages(run_id: str, mode_color=THEME_PRIMARY):
                 display += "..."
             console.print(f" [dim]{timestamp}  .. {display}[/dim]")
         elif msg_type == "error":
-            console.print(f" [dim]{timestamp}[/dim] [red]error: {content}[/red]")
+            console.print(f" [dim]{timestamp}[/dim] [red]error: {escape(str(content))}[/red]")
         elif msg_type == "result":
             console.print(f" [dim]{timestamp}[/dim] [white]complete[/white]")
             if isinstance(content, dict):
@@ -1991,7 +1992,7 @@ def run_collector(prompt=None, model=None, output_dir=None):
             )
         return result
     except Exception as e:
-        console.print(f" [red]collector error: {e}[/red]")
+        console.print(f" [red]collector error: {escape(str(e))}[/red]")
         console.print(f" [dim]{ERROR_CTA}[/dim]")
         import traceback
 
@@ -2197,7 +2198,7 @@ def run_auto_capture(
         }
 
     except Exception as e:
-        console.print(f" [red]auto mode error: {e}[/red]")
+        console.print(f" [red]auto mode error: {escape(str(e))}[/red]")
         console.print(f" [dim]{ERROR_CTA}[/dim]")
         import traceback
 
