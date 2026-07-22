@@ -8,7 +8,7 @@
 **Authentication & credentials:**
 - Hardcode all cookies, tokens, session IDs, and auth headers found in the traffic directly in the script
 - The user should be able to run the script immediately with zero configuration — no env vars, no config files, no `bundle install`
-- `net/http` has no built-in cookie jar, unlike some other languages' HTTP clients — if the API uses cookies, capture each `Set-Cookie` header's name/value and its domain, path, and secure attributes, and send back only the cookies matching a given request's origin and path in the `Cookie` header, rather than replaying every captured cookie on every request (a multi-origin trace can otherwise leak a session cookie to the wrong host or send an invalid header)
+- `net/http` has no built-in cookie jar, unlike some other languages' HTTP clients — if the API uses cookies, store each `Set-Cookie` header by name, domain, and path; enforce its secure, `Expires`, and `Max-Age` attributes; remove expired or deleted entries; and send back only cookies matching the request's origin and path in the `Cookie` header (a multi-origin trace can otherwise leak a session cookie to the wrong host or send an invalid header)
 - If the API uses Bearer tokens or API keys, hardcode them in the request headers
 - Handle auth refresh so the script doesn't go stale: if you see a token refresh endpoint, OAuth refresh flow, or login endpoint in the traffic, implement automatic re-authentication when a request returns 401/403. If cookies have expiry, re-fetch them before they expire
 
