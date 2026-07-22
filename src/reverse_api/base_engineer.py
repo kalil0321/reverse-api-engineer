@@ -33,6 +33,7 @@ class BaseEngineer(ABC):
         "python": ".py",
         "javascript": ".js",
         "typescript": ".ts",
+        "go": ".go",
     }
 
     def __init__(
@@ -439,6 +440,7 @@ class BaseEngineer(ABC):
             "python": "Python",
             "javascript": "JavaScript",
             "typescript": "TypeScript",
+            "go": "Go",
         }.get(self.output_language, "Python")
 
     def _get_existing_client_guidance(self) -> str:
@@ -467,6 +469,7 @@ class BaseEngineer(ABC):
             "python": "python api_client.py",
             "javascript": "node api_client.js",
             "typescript": "npx tsx api_client.ts",
+            "go": "go run api_client.go",
         }.get(self.output_language, "python api_client.py")
 
     def _get_codegen_instructions(self) -> str:
@@ -576,6 +579,11 @@ class BaseEngineer(ABC):
             return base + f"\n3. `{self.scripts_dir}/package.json` - Only if external dependencies are needed"
         elif self.output_language == "typescript":
             return base + f"\n3. `{self.scripts_dir}/package.json` - Dependencies and run scripts"
+        elif self.output_language == "go":
+            return base + (
+                f"\n3. `{self.scripts_dir}/go.mod` and `{self.scripts_dir}/go.sum` - "
+                "Only if external dependencies are needed"
+            )
         return base
 
     @abstractmethod
