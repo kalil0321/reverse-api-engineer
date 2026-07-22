@@ -15,7 +15,7 @@ export function GET() {
 
 > ${appTagline}
 
-${appName} is an open-source CLI that captures browser traffic with Playwright (or Chrome DevTools MCP) and uses your configured AI SDK to generate a typed Python, JavaScript, or TypeScript API client from the recorded HAR.
+${appName} is an open-source CLI that captures browser traffic with Playwright (or Chrome DevTools MCP) and uses your configured AI SDK to generate a typed API client from the recorded HAR. Output languages: Python, JavaScript, TypeScript, Go, Java, C#, PHP, Ruby, and C.
 
 ## Documentation
 

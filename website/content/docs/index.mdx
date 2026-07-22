@@ -1,12 +1,12 @@
 ---
 title: Introduction
-description: Capture browser traffic and turn it into a production-ready Python API client.
+description: Capture browser traffic and turn it into a production-ready typed API client.
 ---
 
 **Reverse API Engineer** is a CLI tool that captures browser traffic and uses
-your configured AI SDK to generate production-ready Python (or JavaScript /
-TypeScript) API clients. No more manual reverse engineering: browse, capture,
-and get clean API code.
+your configured AI SDK to generate production-ready API clients in Python,
+JavaScript, TypeScript, Go, Java, C#, PHP, Ruby, or C. No more manual reverse
+engineering: browse, capture, and get clean API code.
 
 <Demo
   src="https://raw.githubusercontent.com/kalil0321/reverse-api-engineer/main/assets/rae-autoscout.gif"
@@ -16,7 +16,7 @@ and get clean API code.
 
 <Cards>
   <Card title="Install" href="/docs/installation" description="Get the CLI running in under a minute." />
-  <Card title="Quick start" href="/docs/quick-start" description="From install to a working Python client." />
+  <Card title="Quick start" href="/docs/quick-start" description="From install to a working API client." />
   <Card title="Usage modes" href="/docs/modes/manual" description="Agent, Manual, Engineer, Collector." />
   <Card title="Configuration" href="/docs/configuration/models" description="Models, providers, SDKs, output." />
 </Cards>
@@ -84,7 +84,7 @@ time the run ends, the client is already generated.
 The HAR is fed to your configured SDK model (Claude by default) along with a
 tuned system prompt. Output:
 
-- Typed Python (or TS / JS) clients with docstrings.
+- Typed clients with language-appropriate documentation.
 - Authentication handling: cookies, bearers, CSRF tokens.
 - Pagination helpers, error types, retry-safe operations.
 - A runnable `example_usage.*` and a generated `README.md`.
@@ -114,10 +114,11 @@ Generated scripts include type hints, structured error handling, and inline
 documentation. They're not "demo" snippets; they're meant to be checked into
 your codebase and called from production.
 
-### Output in Python, JavaScript, or TypeScript
+### Output in nine languages
 
-Switch the target language in `/settings`. Same capture, different code.
-Useful when you want the same API client surfaced to multiple stacks.
+Switch between Python, JavaScript, TypeScript, Go, Java, C#, PHP, Ruby, and C
+in `/settings`. Same capture, different code. Useful when you want the same API
+client surfaced to multiple stacks.
 
 ## Limitations
 

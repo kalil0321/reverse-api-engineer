@@ -5,11 +5,17 @@ description: Choose the generated client's language and control real-time file s
 
 ## Output language
 
-Generated API clients can be emitted in three languages:
+Generated API clients can be emitted in nine languages:
 
 - **python** *(default)*
 - **javascript**
 - **typescript**
+- **go**
+- **java**
+- **csharp** (C#)
+- **php**
+- **ruby**
+- **c**
 
 Change it in the CLI:
 
@@ -27,6 +33,11 @@ Or in `~/.reverse-api/config.json`:
 
 The generated examples (`example_usage.*`) and README also adapt to the
 chosen language.
+
+Running a generated client requires that language's toolchain. The CLI uses
+Node.js for JavaScript, `npx tsx` for TypeScript, Go, Maven, .NET, PHP, or Ruby
+as appropriate. C output requires a compiler plus libcurl headers (macOS/Linux,
+or WSL/MSYS2 on Windows).
 
 ## Real-time sync
 

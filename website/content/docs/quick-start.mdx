@@ -33,7 +33,8 @@ description: From a fresh install to a working API client in under five minutes.
     The CLI opens a Chromium window. You browse, click, scroll, search:
     whatever exercises the requests you care about. Close the window when
     done. The AI takes over: it reads the HAR file, identifies the API
-    surface, and emits a typed Python client.
+    surface, and emits a typed client in your configured output language
+    (Python by default).
 
     <Demo
       src="https://raw.githubusercontent.com/kalil0321/reverse-api-engineer/main/assets/reverse-api-engineer.gif"
@@ -45,7 +46,7 @@ description: From a fresh install to a working API client in under five minutes.
   <Step>
     ### Read the output
 
-    Generated scripts are saved in two places:
+    With the default Python output, generated scripts are saved in two places:
 
     <Files>
       <Folder name="~/.reverse-api/runs/scripts/{run_id}" defaultOpen>
@@ -67,7 +68,8 @@ description: From a fresh install to a working API client in under five minutes.
   <Step>
     ### Run the generated client
 
-    The generated script is just Python. Run it like any other:
+    With the default output, the generated script is plain Python. Run it like
+    any other:
 
     ```bash
     python scripts/apple_jobs_api/example_usage.py
@@ -79,6 +81,10 @@ description: From a fresh install to a working API client in under five minutes.
     reverse-api-engineer run <run_id> --file api_client.py \
       --json --auto-install
     ```
+
+    The CLI runner also dispatches JavaScript, TypeScript, Go, Java, C#, PHP,
+    Ruby, and C clients through their installed toolchains. See
+    [Output language & sync](/docs/configuration/output).
   </Step>
 </Steps>
 
@@ -86,6 +92,6 @@ description: From a fresh install to a working API client in under five minutes.
 
 <Cards>
   <Card title="Modes in depth" href="/docs/modes/manual" description="When to use Agent, Manual, Engineer, or Collector." />
-  <Card title="Configure your model" href="/docs/configuration/models" description="Pick between Sonnet, Opus, Haiku." />
+  <Card title="Configure your model" href="/docs/configuration/models" description="Choose the model for your selected SDK." />
   <Card title="Scripted usage" href="/docs/cli/scripted-usage" description="Run from another agent with --json output." />
 </Cards>

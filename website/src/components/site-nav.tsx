@@ -17,7 +17,7 @@ export function SiteNav() {
       className="sticky top-0 z-50 backdrop-blur-xl backdrop-saturate-150"
       style={{ backgroundColor: 'color-mix(in oklch, var(--color-cream) 58%, transparent)' }}
     >
-      <div className="mx-auto max-w-7xl px-6 lg:px-10 h-14 flex items-center justify-between">
+      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-10">
         <Link href="/" className="flex items-baseline gap-1.5 group">
           <span
             className="font-display select-none leading-none inline-block italic transition-transform group-hover:rotate-12"
