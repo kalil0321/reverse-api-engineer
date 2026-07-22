@@ -15,6 +15,7 @@
 
 **Testing:**
 - If a module was initialized, first run: `go mod tidy`
+- Format the code with: `gofmt -w {client_filename}`
 - Run with: `{run_command}`
 - You have up to 5 attempts to fix issues
 
