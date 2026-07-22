@@ -5,17 +5,8 @@ import NIOPosix
 import NIOHTTP1
 import NIOSSL
 
-struct UpstreamResponse: Sendable {
-    let status: HTTPResponseStatus
-    let version: HTTPVersion
-    let headers: HTTPHeaders
-    let body: ByteBuffer
-}
-
 enum UpstreamError: Error {
     case connectionClosed
-    case missingResponse
-    case unexpected(String)
 }
 
 actor UpstreamPump {
@@ -27,17 +18,24 @@ actor UpstreamPump {
         self.logger = logger
     }
 
-    func send(
+    func forward(
         scheme: CapturedFlow.Scheme,
         host: String,
         port: Int,
         method: HTTPMethod,
         uri: String,
         headers: HTTPHeaders,
-        body: ByteBuffer
-    ) async throws -> UpstreamResponse {
-        let collector = ResponseCollector()
-        let resultTask = Task { try await collector.awaitResponse() }
+        body: ByteBuffer,
+        downstream: Channel,
+        initialFlow: CapturedFlow,
+        maxCaptureBodyBytes: Int
+    ) async throws -> CapturedFlow {
+        let forwarder = StreamingResponseForwarder(
+            downstream: downstream,
+            initialFlow: initialFlow,
+            maxCaptureBodyBytes: maxCaptureBodyBytes
+        )
+        let resultTask = Task { try await forwarder.awaitResponse() }
 
         let bootstrap = ClientBootstrap(group: group)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
@@ -46,7 +44,7 @@ actor UpstreamPump {
         do {
             channel = try await bootstrap.connect(host: host, port: port).get()
         } catch {
-            collector.cancel(with: error)
+            forwarder.cancel(with: error)
             resultTask.cancel()
             throw error
         }
@@ -63,7 +61,7 @@ actor UpstreamPump {
             }
 
             try await channel.pipeline.addHTTPClientHandlers().get()
-            try await channel.pipeline.addHandler(collector).get()
+            try await channel.pipeline.addHandler(forwarder).get()
 
             var requestHeaders = headers
             requestHeaders.replaceOrAdd(name: "Host", value: hostHeaderValue(host: host, port: port, scheme: scheme))
@@ -83,21 +81,20 @@ actor UpstreamPump {
             }
             try await channel.writeAndFlush(HTTPClientRequestPart.end(nil)).get()
         } catch {
-            collector.cancel(with: error)
+            forwarder.cancel(with: error)
             try? await channel.close().get()
             throw error
         }
 
         do {
-            let response = try await resultTask.value
+            let flow = try await resultTask.value
             try? await channel.close().get()
-            return response
+            return flow
         } catch {
             try? await channel.close().get()
             throw error
         }
     }
-
     private func hostHeaderValue(host: String, port: Int, scheme: CapturedFlow.Scheme) -> String {
         let bracketed = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
         switch (scheme, port) {
@@ -107,22 +104,31 @@ actor UpstreamPump {
     }
 }
 
-private final class ResponseCollector: ChannelInboundHandler, @unchecked Sendable {
+private final class StreamingResponseForwarder: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = HTTPClientResponsePart
 
     private struct State {
-        var head: HTTPResponseHead?
+        var flow: CapturedFlow
         var body: ByteBuffer = ByteBufferAllocator().buffer(capacity: 0)
-        var continuation: CheckedContinuation<UpstreamResponse, Error>?
-        var result: Result<UpstreamResponse, Error>?
+        var continuation: CheckedContinuation<CapturedFlow, Error>?
+        var result: Result<CapturedFlow, Error>?
         var settled = false
+        var capturedBytes = 0
     }
 
-    private let lock = NIOLockedValueBox<State>(State())
+    private let downstream: Channel
+    private let maxCaptureBodyBytes: Int
+    private let lock: NIOLockedValueBox<State>
 
-    func awaitResponse() async throws -> UpstreamResponse {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<UpstreamResponse, Error>) in
-            let pending: Result<UpstreamResponse, Error>? = lock.withLockedValue { state in
+    init(downstream: Channel, initialFlow: CapturedFlow, maxCaptureBodyBytes: Int) {
+        self.downstream = downstream
+        self.maxCaptureBodyBytes = max(1024, maxCaptureBodyBytes)
+        self.lock = NIOLockedValueBox(State(flow: initialFlow))
+    }
+
+    func awaitResponse() async throws -> CapturedFlow {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CapturedFlow, Error>) in
+            let pending: Result<CapturedFlow, Error>? = lock.withLockedValue { state in
                 if state.settled, let result = state.result {
                     return result
                 }
@@ -146,24 +152,53 @@ private final class ResponseCollector: ChannelInboundHandler, @unchecked Sendabl
         switch unwrapInboundIn(data) {
         case .head(let head):
             lock.withLockedValue { state in
-                state.head = head
+                state.flow.responseStatus = Int(head.status.code)
+                state.flow.responseHeaders = head.headers.map { HTTPHeader($0.name, $0.value) }
             }
+
+            var responseHead = HTTPResponseHead(version: head.version, status: head.status, headers: head.headers)
+            responseHead.headers.replaceOrAdd(name: "Connection", value: "close")
+            downstream.eventLoop.execute {
+                self.downstream.write(HTTPServerResponsePart.head(responseHead), promise: nil)
+            }
+
         case .body(let buffer):
             lock.withLockedValue { state in
+                let remaining = maxCaptureBodyBytes - state.capturedBytes
+                guard remaining > 0 else { return }
                 var copy = buffer
-                state.body.writeBuffer(&copy)
+                let captureLength = min(copy.readableBytes, remaining)
+                if var slice = copy.readSlice(length: captureLength) {
+                    state.body.writeBuffer(&slice)
+                    state.capturedBytes += captureLength
+                }
             }
+
+            downstream.eventLoop.execute {
+                self.downstream.writeAndFlush(HTTPServerResponsePart.body(.byteBuffer(buffer)), promise: nil)
+            }
+
         case .end:
-            let response = lock.withLockedValue { state -> UpstreamResponse in
-                let head = state.head ?? HTTPResponseHead(version: .http1_1, status: .internalServerError)
-                return UpstreamResponse(status: head.status, version: head.version, headers: head.headers, body: state.body)
+            let flow = lock.withLockedValue { state -> CapturedFlow in
+                var finished = state.flow
+                finished.responseBody = Data(buffer: state.body)
+                finished.finishedAt = Date()
+                return finished
             }
-            finish(.success(response))
+            downstream.eventLoop.execute {
+                self.downstream.writeAndFlush(HTTPServerResponsePart.end(nil)).whenComplete { _ in
+                    self.downstream.close(promise: nil)
+                }
+            }
+            finish(.success(flow))
         }
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
         finish(.failure(error))
+        downstream.eventLoop.execute {
+            self.downstream.close(promise: nil)
+        }
         context.close(promise: nil)
     }
 
@@ -171,8 +206,8 @@ private final class ResponseCollector: ChannelInboundHandler, @unchecked Sendabl
         finish(.failure(UpstreamError.connectionClosed))
     }
 
-    private func finish(_ result: Result<UpstreamResponse, Error>) {
-        let pending: CheckedContinuation<UpstreamResponse, Error>? = lock.withLockedValue { state in
+    private func finish(_ result: Result<CapturedFlow, Error>) {
+        let pending: CheckedContinuation<CapturedFlow, Error>? = lock.withLockedValue { state in
             if state.settled { return nil }
             state.settled = true
             state.result = result

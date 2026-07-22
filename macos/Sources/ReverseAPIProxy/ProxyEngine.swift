@@ -56,29 +56,39 @@ public final class ProxyEngine: @unchecked Sendable {
         logger.info("proxy listening on \(host):\(port)")
     }
 
+    /// Stop listening but keep the event-loop group alive so capture can be
+    /// started again on the same engine. The group is only torn down in
+    /// ``terminate()`` — shutting it down here would leave the group in a
+    /// permanently-shutdown state, so the next ``start()`` on this engine (a
+    /// capture toggle-off/on, or the cleanup after a failed start) would fail
+    /// with `EventLoopError.shutdown`.
     public func stop() async throws {
-        // Always shutdown the event-loop group, even when the channel
-        // close fails — otherwise NIO threads leak on every restart.
-        var closeError: Error?
-        if let channel = serverChannel {
-            serverChannel = nil
-            do {
-                try await channel.close().get()
-            } catch ChannelError.alreadyClosed {
-                logger.info("proxy channel already closed")
-            } catch {
-                closeError = error
-            }
+        guard let channel = serverChannel else { return }
+        serverChannel = nil
+        do {
+            try await channel.close().get()
+            logger.info("proxy stopped")
+        } catch ChannelError.alreadyClosed {
+            logger.info("proxy channel already closed")
+        }
+    }
+
+    /// Final teardown: stop listening, then shut down the event-loop group.
+    /// After this the engine cannot be restarted; call it only on app exit.
+    public func terminate() async throws {
+        var stopError: Error?
+        do {
+            try await stop()
+        } catch {
+            stopError = error
         }
         do {
             try await group.shutdownGracefully()
         } catch {
             logger.error("event-loop shutdown failed: \(error)")
-            // Re-throw the shutdown failure if we don't already have
-            // a more specific channel error to surface.
-            if closeError == nil { throw error }
+            if stopError == nil { throw error }
         }
-        if let closeError { throw closeError }
-        logger.info("proxy stopped")
+        if let stopError { throw stopError }
+        logger.info("proxy terminated")
     }
 }
