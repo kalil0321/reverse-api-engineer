@@ -118,3 +118,6 @@ macos/DerivedData/
 
 # Claude Code harness internals
 .claude/
+
+# keep the committed design prompt (the broad prompt*.md rule above would hide it)
+!design/PROMPT.md
