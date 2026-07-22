@@ -691,16 +691,19 @@ def discover_scripts(run_id: str, output_dir: str | None = None, run_metadata: d
     if not scripts_dir.exists():
         return []
 
-    exclude_dirs = {"__pycache__", ".venv", "node_modules", "bin", "obj", "target"}
     # Support files that share a script extension but are never the client
     # itself: package markers and the vendored cJSON library (C output).
+    # Build/venv directories (__pycache__, .venv, node_modules, bin, obj,
+    # target) need no explicit filter: iterdir() doesn't recurse, and
+    # matching names in *parent* components (e.g. a custom output_dir under
+    # /tmp/target) must not exclude anything.
     exclude_files = {"__init__.py", "cJSON.c", "cJSON.h"}
 
-    scripts = []
-    for f in scripts_dir.iterdir():
-        if f.is_file() and f.suffix in SCRIPT_EXTENSIONS and f.name not in exclude_files:
-            scripts.append(f)
-    scripts = [s for s in scripts if not any(part in exclude_dirs for part in s.parts)]
+    scripts = [
+        f
+        for f in scripts_dir.iterdir()
+        if f.is_file() and f.suffix in SCRIPT_EXTENSIONS and f.name not in exclude_files
+    ]
 
     return sorted(scripts, key=lambda p: p.name)
 
@@ -726,6 +729,10 @@ def build_script_commands(script: Path, script_args: tuple[str, ...] = ()) -> tu
         ValueError: For unsupported extensions, or script_args with a Java
             client (mvn exec's program arguments are fixed in the pom).
     """
+    # Resolve before building argv: callers run these with cwd=script.parent,
+    # and a relative script path (from a relative output_dir) would otherwise
+    # be re-resolved by the child against that new cwd and fail to start.
+    script = script.resolve()
     d = script.parent
     suffix = script.suffix
     if suffix == ".js":

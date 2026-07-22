@@ -480,7 +480,12 @@ class BaseEngineer(ABC):
 
         shlex.quote is POSIX-only: cmd.exe/PowerShell pass its single quotes
         through literally, so a spaced Windows path would break apart.
-        list2cmdline applies the double-quoting rules Windows shells parse.
+        list2cmdline applies the double-quoting rules cmd.exe/CreateProcess
+        parse. Known boundary: PowerShell still expands `$` and backtick
+        inside double quotes, and no quoting satisfies cmd.exe and PowerShell
+        simultaneously for such paths — cmd-safe is the chosen baseline, and
+        paths whose components contain `$`/backtick are not supported on
+        Windows.
         """
         if sys.platform == "win32":
             return subprocess.list2cmdline([str(path)])

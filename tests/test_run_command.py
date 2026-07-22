@@ -280,6 +280,16 @@ class TestDiscoverScripts:
             scripts = discover_scripts("abc123def456")
         assert [s.name for s in scripts] == ["api_client.cs"]
 
+    def test_output_dir_under_build_dir_name_still_discovers(self, tmp_path):
+        """A custom output_dir whose *parent* path contains a build-dir name
+        (e.g. /tmp/target/...) must not exclude the run's scripts."""
+        out = tmp_path / "target" / "myout"
+        d = out / "scripts" / "run1"
+        d.mkdir(parents=True)
+        (d / "api_client.go").write_text("")
+        scripts = discover_scripts("run1", output_dir=str(out))
+        assert [s.name for s in scripts] == ["api_client.go"]
+
     def test_excludes_non_script_support_files(self, scripts_dir_empty, tmp_path):
         (scripts_dir_empty / "api_client.java").write_text("")
         (scripts_dir_empty / "pom.xml").write_text("")
@@ -807,6 +817,18 @@ class TestBuildScriptCommands:
         from reverse_api.utils import build_script_commands
         with pytest.raises(ValueError, match="unsupported script type"):
             build_script_commands(tmp_path / "api_client.xyz")
+
+    def test_relative_script_path_resolved_to_absolute(self, tmp_path, monkeypatch):
+        """Relative script paths (from a relative output_dir) must become
+        absolute in the argv: callers run with cwd=script.parent, which would
+        otherwise re-anchor the relative path and fail to start."""
+        from reverse_api.utils import build_script_commands
+        monkeypatch.chdir(tmp_path)
+        d = Path("out") / "scripts" / "run1"
+        d.mkdir(parents=True)
+        script = d / "api_client.js"
+        steps, _ = build_script_commands(script)
+        assert steps == [["node", str(tmp_path.resolve() / d / "api_client.js")]]
 
     def test_paths_with_spaces_stay_intact_in_argv(self, tmp_path):
         """argv lists are passed to subprocess without a shell, so spaced
