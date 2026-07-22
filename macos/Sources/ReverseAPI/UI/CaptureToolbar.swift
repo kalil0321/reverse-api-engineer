@@ -1,4 +1,7 @@
 import SwiftUI
+import AppKit
+import ReverseAPIProxy
+import UniformTypeIdentifiers
 
 struct CaptureToolbar: View {
     @Environment(AppState.self) private var state
@@ -43,6 +46,7 @@ struct CaptureToolbar: View {
                 SidebarSectionLabel("Actions")
                 trustButton
                 systemProxyButton
+                exportButton
                 clearButton
             }
 
@@ -119,6 +123,34 @@ struct CaptureToolbar: View {
         }
     }
 
+    private func exportHAR() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "har") ?? .json, .json]
+        panel.nameFieldStringValue = "rae-\(Self.exportTimestamp()).har"
+        panel.canCreateDirectories = true
+        let response = panel.runModal()
+        guard response == .OK, let url = panel.url else { return }
+        let snapshot = state.store.flows
+        Task {
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    let data = try HARExporter.export(snapshot)
+                    try data.write(to: url, options: .atomic)
+                }.value
+            } catch {
+                await MainActor.run {
+                    _ = NSAlert(error: error).runModal()
+                }
+            }
+        }
+    }
+
+    private static func exportTimestamp() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter.string(from: Date())
+    }
+
     private var captureButton: some View {
         Button {
             Task { await state.toggleCapture() }
@@ -161,6 +193,7 @@ struct CaptureToolbar: View {
         .help(state.captureMode == .device
               ? "Start proxy capture and route macOS HTTP/HTTPS traffic through it"
               : "Start proxy capture without changing macOS network settings")
+        .keyboardShortcut("r", modifiers: [.command])
     }
 
     private var trustButton: some View {
@@ -205,6 +238,18 @@ struct CaptureToolbar: View {
         .help("Toggle macOS HTTP/HTTPS proxy for active network services")
     }
 
+    private var exportButton: some View {
+        Button {
+            exportHAR()
+        } label: {
+            SidebarActionLabel(title: "Export HAR", systemImage: "square.and.arrow.up")
+        }
+        .buttonStyle(.plain)
+        .disabled(state.store.flows.isEmpty || state.isWorking)
+        .help("Export all captured flows to a .har file")
+        .keyboardShortcut("e", modifiers: [.command, .shift])
+    }
+
     private var clearButton: some View {
         Button {
             state.clearFlows()
@@ -214,6 +259,7 @@ struct CaptureToolbar: View {
         .buttonStyle(.plain)
         .disabled(state.store.flows.isEmpty || state.isWorking)
         .help("Remove captured flows from the list and local database")
+        .keyboardShortcut("k", modifiers: [.command])
     }
 
     private var captureTitle: String {
