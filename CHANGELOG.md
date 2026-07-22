@@ -7,8 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-22
+
 ### Changed
 - **Playwright is now an optional `[manual]` extra**: agent mode (the default) captures through `npx`-launched browser tooling (browser MCP servers or the `agent-browser` CLI) and never imports the Python Playwright package, so `playwright` and `playwright-stealth` moved out of the base dependencies into a `[manual]` optional-dependency group. This keeps the base install (and any runtime that bundles the package) lightweight. Manual capture mode now requires `pip install "reverse-api-engineer[manual]"` followed by `playwright install chromium`. Entering manual mode without the extra fails fast — before any run is recorded — with an actionable hint listing both steps, so a base-only install never leaves a phantom `manual` run in history.
+
+### Fixed
+- **Manual capture no longer wedges the REPL after a failed start**: if a capture failed to launch (for example a mistyped or scheme-less URL), Playwright's sync event loop was left running, so every subsequent prompt died in a loop with "asyncio.run() cannot be called from a running event loop". The browser is now torn down on a failed start, so the error is shown once and the prompt returns to normal.
+- **Scheme-less capture URLs are accepted**: entering a bare host such as `jobs.example.com/x` is now treated as `https://jobs.example.com/x` instead of failing with an invalid-URL error.
+- **CLI error text with brackets renders in full**: error messages are escaped before Rich renders them, so hints like `reverse-api-engineer[manual]` are no longer partially swallowed as markup.
 
 ## [0.11.0] - 2026-07-22
 
