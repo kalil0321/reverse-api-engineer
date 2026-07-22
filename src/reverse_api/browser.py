@@ -226,6 +226,37 @@ class ManualBrowser:
         """Inject stealth scripts into page before any other scripts run."""
         page.add_init_script(STEALTH_JS)
 
+    @staticmethod
+    def _normalize_url(url: str) -> str:
+        """Prepend https:// when the user typed a bare host (e.g.
+        ``jobs.example.com/x``); Playwright's goto rejects scheme-less URLs."""
+        url = url.strip()
+        if url and "://" not in url:
+            return "https://" + url
+        return url
+
+    def _abort_playwright(self) -> None:
+        """Quietly tear down the browser/Playwright after a failed start.
+
+        Unlike close(), this saves nothing and prints nothing — its only job is
+        to stop the sync-Playwright event loop so it doesn't leak into the
+        caller. A leaked loop makes the caller's next asyncio.run() (the REPL
+        prompt) fail with "asyncio.run() cannot be called from a running event
+        loop". Safe to call with partially-initialized state.
+        """
+        for teardown in (
+            lambda: self._context and self._context.close(),
+            lambda: self._browser and not self._using_persistent and self._browser.close(),
+            lambda: self._playwright and self._playwright.stop(),
+        ):
+            try:
+                teardown()
+            except Exception:
+                pass
+        self._context = None
+        self._browser = None
+        self._playwright = None
+
     def _start_with_real_chrome(self, start_url: str | None = None) -> Path:
         """Start using the real Chrome browser with user's profile."""
         import shutil
@@ -393,14 +424,24 @@ class ManualBrowser:
         console.print(" [dim]close browser or ctrl+c to finalize[/dim]")
         console.print()
 
+        if start_url:
+            start_url = self._normalize_url(start_url)
+
         self._playwright = sync_playwright().start()
 
         # Try real Chrome first (better for avoiding detection)
         # Fall back to stealth Chromium if Chrome not available
-        if self.use_real_chrome:
-            return self._start_with_real_chrome(start_url)
-        else:
-            return self._start_with_stealth_chromium(start_url)
+        try:
+            if self.use_real_chrome:
+                return self._start_with_real_chrome(start_url)
+            else:
+                return self._start_with_stealth_chromium(start_url)
+        except Exception:
+            # Startup failed (e.g. an invalid URL) before close() could stop
+            # Playwright. Tear it down here so its sync event loop doesn't leak
+            # and break the caller's next asyncio.run() (the REPL prompt).
+            self._abort_playwright()
+            raise
 
     def close(self) -> Path:
         """Close the browser and save HAR file. Returns HAR path."""
