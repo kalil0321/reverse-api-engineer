@@ -83,7 +83,13 @@ def _active(model: dict[str, Any]) -> bool:
     return str(model.get("status") or "active").casefold() == "active"
 
 
-def _zero_cost(provider_id: str, model_id: str, model: dict[str, Any]) -> bool:
+def opencode_model_is_selectable(model: object) -> bool:
+    """Return whether a catalog model is active and supports the tools RAE needs."""
+    return isinstance(model, dict) and _active(model) and _tool_capable(model)
+
+
+def opencode_model_is_free(provider_id: str, model_id: str, model: dict[str, Any]) -> bool:
+    """Return whether a catalog entry is explicitly a free OpenCode model."""
     cost = model.get("cost")
     if not isinstance(cost, dict):
         return model_id.casefold().endswith("-free")
@@ -117,9 +123,9 @@ def _model_references(
             ordered_ids.insert(0, default_model)
         for model_id in ordered_ids:
             model = models.get(model_id)
-            if not isinstance(model, dict) or not _active(model) or not _tool_capable(model):
+            if not opencode_model_is_selectable(model):
                 continue
-            if free_only and not _zero_cost(current_provider, str(model_id), model):
+            if free_only and not opencode_model_is_free(current_provider, str(model_id), model):
                 continue
             reference = f"{current_provider}/{model_id}"
             if reference not in references:
@@ -129,9 +135,8 @@ def _model_references(
     return references
 
 
-async def validate_opencode_model(client: httpx.AsyncClient, provider_id: str, model_id: str) -> None:
-    """Validate the configured pair before creating a session or starting agent work."""
-
+async def get_opencode_model_catalog(client: httpx.AsyncClient) -> dict[str, Any]:
+    """Return OpenCode's provider/model catalog or raise an actionable setup error."""
     try:
         response = await client.get("/config/providers", timeout=10.0)
         response.raise_for_status()
@@ -149,6 +154,13 @@ async def validate_opencode_model(client: httpx.AsyncClient, provider_id: str, m
     payload = response.json()
     if not isinstance(payload, dict) or not isinstance(payload.get("providers"), list):
         raise OpenCodeSetupError("OpenCode returned an invalid model catalog from /config/providers.")
+    return payload
+
+
+async def validate_opencode_model(client: httpx.AsyncClient, provider_id: str, model_id: str) -> None:
+    """Validate the configured pair before creating a session or starting agent work."""
+
+    payload = await get_opencode_model_catalog(client)
     providers = [provider for provider in payload["providers"] if isinstance(provider, dict)]
     defaults = payload.get("default") if isinstance(payload.get("default"), dict) else {}
     provider = next((item for item in providers if item.get("id") == provider_id), None)

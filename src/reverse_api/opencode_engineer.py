@@ -130,6 +130,7 @@ class OpenCodeEngineer(BaseEngineer):
         self._last_event_time = 0.0
         self._work_started = False  # Track if any real work has been done
         self._busy_time: float | None = None  # When session became busy
+        self._assistant_message_ids: set[str] = set()
 
         # Read OpenCode server authentication from environment variables
         self.opencode_password = os.environ.get("OPENCODE_SERVER_PASSWORD")
@@ -360,7 +361,14 @@ class OpenCodeEngineer(BaseEngineer):
                     debug_log(f"Event: {event_type}")
 
                     # Handle different event types
-                    if event_type == "message.part.updated":
+                    if event_type == "message.updated":
+                        info = properties.get("info", {})
+                        event_sid = properties.get("sessionID") or info.get("sessionID")
+                        message_id = info.get("id")
+                        if event_sid == self._session_id and info.get("role") == "assistant" and message_id:
+                            self._assistant_message_ids.add(str(message_id))
+
+                    elif event_type == "message.part.updated":
                         await self._handle_part_update(properties, seen_parts)
 
                     elif event_type == "session.idle":
@@ -585,12 +593,9 @@ class OpenCodeEngineer(BaseEngineer):
             text = part.get("text", "")
             debug_log(f"Handling text part: id={part_id}, delta={'yes' if delta else 'no'}, len={len(text)}")
 
-            # Filter out known prompt text patterns that get echoed back
-            # This prevents the tag context section from appearing in streaming output
-            # Check for the specific tag context pattern that appears at the end of prompts
-            tag_context_pattern = "By default, treat this as an iterative refinement"
-            if tag_context_pattern in text and "Note: Full message history is available" in text:
-                debug_log(f"Filtering out echoed tag context from streaming output")
+            message_id = str(part.get("messageID") or "")
+            if message_id not in self._assistant_message_ids:
+                debug_log(f"Skipping text for non-assistant message {message_id or 'unknown'}")
                 return
 
             # Use delta for incremental updates if available

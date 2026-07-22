@@ -274,6 +274,7 @@ class TestOpenCodeEngineerHandlePartUpdate:
                         output_dir=str(tmp_path),
                     )
                     eng._session_id = "session_abc"
+                    eng._assistant_message_ids.add("message_assistant")
                     return eng
 
     @pytest.mark.asyncio
@@ -287,6 +288,7 @@ class TestOpenCodeEngineerHandlePartUpdate:
                 "type": "text",
                 "text": "x" * 100,
                 "sessionID": "session_abc",
+                "messageID": "message_assistant",
             },
             "delta": None,
         }
@@ -305,10 +307,30 @@ class TestOpenCodeEngineerHandlePartUpdate:
                 "type": "text",
                 "text": "ok",
                 "sessionID": "session_abc",
+                "messageID": "message_assistant",
             },
             "delta": None,
         }
         await eng._handle_part_update(properties, seen_parts)
+        eng.message_store.save_thinking.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_user_text_part_is_not_rendered(self, tmp_path):
+        """The submitted internal prompt must not appear as assistant output."""
+        eng = self._make_engineer(tmp_path)
+        properties = {
+            "part": {
+                "id": "part-user",
+                "messageID": "message_user",
+                "type": "text",
+                "text": "There is no HAR file — capture all network data.",
+                "sessionID": "session_abc",
+            }
+        }
+
+        await eng._handle_part_update(properties, set())
+
+        eng.opencode_ui.update_text.assert_not_called()
         eng.message_store.save_thinking.assert_not_called()
 
     @pytest.mark.asyncio
@@ -1030,6 +1052,40 @@ class TestOpenCodeEngineerStreamEvents:
         with patch.object(eng, "_handle_part_update", new_callable=AsyncMock) as mock_handle:
             await eng._stream_events(mock_client)
             mock_handle.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_stream_renders_only_assistant_text(self, tmp_path):
+        """User prompt events are ignored while assistant text is rendered."""
+        eng = self._make_engineer(tmp_path)
+        lines = [
+            'data: {"type":"message.updated","properties":{"sessionID":"session_abc",'
+            '"info":{"id":"message_user","sessionID":"session_abc","role":"user"}}}',
+            'data: {"type":"message.part.updated","properties":{"sessionID":"session_abc",'
+            '"part":{"id":"part_user","messageID":"message_user","sessionID":"session_abc",'
+            '"type":"text","text":"There is no HAR file — capture all network data."}}}',
+            'data: {"type":"message.updated","properties":{"sessionID":"session_abc",'
+            '"info":{"id":"message_assistant","sessionID":"session_abc","role":"assistant"}}}',
+            'data: {"type":"message.part.updated","properties":{"sessionID":"session_abc",'
+            '"part":{"id":"part_assistant","messageID":"message_assistant","sessionID":"session_abc",'
+            '"type":"text","text":"Assistant answer","time":{"start":1,"end":2}}}}',
+            'data: {"type":"session.idle","properties":{"sessionID":"session_abc"}}',
+        ]
+        mock_response = AsyncMock()
+
+        async def mock_aiter_lines():
+            for line in lines:
+                yield line
+
+        mock_response.aiter_lines = mock_aiter_lines
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=mock_response)
+        cm.__aexit__ = AsyncMock(return_value=False)
+        mock_client = AsyncMock()
+        mock_client.stream = MagicMock(return_value=cm)
+
+        await eng._stream_events(mock_client)
+
+        eng.opencode_ui.update_text.assert_called_once_with("Assistant answer", None)
 
     @pytest.mark.asyncio
     async def test_empty_and_non_data_lines_skipped(self, tmp_path):
