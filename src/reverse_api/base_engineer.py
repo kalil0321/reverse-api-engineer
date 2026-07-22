@@ -483,8 +483,12 @@ class BaseEngineer(ABC):
             # re-interpreted against the agent's cwd (scripts_dir.parent.
             # parent) instead of the original cwd it was relative to,
             # pointing -f at the wrong, doubly-nested location.
+            # exec:exec (spawn a real java process), not exec:java —
+            # exec:java invokes main() reflectively in-process, which fails
+            # on the package-private ApiClient class the Java partial
+            # requires ("symbolic reference class is not accessible").
             pom = shlex.quote(str(self.scripts_dir.resolve() / "pom.xml"))
-            return f"mvn -q -f {pom} compile exec:java"
+            return f"mvn -q -f {pom} compile exec:exec"
         return {
             "python": "python api_client.py",
             "javascript": "node api_client.js",

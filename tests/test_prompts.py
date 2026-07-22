@@ -86,7 +86,7 @@ class TestLoadLanguagePartial:
             "java",
             scripts_dir="/tmp/scripts",
             client_filename="api_client.java",
-            run_command="mvn -q compile exec:java",
+            run_command="mvn -q compile exec:exec",
         )
         assert "Java program" in text
         assert "HttpClient" in text

@@ -245,7 +245,7 @@ class TestBaseEngineerHelpers:
         from a directory with no pom.xml."""
         eng = self._make_engineer(tmp_path, output_language="java")
         expected_pom = shlex.quote(str(eng.scripts_dir.resolve() / "pom.xml"))
-        assert eng._get_run_command() == f"mvn -q -f {expected_pom} compile exec:java"
+        assert eng._get_run_command() == f"mvn -q -f {expected_pom} compile exec:exec"
 
     def test_get_run_command_java_quotes_metacharacters(self, tmp_path):
         """A scripts_dir containing shell metacharacters must round-trip
