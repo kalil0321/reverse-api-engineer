@@ -62,9 +62,11 @@ def _response(payload: dict | None = None) -> MagicMock:
 def reset_runtime_state():
     ollama_runtime._PROCESS = None
     ollama_runtime._PROCESS_URL = None
+    ollama_runtime._PROCESS_CONTEXT_LENGTH = None
     yield
     ollama_runtime._PROCESS = None
     ollama_runtime._PROCESS_URL = None
+    ollama_runtime._PROCESS_CONTEXT_LENGTH = None
 
 
 def test_parse_show_metadata_filters_agent_compatible_models():
@@ -87,6 +89,7 @@ async def test_reuses_running_ollama():
         status = await ollama_runtime.ensure_ollama_models()
 
     assert status.started is False
+    assert status.allocated_context_length is None
     assert status.models[0].name == "qwen3:4b"
     assert status.models[0].supports_opencode is True
     assert client.post.await_count == 3
@@ -113,6 +116,8 @@ async def test_starts_installed_ollama_daemon(monkeypatch: pytest.MonkeyPatch):
     assert status.started is True
     assert popen.call_args.args[0] == ["/usr/local/bin/ollama", "serve"]
     assert popen.call_args.kwargs["env"]["OLLAMA_HOST"] == "127.0.0.1:11434"
+    assert popen.call_args.kwargs["env"]["OLLAMA_CONTEXT_LENGTH"] == "65536"
+    assert status.allocated_context_length == 65_536
 
 
 @pytest.mark.asyncio
@@ -149,7 +154,22 @@ def test_opencode_env_preserves_existing_config(monkeypatch: pytest.MonkeyPatch)
     assert config["provider"]["custom"]["name"] == "Custom"
     assert config["provider"]["ollama"]["options"]["baseURL"] == "http://127.0.0.1:11434/v1"
     assert list(config["provider"]["ollama"]["models"]) == ["qwen3:4b"]
+    assert config["provider"]["ollama"]["models"]["qwen3:4b"]["limit"]["context"] == 262_144
     assert config["small_model"] == "ollama/qwen3:4b"
+
+
+def test_opencode_env_advertises_managed_context_allocation():
+    status = ollama_runtime.OllamaStatus(
+        base_url="http://127.0.0.1:11434",
+        models=_models(),
+        started=True,
+        allocated_context_length=65_536,
+    )
+    setup = ollama_runtime.OllamaProviderSetup(status=status, model=status.models[0])
+
+    config = json.loads(ollama_runtime.opencode_ollama_env(setup)["OPENCODE_CONFIG_CONTENT"])
+
+    assert config["provider"]["ollama"]["models"]["qwen3:4b"]["limit"]["context"] == 65_536
 
 
 @pytest.mark.asyncio
@@ -176,8 +196,10 @@ def test_stop_managed_ollama_server():
     process.poll.return_value = None
     ollama_runtime._PROCESS = process
     ollama_runtime._PROCESS_URL = "http://127.0.0.1:11434"
+    ollama_runtime._PROCESS_CONTEXT_LENGTH = 65_536
 
     ollama_runtime.stop_managed_ollama_server()
 
     process.terminate.assert_called_once_with()
     process.wait.assert_called_once_with(timeout=3)
+    assert ollama_runtime._PROCESS_CONTEXT_LENGTH is None

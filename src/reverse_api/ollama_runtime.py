@@ -24,6 +24,7 @@ _START_TIMEOUT_SECONDS = 30.0
 
 _PROCESS: subprocess.Popen[bytes] | None = None
 _PROCESS_URL: str | None = None
+_PROCESS_CONTEXT_LENGTH: int | None = None
 _PROCESS_LOCK = threading.Lock()
 _ATEXIT_REGISTERED = False
 
@@ -58,6 +59,7 @@ class OllamaStatus:
     base_url: str
     models: tuple[OllamaModel, ...]
     started: bool = False
+    allocated_context_length: int | None = None
 
     @property
     def compatible_models(self) -> tuple[OllamaModel, ...]:
@@ -169,8 +171,17 @@ def _server_address(base_url: str) -> tuple[str, int]:
     return host, port
 
 
+def _managed_context_length(base_url: str) -> int | None:
+    """Return the configured context window for RAE's live managed daemon."""
+
+    with _PROCESS_LOCK:
+        if _PROCESS is not None and _PROCESS.poll() is None and _PROCESS_URL == base_url:
+            return _PROCESS_CONTEXT_LENGTH
+    return None
+
+
 def _start_managed_server(base_url: str) -> tuple[subprocess.Popen[bytes], bool]:
-    global _ATEXIT_REGISTERED, _PROCESS, _PROCESS_URL
+    global _ATEXIT_REGISTERED, _PROCESS, _PROCESS_CONTEXT_LENGTH, _PROCESS_URL
 
     with _PROCESS_LOCK:
         if _PROCESS is not None and _PROCESS.poll() is None:
@@ -185,6 +196,7 @@ def _start_managed_server(base_url: str) -> tuple[subprocess.Popen[bytes], bool]
 
         child_env = os.environ.copy()
         child_env["OLLAMA_HOST"] = f"{host}:{port}"
+        child_env["OLLAMA_CONTEXT_LENGTH"] = str(MIN_OPENCODE_CONTEXT)
         try:
             process = subprocess.Popen(
                 [executable, "serve"],
@@ -199,6 +211,7 @@ def _start_managed_server(base_url: str) -> tuple[subprocess.Popen[bytes], bool]
 
         _PROCESS = process
         _PROCESS_URL = base_url
+        _PROCESS_CONTEXT_LENGTH = MIN_OPENCODE_CONTEXT
         if not _ATEXIT_REGISTERED:
             atexit.register(stop_managed_ollama_server)
             _ATEXIT_REGISTERED = True
@@ -213,7 +226,11 @@ async def ensure_ollama_models(*, timeout: float = _START_TIMEOUT_SECONDS) -> Ol
         try:
             response = await client.get("/api/tags")
             response.raise_for_status()
-            return OllamaStatus(base_url=base_url, models=await _load_models(client, base_url, response.json()))
+            return OllamaStatus(
+                base_url=base_url,
+                models=await _load_models(client, base_url, response.json()),
+                allocated_context_length=_managed_context_length(base_url),
+            )
         except httpx.HTTPStatusError as e:
             raise OllamaSetupError(f"Ollama at {base_url} returned HTTP {e.response.status_code} for /api/tags.") from e
         except httpx.RequestError as initial_error:
@@ -235,6 +252,7 @@ async def ensure_ollama_models(*, timeout: float = _START_TIMEOUT_SECONDS) -> Ol
                     base_url=base_url,
                     models=await _load_models(client, base_url, response.json()),
                     started=started,
+                    allocated_context_length=_managed_context_length(base_url),
                 )
             except httpx.HTTPStatusError as e:
                 if started:
@@ -293,11 +311,14 @@ def opencode_ollama_env(setup: OllamaProviderSetup) -> dict[str, str]:
     if not isinstance(models, dict):
         raise OllamaSetupError("OPENCODE_CONFIG_CONTENT field 'provider.ollama.models' must be a JSON object.")
     for model in setup.status.compatible_models:
+        context_length = model.context_length
+        if setup.status.allocated_context_length is not None:
+            context_length = min(context_length, setup.status.allocated_context_length)
         models[model.name] = {
             "name": model.name,
             "limit": {
-                "context": model.context_length,
-                "output": min(model.context_length, 8192),
+                "context": context_length,
+                "output": min(context_length, 8192),
             },
         }
     config["small_model"] = f"ollama/{setup.model.name}"
@@ -323,12 +344,13 @@ async def validate_opencode_ollama_provider(client: httpx.AsyncClient, model_nam
 def stop_managed_ollama_server() -> None:
     """Stop the Ollama child process started by RAE, if any."""
 
-    global _PROCESS, _PROCESS_URL
+    global _PROCESS, _PROCESS_CONTEXT_LENGTH, _PROCESS_URL
 
     with _PROCESS_LOCK:
         process = _PROCESS
         _PROCESS = None
         _PROCESS_URL = None
+        _PROCESS_CONTEXT_LENGTH = None
 
     if process is None or process.poll() is not None:
         return
