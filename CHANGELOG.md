@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- **OpenCode setup**: RAE now reuses an existing server or starts `opencode-ai@latest` through `npx`, with configurable auto-start, package, and base URL settings plus password inheritance.
+- **OpenCode setup**: RAE now reuses an existing server or starts `opencode-ai@latest` through `npx`, with configurable auto-start, package, and base URL settings plus password inheritance. Provider/model pairs are validated before session creation, invalid configurations include current free-model suggestions, and older compatible servers show an upgrade warning.
 
 ### Fixed
 - **OpenCode permissions**: Permission V2 events now reply through OpenCode's current, non-deprecated permission endpoint while retaining compatibility with older servers.

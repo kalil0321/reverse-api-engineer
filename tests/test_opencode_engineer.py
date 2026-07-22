@@ -17,6 +17,26 @@ from reverse_api.opencode_engineer import (
 )
 
 
+def _valid_catalog_response() -> MagicMock:
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json.return_value = {
+        "default": {"anthropic": "claude-opus-4-6"},
+        "providers": [
+            {
+                "id": "anthropic",
+                "models": {
+                    "claude-opus-4-6": {
+                        "status": "active",
+                        "capabilities": {"toolcall": True},
+                    }
+                },
+            }
+        ],
+    }
+    return response
+
+
 class TestDebugLog:
     """Test debug_log function."""
 
@@ -1245,6 +1265,8 @@ class TestOpenCodeEngineerAnalyzeAndGenerate:
         async def mock_get(path, **kwargs):
             if path == "/global/health":
                 return health_response
+            if path == "/config/providers":
+                return _valid_catalog_response()
             if "/message" in path:
                 return messages_response
             return MagicMock()
@@ -1351,6 +1373,8 @@ class TestOpenCodeEngineerAnalyzeAndGenerate:
             get_count[0] += 1
             if path == "/global/health":
                 return health_response
+            if path == "/config/providers":
+                return _valid_catalog_response()
             if "/message" in path:
                 raise Exception("message fetch failed")
             return MagicMock()

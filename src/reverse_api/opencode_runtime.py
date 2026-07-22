@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import atexit
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -23,6 +24,7 @@ from .utils import get_config_path
 
 DEFAULT_OPENCODE_BASE_URL = "http://127.0.0.1:4096"
 DEFAULT_OPENCODE_PACKAGE = "opencode-ai@latest"
+TESTED_OPENCODE_VERSION = (1, 18, 4)
 _START_TIMEOUT_SECONDS = 120.0
 
 _PROCESS: subprocess.Popen[bytes] | None = None
@@ -42,6 +44,141 @@ class OpenCodeServerStatus:
     health: dict[str, Any]
     started: bool = False
     package: str | None = None
+    version_warning: str | None = None
+
+
+def _parse_version(value: object) -> tuple[int, int, int] | None:
+    match = re.match(r"^(\d+)\.(\d+)\.(\d+)", str(value or "").strip())
+    if match is None:
+        return None
+    return tuple(int(part) for part in match.groups())
+
+
+def _format_version(version: tuple[int, int, int]) -> str:
+    return ".".join(str(part) for part in version)
+
+
+def opencode_version_warning(health: dict[str, Any]) -> str | None:
+    """Warn about versions older than the server tested with this RAE release."""
+
+    raw_version = health.get("version")
+    version = _parse_version(raw_version)
+    if version is None:
+        return "OpenCode did not report a parseable version; compatibility will be checked through its APIs."
+    if version < TESTED_OPENCODE_VERSION:
+        tested = _format_version(TESTED_OPENCODE_VERSION)
+        return (
+            f"OpenCode v{raw_version} is older than RAE's tested v{tested}; required APIs will be checked before use. "
+            "Stop the existing server to let RAE use opencode-ai@latest."
+        )
+    return None
+
+
+def _tool_capable(model: dict[str, Any]) -> bool:
+    capabilities = model.get("capabilities")
+    return not isinstance(capabilities, dict) or capabilities.get("toolcall") is not False
+
+
+def _active(model: dict[str, Any]) -> bool:
+    return str(model.get("status") or "active").casefold() == "active"
+
+
+def _zero_cost(provider_id: str, model_id: str, model: dict[str, Any]) -> bool:
+    cost = model.get("cost")
+    if not isinstance(cost, dict):
+        return model_id.casefold().endswith("-free")
+    input_cost = cost.get("input")
+    output_cost = cost.get("output")
+    return (input_cost == 0 and output_cost == 0) and (
+        provider_id == "opencode" or model_id.casefold().endswith("-free")
+    )
+
+
+def _model_references(
+    providers: list[dict[str, Any]],
+    defaults: dict[str, Any],
+    *,
+    provider_id: str | None = None,
+    free_only: bool = False,
+    limit: int = 5,
+) -> list[str]:
+    references: list[str] = []
+    for provider in providers:
+        current_provider = str(provider.get("id") or "")
+        if not current_provider or (provider_id is not None and current_provider != provider_id):
+            continue
+        models = provider.get("models")
+        if not isinstance(models, dict):
+            continue
+        ordered_ids = list(models)
+        default_model = defaults.get(current_provider)
+        if default_model in models:
+            ordered_ids.remove(default_model)
+            ordered_ids.insert(0, default_model)
+        for model_id in ordered_ids:
+            model = models.get(model_id)
+            if not isinstance(model, dict) or not _active(model) or not _tool_capable(model):
+                continue
+            if free_only and not _zero_cost(current_provider, str(model_id), model):
+                continue
+            reference = f"{current_provider}/{model_id}"
+            if reference not in references:
+                references.append(reference)
+            if len(references) == limit:
+                return references
+    return references
+
+
+async def validate_opencode_model(client: httpx.AsyncClient, provider_id: str, model_id: str) -> None:
+    """Validate the configured pair before creating a session or starting agent work."""
+
+    try:
+        response = await client.get("/config/providers", timeout=10.0)
+        response.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 401:
+            raise
+        raise OpenCodeSetupError(
+            f"OpenCode could not provide its model catalog (HTTP {e.response.status_code}). "
+            "This server is incompatible because RAE requires /config/providers. "
+            "Stop it so RAE can start opencode-ai@latest."
+        ) from e
+    except httpx.RequestError as e:
+        raise OpenCodeSetupError(f"Could not read the OpenCode model catalog: {e}") from e
+
+    payload = response.json()
+    if not isinstance(payload, dict) or not isinstance(payload.get("providers"), list):
+        raise OpenCodeSetupError("OpenCode returned an invalid model catalog from /config/providers.")
+    providers = [provider for provider in payload["providers"] if isinstance(provider, dict)]
+    defaults = payload.get("default") if isinstance(payload.get("default"), dict) else {}
+    provider = next((item for item in providers if item.get("id") == provider_id), None)
+    free_models = _model_references(providers, defaults, free_only=True)
+    free_hint = f" Free options currently available: {', '.join(free_models)}." if free_models else ""
+
+    if provider is None:
+        available = ", ".join(str(item.get("id")) for item in providers if item.get("id")) or "none"
+        raise OpenCodeSetupError(
+            f"Invalid OpenCode model pairing: provider {provider_id!r} is not connected. "
+            f"Connected providers: {available}.{free_hint} Change OpenCode Provider and OpenCode Model in /settings."
+        )
+
+    models = provider.get("models")
+    models = models if isinstance(models, dict) else {}
+    model = models.get(model_id)
+    if not isinstance(model, dict):
+        suggestions = _model_references(providers, defaults, provider_id=provider_id)
+        suggestion_hint = f" Try: {', '.join(suggestions)}." if suggestions else ""
+        raise OpenCodeSetupError(
+            f"Invalid OpenCode model pairing: {provider_id}/{model_id} is not available."
+            f"{suggestion_hint}{free_hint} Change OpenCode Model in /settings."
+        )
+    if not _tool_capable(model):
+        suggestions = _model_references(providers, defaults, provider_id=provider_id)
+        suggestion_hint = f" Try: {', '.join(suggestions)}." if suggestions else ""
+        raise OpenCodeSetupError(
+            f"OpenCode model {provider_id}/{model_id} does not support tool calling, which RAE requires."
+            f"{suggestion_hint}{free_hint}"
+        )
 
 
 def _config_manager_snapshot() -> dict[str, Any]:
@@ -148,7 +285,11 @@ async def ensure_opencode_server(
     try:
         response = await client.get("/global/health", timeout=2.0)
         response.raise_for_status()
-        return OpenCodeServerStatus(health=response.json())
+        health = response.json()
+        if not isinstance(health, dict):
+            raise OpenCodeSetupError("OpenCode returned an invalid health response.")
+        version_warning = opencode_version_warning(health)
+        return OpenCodeServerStatus(health=health, version_warning=version_warning)
     except httpx.HTTPStatusError:
         raise
     except httpx.RequestError as initial_error:
@@ -166,7 +307,21 @@ async def ensure_opencode_server(
         try:
             response = await client.get("/global/health", timeout=2.0)
             response.raise_for_status()
-            return OpenCodeServerStatus(health=response.json(), started=started, package=package)
+            health = response.json()
+            if not isinstance(health, dict):
+                raise OpenCodeSetupError("OpenCode returned an invalid health response.")
+            try:
+                version_warning = opencode_version_warning(health)
+            except OpenCodeSetupError:
+                if started:
+                    stop_managed_opencode_server()
+                raise
+            return OpenCodeServerStatus(
+                health=health,
+                started=started,
+                package=package,
+                version_warning=version_warning,
+            )
         except httpx.HTTPStatusError:
             if started:
                 stop_managed_opencode_server()

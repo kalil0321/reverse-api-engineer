@@ -24,6 +24,33 @@ from reverse_api.utils import (
 )
 
 
+def _opencode_health_response() -> MagicMock:
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json.return_value = {"healthy": True, "version": "1.18.4"}
+    return response
+
+
+def _opencode_catalog_response() -> MagicMock:
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json.return_value = {
+        "default": {"anthropic": "claude-opus-4-6"},
+        "providers": [
+            {
+                "id": "anthropic",
+                "models": {
+                    "claude-opus-4-6": {
+                        "status": "active",
+                        "capabilities": {"toolcall": True},
+                    }
+                },
+            }
+        ],
+    }
+    return response
+
+
 class TestSlugify:
     """Test _slugify function."""
 
@@ -530,7 +557,9 @@ class TestGenerateFolderNameOpencodeAsync:
 
         async def mock_get(path, **kwargs):
             if path == "/global/health":
-                return MagicMock()
+                return _opencode_health_response()
+            if path == "/config/providers":
+                return _opencode_catalog_response()
             if "/message" in path:
                 return mock_messages_response
             return MagicMock()
@@ -559,7 +588,10 @@ class TestGenerateFolderNameOpencodeAsync:
         mock_client.delete = AsyncMock()
 
         with patch("reverse_api.config.ConfigManager") as mock_cm:
-            mock_cm.return_value.get.return_value = "anthropic"
+            mock_cm.return_value.get.side_effect = lambda key, default=None: {
+                "opencode_provider": "anthropic",
+                "opencode_model": "claude-opus-4-6",
+            }.get(key, default)
             with patch("reverse_api.utils.get_config_path"):
                 with patch("httpx.AsyncClient") as mock_async:
                     mock_async.return_value.__aenter__ = AsyncMock(return_value=mock_client)
@@ -586,7 +618,9 @@ class TestGenerateFolderNameOpencodeAsync:
 
         async def mock_get(path, **kwargs):
             if path == "/global/health":
-                return MagicMock()
+                return _opencode_health_response()
+            if path == "/config/providers":
+                return _opencode_catalog_response()
             if "/message" in path:
                 return mock_messages_response
             return MagicMock()
@@ -612,7 +646,10 @@ class TestGenerateFolderNameOpencodeAsync:
         mock_client.delete = AsyncMock()
 
         with patch("reverse_api.config.ConfigManager") as mock_cm:
-            mock_cm.return_value.get.return_value = "anthropic"
+            mock_cm.return_value.get.side_effect = lambda key, default=None: {
+                "opencode_provider": "anthropic",
+                "opencode_model": "claude-opus-4-6",
+            }.get(key, default)
             with patch("reverse_api.utils.get_config_path"):
                 with patch("httpx.AsyncClient") as mock_async:
                     mock_async.return_value.__aenter__ = AsyncMock(return_value=mock_client)
@@ -634,7 +671,9 @@ class TestGenerateFolderNameOpencodeAsync:
 
         async def mock_get(path, **kwargs):
             if path == "/global/health":
-                return MagicMock()
+                return _opencode_health_response()
+            if path == "/config/providers":
+                return _opencode_catalog_response()
             if "/message" in path:
                 return mock_messages_response
             return MagicMock()
@@ -659,7 +698,10 @@ class TestGenerateFolderNameOpencodeAsync:
         mock_client.stream = MagicMock(return_value=mock_stream_cm)
 
         with patch("reverse_api.config.ConfigManager") as mock_cm:
-            mock_cm.return_value.get.return_value = "anthropic"
+            mock_cm.return_value.get.side_effect = lambda key, default=None: {
+                "opencode_provider": "anthropic",
+                "opencode_model": "claude-opus-4-6",
+            }.get(key, default)
             with patch("reverse_api.utils.get_config_path"):
                 with patch("httpx.AsyncClient") as mock_async:
                     mock_async.return_value.__aenter__ = AsyncMock(return_value=mock_client)
@@ -685,7 +727,9 @@ class TestGenerateFolderNameOpencodeAsync:
 
         async def mock_get(path, **kwargs):
             if path == "/global/health":
-                return MagicMock()
+                return _opencode_health_response()
+            if path == "/config/providers":
+                return _opencode_catalog_response()
             if "/message" in path:
                 return mock_messages_response
             return MagicMock()
@@ -710,7 +754,10 @@ class TestGenerateFolderNameOpencodeAsync:
         mock_client.stream = MagicMock(return_value=mock_stream_cm)
 
         with patch("reverse_api.config.ConfigManager") as mock_cm:
-            mock_cm.return_value.get.return_value = "anthropic"
+            mock_cm.return_value.get.side_effect = lambda key, default=None: {
+                "opencode_provider": "anthropic",
+                "opencode_model": "claude-opus-4-6",
+            }.get(key, default)
             with patch("reverse_api.utils.get_config_path"):
                 with patch("httpx.AsyncClient") as mock_async:
                     mock_async.return_value.__aenter__ = AsyncMock(return_value=mock_client)

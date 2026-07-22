@@ -153,7 +153,7 @@ async def _generate_folder_name_opencode_async(prompt: str, session_id: str = No
     import json
 
     from .config import ConfigManager
-    from .opencode_runtime import ensure_opencode_server, opencode_base_url
+    from .opencode_runtime import ensure_opencode_server, opencode_base_url, validate_opencode_model
 
     base_url = opencode_base_url()
 
@@ -173,6 +173,7 @@ async def _generate_folder_name_opencode_async(prompt: str, session_id: str = No
     async with httpx.AsyncClient(base_url=base_url, timeout=15.0, auth=auth) as client:
         try:
             await ensure_opencode_server(client, base_url=base_url)
+            await validate_opencode_model(client, opencode_provider, opencode_model)
         except Exception as e:
             raise Exception(f"OpenCode server not responding: {e}") from e
 

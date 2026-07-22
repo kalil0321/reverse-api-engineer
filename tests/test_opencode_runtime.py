@@ -26,6 +26,42 @@ def _health_response(version: str = "1.18.4") -> MagicMock:
     return response
 
 
+def _catalog_response() -> MagicMock:
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json.return_value = {
+        "default": {"openai": "gpt-paid", "opencode": "big-pickle"},
+        "providers": [
+            {
+                "id": "openai",
+                "models": {
+                    "gpt-paid": {
+                        "status": "active",
+                        "cost": {"input": 1, "output": 2},
+                        "capabilities": {"toolcall": True},
+                    }
+                },
+            },
+            {
+                "id": "opencode",
+                "models": {
+                    "big-pickle": {
+                        "status": "active",
+                        "cost": {"input": 0, "output": 0},
+                        "capabilities": {"toolcall": True},
+                    },
+                    "no-tools-free": {
+                        "status": "active",
+                        "cost": {"input": 0, "output": 0},
+                        "capabilities": {"toolcall": False},
+                    },
+                },
+            },
+        ],
+    }
+    return response
+
+
 @pytest.mark.asyncio
 async def test_reuses_healthy_server():
     client = AsyncMock()
@@ -35,6 +71,76 @@ async def test_reuses_healthy_server():
 
     assert status.health["version"] == "1.18.4"
     assert status.started is False
+    assert status.version_warning is None
+
+
+@pytest.mark.asyncio
+async def test_warns_for_compatible_but_older_server():
+    client = AsyncMock()
+    client.get = AsyncMock(return_value=_health_response("1.0.203"))
+
+    status = await opencode_runtime.ensure_opencode_server(client, base_url="http://127.0.0.1:4096")
+
+    assert "older than RAE's tested v1.18.4" in str(status.version_warning)
+
+
+@pytest.mark.asyncio
+async def test_validates_connected_provider_model_pair():
+    client = AsyncMock()
+    client.get = AsyncMock(return_value=_catalog_response())
+
+    await opencode_runtime.validate_opencode_model(client, "opencode", "big-pickle")
+
+    client.get.assert_awaited_once_with("/config/providers", timeout=10.0)
+
+
+@pytest.mark.asyncio
+async def test_model_catalog_endpoint_is_required_for_compatibility():
+    request = httpx.Request("GET", "http://127.0.0.1:4096/config/providers")
+    response = httpx.Response(404, request=request)
+    client = AsyncMock()
+    client.get = AsyncMock(return_value=response)
+
+    with pytest.raises(opencode_runtime.OpenCodeSetupError, match="server is incompatible"):
+        await opencode_runtime.validate_opencode_model(client, "opencode", "big-pickle")
+
+
+@pytest.mark.asyncio
+async def test_invalid_provider_suggests_connected_and_free_models():
+    client = AsyncMock()
+    client.get = AsyncMock(return_value=_catalog_response())
+
+    with pytest.raises(opencode_runtime.OpenCodeSetupError) as error:
+        await opencode_runtime.validate_opencode_model(client, "anthropic", "claude-opus-4-6")
+
+    message = str(error.value)
+    assert "provider 'anthropic' is not connected" in message
+    assert "Connected providers: openai, opencode" in message
+    assert "opencode/big-pickle" in message
+    assert "/settings" in message
+
+
+@pytest.mark.asyncio
+async def test_invalid_model_suggests_valid_pair_for_provider():
+    client = AsyncMock()
+    client.get = AsyncMock(return_value=_catalog_response())
+
+    with pytest.raises(opencode_runtime.OpenCodeSetupError) as error:
+        await opencode_runtime.validate_opencode_model(client, "openai", "missing")
+
+    message = str(error.value)
+    assert "openai/missing is not available" in message
+    assert "Try: openai/gpt-paid" in message
+    assert "opencode/big-pickle" in message
+
+
+@pytest.mark.asyncio
+async def test_rejects_model_without_tool_calling():
+    client = AsyncMock()
+    client.get = AsyncMock(return_value=_catalog_response())
+
+    with pytest.raises(opencode_runtime.OpenCodeSetupError, match="does not support tool calling"):
+        await opencode_runtime.validate_opencode_model(client, "opencode", "no-tools-free")
 
 
 @pytest.mark.asyncio

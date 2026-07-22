@@ -49,6 +49,10 @@ class OpenCodeUI:
         """Display managed server startup."""
         self.console.print(f"  [dim]started: {package} at {base_url}[/dim]")
 
+    def compatibility_warning(self, message: str) -> None:
+        """Display a concise warning for an older or unknown server version."""
+        self.console.print(f"  [yellow]warning:[/yellow] {message}")
+
     def session_created(self, session_id: str) -> None:
         """Display session creation."""
         self.console.print(f"  [dim]session: {session_id[:16]}...[/dim]")

@@ -49,6 +49,12 @@ variables are inherited by an auto-started server. See
 [OpenCode providers](https://opencode.ai/docs/providers/) and
 [models.dev](https://models.dev).
 
+RAE validates the configured provider/model pair against OpenCode's connected
+provider catalog before creating a session. Invalid pairs fail immediately and
+include valid alternatives plus currently exposed free, tool-capable models.
+Existing compatible servers are reused; versions older than RAE's tested
+OpenCode release display an upgrade warning.
+
 ## Copilot
 
 Uses the GitHub Copilot SDK when the optional Copilot dependency and token are

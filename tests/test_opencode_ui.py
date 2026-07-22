@@ -64,6 +64,14 @@ class TestOpenCodeUI:
         assert "opencode-ai@latest" in output
         assert "127.0.0.1:4096" in output
 
+    def test_compatibility_warning(self):
+        """Compatibility warning is visible and concise."""
+        ui, console = self._make_ui()
+        ui.compatibility_warning("OpenCode is older than the tested version.")
+        output = console.file.getvalue()
+        assert "warning:" in output
+        assert "older than the tested version" in output
+
     def test_session_created(self):
         """Session created shows truncated ID."""
         ui, console = self._make_ui()

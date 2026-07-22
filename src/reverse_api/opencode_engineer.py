@@ -14,7 +14,12 @@ from typing import Any
 import httpx
 
 from .base_engineer import BaseEngineer
-from .opencode_runtime import OpenCodeSetupError, ensure_opencode_server, opencode_base_url
+from .opencode_runtime import (
+    OpenCodeSetupError,
+    ensure_opencode_server,
+    opencode_base_url,
+    validate_opencode_model,
+)
 from .opencode_ui import OpenCodeUI
 
 # Enable debug mode with OPENCODE_DEBUG=1
@@ -143,6 +148,10 @@ class OpenCodeEngineer(BaseEngineer):
             if server.started and server.package:
                 self.opencode_ui.server_started(server.package, self.BASE_URL)
             self.opencode_ui.health_check(server.health)
+            if server.version_warning:
+                self.opencode_ui.compatibility_warning(server.version_warning)
+            model_id = self.MODEL_MAP.get(self.opencode_model, self.opencode_model)
+            await validate_opencode_model(client, self.opencode_provider, model_id)
             return True
         except httpx.HTTPStatusError as e:
             if e.response.status_code != 401:
