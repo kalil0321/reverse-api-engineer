@@ -1064,19 +1064,19 @@ class TestOpenCodeEngineerStreamEvents:
 
     @pytest.mark.asyncio
     async def test_stream_renders_only_assistant_text(self, tmp_path):
-        """User prompt events are ignored while assistant text is rendered."""
+        """Parts arriving before their roles are known are safely buffered."""
         eng = self._make_engineer(tmp_path)
         lines = [
-            'data: {"type":"message.updated","properties":{"sessionID":"session_abc",'
-            '"info":{"id":"message_user","sessionID":"session_abc","role":"user"}}}',
             'data: {"type":"message.part.updated","properties":{"sessionID":"session_abc",'
             '"part":{"id":"part_user","messageID":"message_user","sessionID":"session_abc",'
             '"type":"text","text":"There is no HAR file — capture all network data."}}}',
-            'data: {"type":"message.updated","properties":{"sessionID":"session_abc",'
-            '"info":{"id":"message_assistant","sessionID":"session_abc","role":"assistant"}}}',
             'data: {"type":"message.part.updated","properties":{"sessionID":"session_abc",'
             '"part":{"id":"part_assistant","messageID":"message_assistant","sessionID":"session_abc",'
             '"type":"text","text":"Assistant answer","time":{"start":1,"end":2}}}}',
+            'data: {"type":"message.updated","properties":{"sessionID":"session_abc",'
+            '"info":{"id":"message_user","sessionID":"session_abc","role":"user"}}}',
+            'data: {"type":"message.updated","properties":{"sessionID":"session_abc",'
+            '"info":{"id":"message_assistant","sessionID":"session_abc","role":"assistant"}}}',
             'data: {"type":"session.idle","properties":{"sessionID":"session_abc"}}',
         ]
         mock_response = AsyncMock()
@@ -1095,6 +1095,7 @@ class TestOpenCodeEngineerStreamEvents:
         await eng._stream_events(mock_client)
 
         eng.opencode_ui.update_text.assert_called_once_with("Assistant answer", None)
+        assert eng._pending_text_parts == {}
 
     @pytest.mark.asyncio
     async def test_empty_and_non_data_lines_skipped(self, tmp_path):

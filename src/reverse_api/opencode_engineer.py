@@ -139,6 +139,8 @@ class OpenCodeEngineer(BaseEngineer):
         self._work_started = False  # Track if any real work has been done
         self._busy_time: float | None = None  # When session became busy
         self._assistant_message_ids: set[str] = set()
+        self._message_roles: dict[str, str] = {}
+        self._pending_text_parts: dict[str, list[dict[str, Any]]] = {}
 
         # Read OpenCode server authentication from environment variables
         self.opencode_password = os.environ.get("OPENCODE_SERVER_PASSWORD")
@@ -382,8 +384,15 @@ class OpenCodeEngineer(BaseEngineer):
                         info = properties.get("info", {})
                         event_sid = properties.get("sessionID") or info.get("sessionID")
                         message_id = info.get("id")
-                        if event_sid == self._session_id and info.get("role") == "assistant" and message_id:
-                            self._assistant_message_ids.add(str(message_id))
+                        if event_sid == self._session_id and message_id:
+                            message_id = str(message_id)
+                            role = str(info.get("role") or "")
+                            self._message_roles[message_id] = role
+                            pending = self._pending_text_parts.pop(message_id, [])
+                            if role == "assistant":
+                                self._assistant_message_ids.add(message_id)
+                                for pending_properties in pending:
+                                    await self._handle_part_update(pending_properties, seen_parts)
 
                     elif event_type == "message.part.updated":
                         await self._handle_part_update(properties, seen_parts)
@@ -611,6 +620,10 @@ class OpenCodeEngineer(BaseEngineer):
             debug_log(f"Handling text part: id={part_id}, delta={'yes' if delta else 'no'}, len={len(text)}")
 
             message_id = str(part.get("messageID") or "")
+            if message_id and message_id not in self._message_roles and message_id not in self._assistant_message_ids:
+                debug_log(f"Buffering text until role is known for message {message_id}")
+                self._pending_text_parts.setdefault(message_id, []).append(properties)
+                return
             if message_id not in self._assistant_message_ids:
                 debug_log(f"Skipping text for non-assistant message {message_id or 'unknown'}")
                 return
