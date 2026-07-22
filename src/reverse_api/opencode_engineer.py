@@ -466,8 +466,17 @@ class OpenCodeEngineer(BaseEngineer):
                                 debug_log(f"Permission response: {perm_response.status_code}")
                                 if 200 <= perm_response.status_code < 300:
                                     self.opencode_ui.permission_approved(perm_type)
+                                else:
+                                    self._last_error = (
+                                        f"Permission approval failed for {perm_type}: "
+                                        f"OpenCode returned HTTP {perm_response.status_code}."
+                                    )
+                                    debug_log(self._last_error)
+                                    return
                             except Exception as pe:
-                                debug_log(f"Permission approval failed: {pe}")
+                                self._last_error = f"Permission approval failed for {perm_type}: {pe}"
+                                debug_log(self._last_error)
+                                return
 
                     elif event_type == "todo.updated":
                         todos = properties.get("todos", [])

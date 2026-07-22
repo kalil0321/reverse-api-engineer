@@ -255,6 +255,12 @@ class TestOpenCodeUI:
         assert "no serving provider available" in output
         assert "unexpected error" not in output.lower()
 
+    def test_permission_failure_omits_issue_cta(self):
+        """A rejected OpenCode permission reply is an expected runtime failure."""
+        ui, console = self._make_ui()
+        ui.error("Permission approval failed for write: OpenCode returned HTTP 403.")
+        assert "unexpected error" not in console.file.getvalue().lower()
+
     def test_explicit_expected_error_omits_issue_cta(self):
         """Callers can explicitly classify an error as expected."""
         ui, console = self._make_ui()

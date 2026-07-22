@@ -255,6 +255,7 @@ class OpenCodeUI:
                 "invalid opencode model pairing",
                 "model not found:",
                 "does not support tool calling",
+                "permission approval failed",
                 "aborted",
             )
             unexpected = not any(marker in normalized for marker in expected_markers)

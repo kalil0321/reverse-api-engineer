@@ -1200,7 +1200,7 @@ class TestOpenCodeEngineerStreamEvents:
 
     @pytest.mark.asyncio
     async def test_permission_approval_fails(self, tmp_path):
-        """Permission approval failure is handled gracefully."""
+        """Permission transport failures stop the stream immediately."""
         eng = self._make_engineer(tmp_path)
 
         lines = [
@@ -1225,7 +1225,36 @@ class TestOpenCodeEngineerStreamEvents:
         mock_client.post = AsyncMock(side_effect=Exception("permission failed"))
 
         await eng._stream_events(mock_client)
-        # Should not raise
+        assert eng._last_error == "Permission approval failed for write: permission failed"
+        eng.opencode_ui.session_status.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_permission_rejection_reports_status_and_stops_stream(self, tmp_path):
+        """A rejected permission reply is fatal instead of timing out later."""
+        eng = self._make_engineer(tmp_path)
+        lines = [
+            'data: {"type":"permission.v2.asked","properties":{"id":"perm1","sessionID":"session_abc","action":"write"}}',
+            'data: {"type":"session.idle","properties":{"sessionID":"session_abc"}}',
+        ]
+        mock_response = AsyncMock()
+
+        async def mock_aiter_lines():
+            for line in lines:
+                yield line
+
+        mock_response.aiter_lines = mock_aiter_lines
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=mock_response)
+        cm.__aexit__ = AsyncMock(return_value=False)
+        mock_client = AsyncMock()
+        mock_client.stream = MagicMock(return_value=cm)
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=403))
+
+        await eng._stream_events(mock_client)
+
+        assert eng._last_error == "Permission approval failed for write: OpenCode returned HTTP 403."
+        eng.opencode_ui.permission_approved.assert_not_called()
+        eng.opencode_ui.session_status.assert_not_called()
 
 
 class TestOpenCodeEngineerAnalyzeAndGenerate:
