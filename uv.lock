@@ -1558,15 +1558,13 @@ wheels = [
 
 [[package]]
 name = "reverse-api-engineer"
-version = "0.10.0"
+version = "0.11.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
     { name = "claude-agent-sdk" },
     { name = "click" },
     { name = "cryptography" },
-    { name = "playwright" },
-    { name = "playwright-stealth" },
     { name = "pygments" },
     { name = "questionary" },
     { name = "requests" },
@@ -1582,6 +1580,10 @@ collector = [
 ]
 copilot = [
     { name = "github-copilot-sdk" },
+]
+manual = [
+    { name = "playwright" },
+    { name = "playwright-stealth" },
 ]
 
 [package.dev-dependencies]
@@ -1602,8 +1604,8 @@ requires-dist = [
     { name = "cryptography", specifier = ">=46.0.7" },
     { name = "github-copilot-sdk", marker = "extra == 'copilot'", specifier = ">=0.1.0" },
     { name = "markdownify", marker = "extra == 'collector'", specifier = ">=0.12.0" },
-    { name = "playwright", specifier = ">=1.40.0" },
-    { name = "playwright-stealth", specifier = ">=1.0.0" },
+    { name = "playwright", marker = "extra == 'manual'", specifier = ">=1.40.0" },
+    { name = "playwright-stealth", marker = "extra == 'manual'", specifier = ">=1.0.0" },
     { name = "pygments", specifier = ">=2.20.0" },
     { name = "questionary", specifier = ">=2.0.0" },
     { name = "requests", specifier = ">=2.33.0" },
@@ -1611,7 +1613,7 @@ requires-dist = [
     { name = "setproctitle", specifier = ">=1.3.0" },
     { name = "watchdog", specifier = ">=3.0.0" },
 ]
-provides-extras = ["collector", "copilot"]
+provides-extras = ["manual", "collector", "copilot"]
 
 [package.metadata.requires-dev]
 dev = [

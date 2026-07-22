@@ -19,7 +19,6 @@ from questionary import Choice
 from rich.console import Console
 
 from . import __version__
-from .browser import ManualBrowser
 from .config import DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_PROVIDER, ConfigManager
 from .engineer import run_reverse_engineering
 from .messages import MessageStore
@@ -1871,6 +1870,16 @@ def run_manual_capture(prompt=None, url=None, reverse_engineer=True, model=None,
         sdk=sdk,
         paths={"har_dir": str(get_har_dir(run_id, output_dir))},
     )
+
+    try:
+        from .browser import ManualBrowser
+    except ImportError as exc:
+        raise click.ClickException(
+            "Manual capture mode requires the Playwright browser stack, which is "
+            "not installed by default. Install it with:\n\n"
+            "    pip install 'reverse-api-engineer[manual]'\n\n"
+            "(Agent mode does not need this.)"
+        ) from exc
 
     browser = ManualBrowser(run_id=run_id, prompt=prompt, output_dir=output_dir)
     har_path = browser.start(start_url=url)
