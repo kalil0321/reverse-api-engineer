@@ -21,8 +21,17 @@ def _valid_catalog_response() -> MagicMock:
     response = MagicMock()
     response.raise_for_status = MagicMock()
     response.json.return_value = {
-        "default": {"anthropic": "claude-opus-4-6"},
+        "default": {"opencode": "big-pickle"},
         "providers": [
+            {
+                "id": "opencode",
+                "models": {
+                    "big-pickle": {
+                        "status": "active",
+                        "capabilities": {"toolcall": True},
+                    }
+                },
+            },
             {
                 "id": "anthropic",
                 "models": {
@@ -210,8 +219,8 @@ class TestOpenCodeEngineerInit:
                         prompt="test prompt",
                         output_dir=str(tmp_path),
                     )
-                    assert eng.opencode_provider == "anthropic"
-                    assert eng.opencode_model == "claude-opus-4-6"
+                    assert eng.opencode_provider == "opencode"
+                    assert eng.opencode_model == "big-pickle"
 
 
 class TestOpenCodeEngineerAuth:

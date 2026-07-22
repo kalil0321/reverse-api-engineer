@@ -152,15 +152,15 @@ async def _generate_folder_name_opencode_async(prompt: str, session_id: str = No
     """
     import json
 
-    from .config import ConfigManager
+    from .config import DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_PROVIDER, ConfigManager
     from .opencode_runtime import ensure_opencode_server, opencode_base_url, validate_opencode_model
 
     base_url = opencode_base_url()
 
     # Get config for provider and model
     config_manager = ConfigManager(get_config_path())
-    opencode_provider = config_manager.get("opencode_provider", "anthropic")
-    opencode_model = config_manager.get("opencode_model", "claude-opus-4-6")
+    opencode_provider = config_manager.get("opencode_provider", DEFAULT_OPENCODE_PROVIDER)
+    opencode_model = config_manager.get("opencode_model", DEFAULT_OPENCODE_MODEL)
 
     from .prompts import FOLDER_NAME_PROMPT
 

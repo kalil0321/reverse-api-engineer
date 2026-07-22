@@ -29,16 +29,18 @@ or use a non-Anthropic provider.
   "sdk": "opencode",
   "opencode_auto_start": true,
   "opencode_base_url": "http://127.0.0.1:4096",
-  "opencode_model": "claude-opus-4-6",
+  "opencode_model": "big-pickle",
   "opencode_npx_package": "opencode-ai@latest",
-  "opencode_provider": "anthropic"
+  "opencode_provider": "opencode"
 }
 ```
 
-RAE reuses an existing OpenCode server. If none is listening, it starts the
-latest `opencode-ai` release through `npx` and stops that child process
-when RAE exits. Automatic setup needs Node.js 20+; the first run downloads the
-OpenCode npm package and later runs use npm's cache.
+RAE reuses an existing OpenCode server. If none is listening, it downloads and
+starts the latest `opencode-ai` release through `npx`, then stops that child
+process when RAE exits. A global OpenCode installation is not required.
+Automatic setup needs Node.js 20+; the first run downloads the OpenCode npm
+package and later runs use npm's cache. Fresh configurations use the free
+`opencode/big-pickle` model by default.
 
 Set `opencode_auto_start` to `false` when you manage the server yourself. The
 environment variables `OPENCODE_BASE_URL`, `RAE_OPENCODE_PACKAGE`, and

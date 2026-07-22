@@ -20,7 +20,7 @@ from rich.console import Console
 
 from . import __version__
 from .browser import ManualBrowser
-from .config import ConfigManager
+from .config import DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_PROVIDER, ConfigManager
 from .engineer import run_reverse_engineering
 from .messages import MessageStore
 from .session import SessionManager
@@ -60,7 +60,7 @@ def default_model_for_configured_sdk(sdk: str | None = None) -> str:
     """Return the configured default model id for the given SDK (or current config SDK)."""
     s = (sdk or config_manager.get("sdk", "claude") or "claude").lower()
     if s == "opencode":
-        return config_manager.get("opencode_model", "claude-opus-4-6")
+        return config_manager.get("opencode_model", DEFAULT_OPENCODE_MODEL)
     if s == "copilot":
         return config_manager.get("copilot_model", "gpt-5")
     if s == "cursor":
@@ -92,7 +92,8 @@ def _select_opencode_pair_for_settings(mode_color=THEME_PRIMARY) -> tuple[str, s
     from .opencode_runtime import opencode_model_is_free, opencode_model_is_selectable
 
     try:
-        catalog = asyncio.run(_load_opencode_catalog_for_settings())
+        with console.status(" Loading OpenCode providers and models...", spinner="dots"):
+            catalog = asyncio.run(_load_opencode_catalog_for_settings())
     except Exception as e:
         response = getattr(e, "response", None)
         if getattr(response, "status_code", None) == 401:
@@ -2030,8 +2031,8 @@ def run_auto_capture(
                 prompt=prompt,
                 output_dir=output_dir,
                 agent_provider=agent_provider,
-                opencode_provider=config_manager.get("opencode_provider", "anthropic"),
-                opencode_model=model or config_manager.get("opencode_model", "claude-opus-4-6"),
+                opencode_provider=config_manager.get("opencode_provider", DEFAULT_OPENCODE_PROVIDER),
+                opencode_model=model or config_manager.get("opencode_model", DEFAULT_OPENCODE_MODEL),
                 enable_sync=config_manager.get("real_time_sync", False),
                 sdk=sdk,
                 output_language=output_language,
@@ -2347,8 +2348,8 @@ def run_engineer(
             model=model,
             output_dir=output_dir,
             sdk=sdk,
-            opencode_provider=config_manager.get("opencode_provider", "anthropic"),
-            opencode_model=config_manager.get("opencode_model", "claude-opus-4-6"),
+            opencode_provider=config_manager.get("opencode_provider", DEFAULT_OPENCODE_PROVIDER),
+            opencode_model=config_manager.get("opencode_model", DEFAULT_OPENCODE_MODEL),
             enable_sync=enable_sync,
             additional_instructions=additional_instructions,
             is_fresh=is_fresh,

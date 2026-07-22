@@ -144,7 +144,7 @@ async def test_rejects_model_without_tool_calling():
 
 
 @pytest.mark.asyncio
-async def test_starts_latest_package_and_waits_for_health(monkeypatch: pytest.MonkeyPatch):
+async def test_starts_latest_package_without_global_opencode(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("OPENCODE_SERVER_PASSWORD", "secret")
     request = httpx.Request("GET", "http://127.0.0.1:4096/global/health")
     client = AsyncMock()
@@ -153,7 +153,11 @@ async def test_starts_latest_package_and_waits_for_health(monkeypatch: pytest.Mo
     process.poll.return_value = None
 
     with patch.object(opencode_runtime, "_config_manager_snapshot", return_value={}):
-        with patch.object(opencode_runtime.shutil, "which", side_effect=lambda name: f"/bin/{name}"):
+        with patch.object(
+            opencode_runtime.shutil,
+            "which",
+            side_effect=lambda name: None if name == "opencode" else f"/bin/{name}",
+        ):
             with patch.object(opencode_runtime.subprocess, "Popen", return_value=process) as popen:
                 status = await opencode_runtime.ensure_opencode_server(
                     client,

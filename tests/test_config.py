@@ -172,5 +172,7 @@ class TestDefaultConfig:
         assert DEFAULT_CONFIG["cursor_model"] == "composer-2.5"
         assert DEFAULT_CONFIG["cursor_web_search"] is True
         assert DEFAULT_CONFIG["cursor_setting_sources"] is None
+        assert DEFAULT_CONFIG["opencode_provider"] == "opencode"
+        assert DEFAULT_CONFIG["opencode_model"] == "big-pickle"
         assert DEFAULT_CONFIG["opencode_auto_start"] is True
         assert DEFAULT_CONFIG["opencode_npx_package"] == "opencode-ai@latest"

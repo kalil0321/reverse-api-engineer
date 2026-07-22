@@ -47,19 +47,21 @@ def _catalog():
 
 def test_opencode_pair_picker_uses_live_tool_capable_catalog():
     """The picker only returns a provider/model pair exposed by OpenCode."""
-    with patch.object(
-        cli,
-        "_load_opencode_catalog_for_settings",
-        new=AsyncMock(return_value=_catalog()),
-    ):
+    with patch.object(cli.console, "status") as loading:
         with patch.object(
-            cli.questionary,
-            "select",
-            side_effect=[_answer("opencode"), _answer("big-pickle")],
-        ) as select:
-            pair = cli._select_opencode_pair_for_settings("magenta")
+            cli,
+            "_load_opencode_catalog_for_settings",
+            new=AsyncMock(return_value=_catalog()),
+        ):
+            with patch.object(
+                cli.questionary,
+                "select",
+                side_effect=[_answer("opencode"), _answer("big-pickle")],
+            ) as select:
+                pair = cli._select_opencode_pair_for_settings("magenta")
 
     assert pair == ("opencode", "big-pickle")
+    loading.assert_called_once_with(" Loading OpenCode providers and models...", spinner="dots")
     model_choices = select.call_args_list[1].kwargs["choices"]
     assert [choice.value for choice in model_choices] == ["big-pickle", "back"]
     assert "free" in model_choices[0].title

@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+DEFAULT_OPENCODE_PROVIDER = "opencode"
+DEFAULT_OPENCODE_MODEL = "big-pickle"
+
 DEFAULT_CONFIG = {
     "agent_provider": "auto",  # "auto" | "chrome-mcp" | "agent-browser"
     "agent_browser_notes": "",  # extra instructions merged into agent-browser prompt / RAE_AGENT_BROWSER_NOTES env
@@ -17,8 +20,8 @@ DEFAULT_CONFIG = {
     # Optional override: list of setting source ids, e.g. ["project","user","all"]. None uses cursor_web_search.
     "cursor_setting_sources": None,
     "copilot_model": "gpt-5",  # Model for Copilot SDK sessions
-    "opencode_model": "claude-opus-4-6",
-    "opencode_provider": "anthropic",
+    "opencode_model": DEFAULT_OPENCODE_MODEL,
+    "opencode_provider": DEFAULT_OPENCODE_PROVIDER,
     "opencode_auto_start": True,
     "opencode_base_url": "http://127.0.0.1:4096",
     "opencode_npx_package": "opencode-ai@latest",

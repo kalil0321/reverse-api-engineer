@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 
 from .base_engineer import BaseEngineer
+from .config import DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_PROVIDER
 from .opencode_runtime import (
     OpenCodeSetupError,
     ensure_opencode_server,
@@ -116,8 +117,8 @@ class OpenCodeEngineer(BaseEngineer):
 
     def __init__(self, *args, **kwargs):
         # Pop OpenCode-specific kwargs before passing to parent class
-        self.opencode_provider = kwargs.pop("opencode_provider", "anthropic")
-        self.opencode_model = kwargs.pop("opencode_model", "claude-opus-4-6")
+        self.opencode_provider = kwargs.pop("opencode_provider", DEFAULT_OPENCODE_PROVIDER)
+        self.opencode_model = kwargs.pop("opencode_model", DEFAULT_OPENCODE_MODEL)
         self.BASE_URL = opencode_base_url()
 
         super().__init__(*args, **kwargs)
