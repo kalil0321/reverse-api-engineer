@@ -230,7 +230,7 @@ class OpenCodeUI:
             self.console.print(f" [dim]synced:[/dim]   [white]{local_path}[/white]")
         self.console.print()
 
-    def error(self, message: str) -> None:
+    def error(self, message: str, *, unexpected: bool | None = None) -> None:
         """Display error message with Rich formatting support."""
         self.console.print()
         # Check if message already contains Rich markup (from format_error)
@@ -240,7 +240,21 @@ class OpenCodeUI:
         else:
             # Simple error format
             self.console.print(f" [dim]![/dim] [red]error:[/red] {message}")
-        self.console.print(f" [dim]{ERROR_CTA}[/dim]")
+        if unexpected is None:
+            normalized = message.casefold()
+            expected_markers = (
+                "api error (401): no provider available",
+                "no serving provider available",
+                "auth error",
+                "authentication failed",
+                "invalid opencode model pairing",
+                "model not found:",
+                "does not support tool calling",
+                "aborted",
+            )
+            unexpected = not any(marker in normalized for marker in expected_markers)
+        if unexpected:
+            self.console.print(f" [dim]{ERROR_CTA}[/dim]")
 
     def permission_requested(self, perm_type: str, title: str) -> None:
         """Display when a permission is requested."""

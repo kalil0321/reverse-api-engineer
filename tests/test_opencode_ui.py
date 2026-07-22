@@ -234,6 +234,24 @@ class TestOpenCodeUI:
         output = console.file.getvalue()
         assert "error" in output
         assert "Something went wrong" in output
+        assert "unexpected error" in output.lower()
+
+    def test_expected_provider_error_omits_issue_cta(self):
+        """Known provider availability errors should not ask for an issue report."""
+        ui, console = self._make_ui()
+        ui.error(
+            "OpenCode has no serving provider available for this model right now. "
+            "Try another free model or retry later."
+        )
+        output = console.file.getvalue()
+        assert "no serving provider available" in output
+        assert "unexpected error" not in output.lower()
+
+    def test_explicit_expected_error_omits_issue_cta(self):
+        """Callers can explicitly classify an error as expected."""
+        ui, console = self._make_ui()
+        ui.error("Authentication failed", unexpected=False)
+        assert "unexpected error" not in console.file.getvalue().lower()
 
     def test_error_rich_markup(self):
         """Error with Rich markup passes through."""

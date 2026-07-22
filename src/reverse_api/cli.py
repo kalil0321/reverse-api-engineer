@@ -979,6 +979,12 @@ def repl_loop():
 
 
 def handle_settings(mode_color=THEME_PRIMARY):
+    """Keep the settings menu open until the user explicitly goes back."""
+    while _handle_settings_action(mode_color):
+        pass
+
+
+def _handle_settings_action(mode_color=THEME_PRIMARY) -> bool:
     """Display and manage settings with improved layout and descriptions."""
     from rich.table import Table
 
@@ -1033,7 +1039,7 @@ def handle_settings(mode_color=THEME_PRIMARY):
     ).ask()
 
     if action is None or action == "back":
-        return  # Exit settings to main prompt
+        return False  # Exit settings to main prompt
 
     if action == "claude_code_model":
         model_choices = [Choice(title=c["name"].lower(), value=c["value"]) for c in get_model_choices()]
@@ -1312,6 +1318,8 @@ def handle_settings(mode_color=THEME_PRIMARY):
         if new_dir is not None:
             config_manager.set("output_dir", new_dir if new_dir.strip() else None)
             console.print(" [dim]updated[/dim] output directory\n")
+
+    return True
 
 
 def handle_history(mode_color=THEME_PRIMARY):

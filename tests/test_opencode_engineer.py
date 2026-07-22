@@ -738,6 +738,7 @@ class TestOpenCodeEngineerStreamEvents:
         await eng._stream_events(mock_client)
         assert "Auth error" in eng._last_error
         assert "anthropic" in eng._last_error
+        eng.opencode_ui.error.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_session_error_api_error(self, tmp_path):
@@ -766,6 +767,40 @@ class TestOpenCodeEngineerStreamEvents:
         await eng._stream_events(mock_client)
         assert "API error" in eng._last_error
         assert "429" in eng._last_error
+        eng.opencode_ui.error.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_session_error_no_provider_available(self, tmp_path):
+        """Zen capacity errors are explained without being displayed twice."""
+        eng = self._make_engineer(tmp_path)
+
+        lines = [
+            "data: "
+            '{"type":"session.error","properties":{"sessionID":"session_abc",'
+            '"error":{"name":"APIError","data":{"message":"No provider available","statusCode":401}}}}',
+        ]
+
+        mock_response = AsyncMock()
+
+        async def mock_aiter_lines():
+            for line in lines:
+                yield line
+
+        mock_response.aiter_lines = mock_aiter_lines
+
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=mock_response)
+        cm.__aexit__ = AsyncMock(return_value=False)
+
+        mock_client = AsyncMock()
+        mock_client.stream = MagicMock(return_value=cm)
+
+        await eng._stream_events(mock_client)
+        assert eng._last_error == (
+            "OpenCode has no serving provider available for this model right now. "
+            "Try another free model or retry later."
+        )
+        eng.opencode_ui.error.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_session_error_aborted(self, tmp_path):

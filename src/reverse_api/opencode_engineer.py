@@ -157,14 +157,14 @@ class OpenCodeEngineer(BaseEngineer):
             if e.response.status_code != 401:
                 raise
             debug_log("Health check failed: authentication required")
-            self.opencode_ui.error("Authentication failed. OpenCode server requires a password.")
+            self.opencode_ui.error("Authentication failed. OpenCode server requires a password.", unexpected=False)
             self.opencode_ui.console.print("\n[dim]Please set OPENCODE_SERVER_PASSWORD environment variable[/dim]")
             if self.opencode_username != "opencode":
                 self.opencode_ui.console.print(f"[dim]Username: {self.opencode_username}[/dim]")
             return False
         except OpenCodeSetupError as e:
             debug_log(f"OpenCode setup failed: {e}")
-            self.opencode_ui.error(str(e))
+            self.opencode_ui.error(str(e), unexpected=False)
             return False
         except Exception as e:
             debug_log(f"Health check failed: {e}")
@@ -222,7 +222,6 @@ class OpenCodeEngineer(BaseEngineer):
                     await asyncio.wait_for(event_task, timeout=600.0)
                 except TimeoutError:
                     self._last_error = "Session timed out (10 min)"
-                    self.opencode_ui.error(self._last_error)
 
                 # Stop streaming UI
                 self.opencode_ui.stop_streaming()
@@ -272,7 +271,7 @@ class OpenCodeEngineer(BaseEngineer):
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 401:
-                self.opencode_ui.error("Authentication failed. OpenCode server requires a password.")
+                self.opencode_ui.error("Authentication failed. OpenCode server requires a password.", unexpected=False)
                 self.opencode_ui.console.print("\n[dim]Please set OPENCODE_SERVER_PASSWORD environment variable[/dim]")
                 if self.opencode_username != "opencode":
                     self.opencode_ui.console.print(f"[dim]Username: {self.opencode_username}[/dim]")
@@ -490,7 +489,13 @@ class OpenCodeEngineer(BaseEngineer):
                             elif error_name == "APIError":
                                 msg = error_data.get("message", "API error")
                                 status = error_data.get("statusCode", "")
-                                self._last_error = f"API error{' (' + str(status) + ')' if status else ''}: {msg}"
+                                if str(status) == "401" and str(msg).casefold() == "no provider available":
+                                    self._last_error = (
+                                        "OpenCode has no serving provider available for this model right now. "
+                                        "Try another free model or retry later."
+                                    )
+                                else:
+                                    self._last_error = f"API error{' (' + str(status) + ')' if status else ''}: {msg}"
                             elif error_name == "MessageAbortedError":
                                 self._last_error = "Aborted"
                             else:
@@ -499,7 +504,6 @@ class OpenCodeEngineer(BaseEngineer):
                         else:
                             self._last_error = str(error_obj)
 
-                        self.opencode_ui.error(self._last_error)
                         return
 
         except httpx.ReadError as e:
@@ -536,9 +540,6 @@ class OpenCodeEngineer(BaseEngineer):
                         msg = error_data.get("message", "") if isinstance(error_data, dict) else str(error_data)
                         self._last_error = f"{error_name}: {msg}" if msg else error_name
 
-                    if self._last_error:
-                        self.opencode_ui.error(self._last_error)
-
             # Also check messages for errors
             msg_r = await client.get(f"/session/{self._session_id}/message")
             if msg_r.status_code == 200:
@@ -560,7 +561,6 @@ class OpenCodeEngineer(BaseEngineer):
                                     self._last_error = f"Model not found: {provider}/{model}"
                                     if suggestions:
                                         self._last_error += f"\n  Did you mean: {', '.join(suggestions)}?"
-                                    self.opencode_ui.error(self._last_error)
                                     return
         except Exception as e:
             debug_log(f"Error checking session: {e}")
