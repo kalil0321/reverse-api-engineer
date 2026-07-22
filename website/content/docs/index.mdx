@@ -60,9 +60,10 @@ and `run` can stream NDJSON progress with `--json-stream`, and `list` plus
 
 ### Browser automation with stealth
 
-Built on **Playwright** with anti-detection patches and viewport
-randomisation. Captures every request as HAR: headers, cookies, request
-bodies, response bodies, timing.
+Manual mode drives a local **Playwright** browser (optional `[manual]` extra)
+with anti-detection patches and viewport randomisation; agent mode captures
+through browser MCP servers. Either way, every request is recorded as HAR:
+headers, cookies, request bodies, response bodies, timing.
 
 ### Autonomous agent loop
 
