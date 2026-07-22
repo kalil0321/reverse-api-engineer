@@ -20,7 +20,7 @@ DEFAULT_CONFIG = {
     "opencode_model": "claude-opus-4-6",
     "opencode_provider": "anthropic",
     "output_dir": None,  # None means use ~/.reverse-api/runs
-    "output_language": "python",  # "python", "javascript", "typescript", "go", or "java"
+    "output_language": "python",  # "python", "javascript", "typescript", "go", "java", or "csharp"
     "real_time_sync": True,  # Enable real-time file sync during engineering
     "sdk": "claude",  # "claude", "opencode", "copilot", or "cursor"
 }

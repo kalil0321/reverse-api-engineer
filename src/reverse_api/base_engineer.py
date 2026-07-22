@@ -36,6 +36,7 @@ class BaseEngineer(ABC):
         "typescript": ".ts",
         "go": ".go",
         "java": ".java",
+        "csharp": ".cs",
     }
 
     def __init__(
@@ -444,6 +445,7 @@ class BaseEngineer(ABC):
             "typescript": "TypeScript",
             "go": "Go",
             "java": "Java",
+            "csharp": "C#",
         }.get(self.output_language, "Python")
 
     def _get_existing_client_guidance(self) -> str:
@@ -489,6 +491,23 @@ class BaseEngineer(ABC):
             # requires ("symbolic reference class is not accessible").
             pom = shlex.quote(str(self.scripts_dir.resolve() / "pom.xml"))
             return f"mvn -q -f {pom} compile exec:exec"
+        if self.output_language == "csharp":
+            # Unlike python/node/npx (which happily take a plain relative
+            # filename regardless of the agent's actual cwd, scripts_dir.
+            # parent.parent — see analyze_and_generate's ClaudeAgentOptions),
+            # a bare `dotnet run` only looks for a project file in the
+            # current directory. --project points it straight at this run's
+            # own .csproj regardless of cwd, rather than relying on the
+            # agent to cd there itself first. shlex.quote(), not manual
+            # double-quoting — output_dir (and so scripts_dir) isn't
+            # guaranteed free of shell metacharacters, and naive f'"{path}"'
+            # still lets $()/backticks expand inside double quotes.
+            # .resolve(): a relative --output-dir would otherwise be
+            # re-interpreted against the agent's cwd (scripts_dir.parent.
+            # parent) instead of the original cwd it was relative to,
+            # pointing --project at the wrong, doubly-nested location.
+            csproj = shlex.quote(str(self.scripts_dir.resolve() / "ApiClient.csproj"))
+            return f"dotnet run --project {csproj}"
         return {
             "python": "python api_client.py",
             "javascript": "node api_client.js",
@@ -610,6 +629,8 @@ class BaseEngineer(ABC):
             )
         elif self.output_language == "java":
             return base + f"\n3. `{self.scripts_dir}/pom.xml` - Maven project file (Gson dependency, exec-maven-plugin)"
+        elif self.output_language == "csharp":
+            return base + f"\n3. `{self.scripts_dir}/ApiClient.csproj` - .NET project file"
         return base
 
     @abstractmethod
