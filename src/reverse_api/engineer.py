@@ -166,6 +166,10 @@ class ClaudeEngineer(BaseEngineer):
         self.ui.header(self.run_id, self.prompt, self.model, self.sdk, mode="engineer")
         self.ui.start_analysis()
 
+        # Fresh SDK session, fresh context window: clear any overflow state
+        # left over from a previous run on a reused engineer instance.
+        self._context_overflowed = False
+
         system_prompt, user_message = self._build_prompts()
         self.message_store.save_prompt(user_message)
 

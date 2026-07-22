@@ -56,7 +56,7 @@ def build_sdk_env() -> dict[str, str]:
     another Claude Code session.
     """
     env = {"CLAUDECODE": ""}
-    if not os.environ.get("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"):
+    if "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" not in os.environ:
         env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] = AUTOCOMPACT_PCT
     return env
 

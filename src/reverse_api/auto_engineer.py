@@ -192,6 +192,10 @@ class ClaudeAutoEngineer(ClaudeEngineer):
         self.ui.header(self.run_id, self.prompt, self.model, mode="agent")
         self.ui.start_analysis()
 
+        # Fresh SDK session, fresh context window: clear any overflow state
+        # left over from a previous run on a reused engineer instance.
+        self._context_overflowed = False
+
         if self.agent_provider == "agent-browser":
             ab_setup = ensure_agent_browser_runtime()
             print_agent_browser_setup_notices(self.ui.console, ab_setup)

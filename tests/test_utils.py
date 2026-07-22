@@ -823,6 +823,15 @@ class TestBuildSdkEnv:
         assert "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" not in env
         assert env["CLAUDECODE"] == ""
 
+    def test_empty_user_override_wins(self, monkeypatch):
+        """An explicit empty override (opting back into the CLI default)
+        is also respected, not replaced with our threshold."""
+        from reverse_api.utils import build_sdk_env
+
+        monkeypatch.setenv("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "")
+        env = build_sdk_env()
+        assert "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" not in env
+
 
 class TestIsContextOverflowError:
     """Test context-window overflow error detection."""
