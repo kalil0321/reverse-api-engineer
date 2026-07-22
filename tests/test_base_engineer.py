@@ -206,6 +206,10 @@ class TestBaseEngineerHelpers:
         """C# extension."""
         eng = self._make_engineer(tmp_path, output_language="csharp")
         assert eng._get_output_extension() == ".cs"
+    def test_get_output_extension_php(self, tmp_path):
+        """PHP extension."""
+        eng = self._make_engineer(tmp_path, output_language="php")
+        assert eng._get_output_extension() == ".php"
 
     def test_get_output_extension_unknown(self, tmp_path):
         """Unknown language defaults to .py."""
@@ -304,6 +308,41 @@ class TestBaseEngineerHelpers:
         project_arg = tokens[3]
         assert Path(project_arg).is_absolute()
         assert project_arg == str(eng.scripts_dir.resolve() / "ApiClient.csproj")
+    def test_get_run_command_php(self, tmp_path):
+        """Run command for PHP uses the full, resolved, shell-quoted path,
+        not a bare relative filename — the agent's cwd is scripts_dir.
+        parent.parent (see analyze_and_generate), not scripts_dir where the
+        script lives, and shlex.quote() (not manual double-quoting) is what
+        actually neutralizes shell metacharacters in an arbitrary output_dir."""
+        eng = self._make_engineer(tmp_path, output_language="php")
+        expected_path = shlex.quote(str(eng.scripts_dir.resolve() / "api_client.php"))
+        assert eng._get_run_command() == f"php {expected_path}"
+
+    def test_get_run_command_php_quotes_metacharacters(self, tmp_path):
+        """A scripts_dir containing shell metacharacters must round-trip
+        back to the literal path when the shell tokenizes the command —
+        not be left open to $()/backtick expansion, which is exactly what
+        the naive f'"{path}"' approach got wrong (double quotes still allow
+        command substitution inside them)."""
+        eng = self._make_engineer(tmp_path, output_language="php")
+        eng.scripts_dir = Path("/tmp/weird$(rm -rf ~) dir")
+        command = eng._get_run_command()
+        tokens = shlex.split(command)
+        assert tokens[0] == "php"
+        assert tokens[1] == str(eng.scripts_dir.resolve() / "api_client.php")
+
+    def test_get_run_command_php_resolves_relative_output_dir(self, tmp_path):
+        """A relative scripts_dir must be resolved to an absolute path before
+        being embedded in the command — otherwise, once the agent's cwd
+        moves to scripts_dir.parent.parent, the same relative string gets
+        re-interpreted from there and points at the wrong, doubly-nested
+        location."""
+        eng = self._make_engineer(tmp_path, output_language="php")
+        eng.scripts_dir = Path("relative_output/scripts/run123")
+        tokens = shlex.split(eng._get_run_command())
+        script_arg = tokens[1]
+        assert Path(script_arg).is_absolute()
+        assert script_arg == str(eng.scripts_dir.resolve() / "api_client.php")
 
     def test_get_run_command_unknown(self, tmp_path):
         """Unknown language defaults to Python command."""
@@ -368,6 +407,12 @@ class TestBaseEngineerBuildPrompt:
         system_prompt, user_message = eng._build_prompts()
         assert "C# program" in system_prompt
         assert "HttpClient" in system_prompt
+    def test_php_prompt(self, tmp_path):
+        """PHP prompt includes PHP-specific instructions."""
+        eng = self._make_engineer(tmp_path, output_language="php")
+        system_prompt, user_message = eng._build_prompts()
+        assert "PHP script" in system_prompt
+        assert "curl" in system_prompt
 
     def test_docs_prompt(self, tmp_path):
         """Docs mode prompt includes OpenAPI instructions."""

@@ -37,6 +37,7 @@ class BaseEngineer(ABC):
         "go": ".go",
         "java": ".java",
         "csharp": ".cs",
+        "php": ".php",
     }
 
     def __init__(
@@ -446,6 +447,7 @@ class BaseEngineer(ABC):
             "go": "Go",
             "java": "Java",
             "csharp": "C#",
+            "php": "PHP",
         }.get(self.output_language, "Python")
 
     def _get_existing_client_guidance(self) -> str:
@@ -508,6 +510,26 @@ class BaseEngineer(ABC):
             # pointing --project at the wrong, doubly-nested location.
             csproj = shlex.quote(str(self.scripts_dir.resolve() / "ApiClient.csproj"))
             return f"dotnet run --project {csproj}"
+        if self.output_language == "php":
+            # Full path, not a bare relative "php api_client.php": the
+            # agent's cwd for the whole session is scripts_dir.parent.parent
+            # (see analyze_and_generate's ClaudeAgentOptions), not
+            # scripts_dir itself where the script is actually saved. python/
+            # node/npx get away with a bare relative filename here since
+            # this is already how they're shipped and evidently work in
+            # practice, but there's no reason to leave a new language
+            # exposed to the same ambiguity when it's this cheap to remove.
+            # shlex.quote(), not manual double-quoting — output_dir (and so
+            # scripts_dir) isn't guaranteed free of shell metacharacters,
+            # and naive f'"{path}"' still lets $()/backticks expand inside
+            # double quotes (confirmed live: shlex.quote handles this, plain
+            # double-quoting doesn't).
+            # .resolve(): a relative --output-dir would otherwise be
+            # re-interpreted against the agent's cwd (scripts_dir.parent.
+            # parent) instead of the original cwd it was relative to,
+            # pointing this command at the wrong, doubly-nested location.
+            path = shlex.quote(str(self.scripts_dir.resolve() / self._get_client_filename()))
+            return f"php {path}"
         return {
             "python": "python api_client.py",
             "javascript": "node api_client.js",

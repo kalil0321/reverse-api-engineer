@@ -1086,6 +1086,7 @@ def handle_settings(mode_color=THEME_PRIMARY):
             Choice(title="go", value="go"),
             Choice(title="java", value="java"),
             Choice(title="csharp", value="csharp"),
+            Choice(title="php", value="php"),
             Choice(title="back", value="back"),
         ]
         lang = questionary.select(

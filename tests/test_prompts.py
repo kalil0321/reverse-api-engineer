@@ -101,6 +101,16 @@ class TestLoadLanguagePartial:
         assert "C# program" in text
         assert "HttpClient" in text
         assert "/tmp/scripts/api_client.cs" in text
+    def test_php_partial(self):
+        text = load_language_partial(
+            "php",
+            scripts_dir="/tmp/scripts",
+            client_filename="api_client.php",
+            run_command='php "/tmp/scripts/api_client.php"',
+        )
+        assert "PHP script" in text
+        assert "curl" in text
+        assert "/tmp/scripts/api_client.php" in text
 
 
 class TestEngineerTemplates:
