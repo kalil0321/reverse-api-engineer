@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import shlex
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,7 @@ class BaseEngineer(ABC):
         "javascript": ".js",
         "typescript": ".ts",
         "go": ".go",
+        "java": ".java",
     }
 
     def __init__(
@@ -441,6 +443,7 @@ class BaseEngineer(ABC):
             "javascript": "JavaScript",
             "typescript": "TypeScript",
             "go": "Go",
+            "java": "Java",
         }.get(self.output_language, "Python")
 
     def _get_existing_client_guidance(self) -> str:
@@ -465,6 +468,27 @@ class BaseEngineer(ABC):
 
     def _get_run_command(self) -> str:
         """Return the command to run the generated client."""
+        if self.output_language == "java":
+            # Unlike python/node/npx (which happily take a plain relative
+            # filename regardless of the agent's actual cwd, scripts_dir.
+            # parent.parent — see analyze_and_generate's ClaudeAgentOptions),
+            # Maven hard-fails immediately if invoked from a directory with
+            # no pom.xml, no upward search. -f points it straight at the
+            # right project file regardless of cwd, rather than relying on
+            # the agent to cd there itself first. shlex.quote(), not manual
+            # double-quoting — output_dir (and so scripts_dir) isn't
+            # guaranteed free of shell metacharacters, and naive f'"{path}"'
+            # still lets $()/backticks expand inside double quotes.
+            # .resolve(): a relative --output-dir would otherwise be
+            # re-interpreted against the agent's cwd (scripts_dir.parent.
+            # parent) instead of the original cwd it was relative to,
+            # pointing -f at the wrong, doubly-nested location.
+            # exec:exec (spawn a real java process), not exec:java —
+            # exec:java invokes main() reflectively in-process, which fails
+            # on the package-private ApiClient class the Java partial
+            # requires ("symbolic reference class is not accessible").
+            pom = shlex.quote(str(self.scripts_dir.resolve() / "pom.xml"))
+            return f"mvn -q -f {pom} compile exec:exec"
         return {
             "python": "python api_client.py",
             "javascript": "node api_client.js",
@@ -584,6 +608,8 @@ class BaseEngineer(ABC):
                 f"\n3. `{self.scripts_dir}/go.mod` and `{self.scripts_dir}/go.sum` - "
                 "Only if external dependencies are needed"
             )
+        elif self.output_language == "java":
+            return base + f"\n3. `{self.scripts_dir}/pom.xml` - Maven project file (Gson dependency, exec-maven-plugin)"
         return base
 
     @abstractmethod

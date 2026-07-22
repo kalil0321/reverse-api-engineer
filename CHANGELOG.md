@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Go output language**: `output_language: "go"` is now supported alongside python/javascript/typescript, generating a standard-library-first (`net/http`, `encoding/json`) Go program, with the same auth-hardcoding/refresh and bot-detection-fallback guidance as the other languages.
+- **Java output language**: `output_language: "java"` is now supported alongside python/javascript/typescript, generating a small Maven project using `java.net.http.HttpClient` (JDK 11+, no HTTP library dependency) and Gson for JSON, with the same auth-hardcoding/refresh guidance as the other languages.
 
 ## [0.10.0] - 2026-06-01
 

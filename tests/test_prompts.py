@@ -81,6 +81,16 @@ class TestLoadLanguagePartial:
         assert "Go program" in text
         assert "net/http" in text
         assert "/tmp/scripts/api_client.go" in text
+    def test_java_partial(self):
+        text = load_language_partial(
+            "java",
+            scripts_dir="/tmp/scripts",
+            client_filename="api_client.java",
+            run_command="mvn -q compile exec:exec",
+        )
+        assert "Java program" in text
+        assert "HttpClient" in text
+        assert "/tmp/scripts/api_client.java" in text
 
 
 class TestEngineerTemplates:

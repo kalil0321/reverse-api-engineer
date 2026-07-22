@@ -1,5 +1,6 @@
 """Tests for base_engineer.py - BaseEngineer abstract class."""
 
+import shlex
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -197,6 +198,10 @@ class TestBaseEngineerHelpers:
         """Go extension."""
         eng = self._make_engineer(tmp_path, output_language="go")
         assert eng._get_output_extension() == ".go"
+    def test_get_output_extension_java(self, tmp_path):
+        """Java extension."""
+        eng = self._make_engineer(tmp_path, output_language="java")
+        assert eng._get_output_extension() == ".java"
 
     def test_get_output_extension_unknown(self, tmp_path):
         """Unknown language defaults to .py."""
@@ -232,6 +237,38 @@ class TestBaseEngineerHelpers:
         """Run command for Go."""
         eng = self._make_engineer(tmp_path, output_language="go")
         assert eng._get_run_command() == "go run api_client.go"
+    def test_get_run_command_java(self, tmp_path):
+        """Run command for Java points -f at this run's own (resolved,
+        shell-quoted) pom.xml, not a bare relative path — the agent's cwd is
+        scripts_dir.parent.parent (see analyze_and_generate), and unlike
+        python/node/npx, Maven hard-fails with no upward search if invoked
+        from a directory with no pom.xml."""
+        eng = self._make_engineer(tmp_path, output_language="java")
+        expected_pom = shlex.quote(str(eng.scripts_dir.resolve() / "pom.xml"))
+        assert eng._get_run_command() == f"mvn -q -f {expected_pom} compile exec:exec"
+
+    def test_get_run_command_java_quotes_metacharacters(self, tmp_path):
+        """A scripts_dir containing shell metacharacters must round-trip
+        back to the literal path, not be left open to $()/backtick
+        expansion — what the naive f'"{path}"' approach got wrong."""
+        eng = self._make_engineer(tmp_path, output_language="java")
+        eng.scripts_dir = Path("/tmp/weird$(rm -rf ~) dir")
+        tokens = shlex.split(eng._get_run_command())
+        assert tokens[:2] == ["mvn", "-q"]
+        assert tokens[3] == str(eng.scripts_dir.resolve() / "pom.xml")
+
+    def test_get_run_command_java_resolves_relative_output_dir(self, tmp_path):
+        """A relative scripts_dir must be resolved to an absolute path before
+        being embedded in the command — otherwise, once the agent's cwd
+        moves to scripts_dir.parent.parent, the same relative string gets
+        re-interpreted from there and points at the wrong, doubly-nested
+        location."""
+        eng = self._make_engineer(tmp_path, output_language="java")
+        eng.scripts_dir = Path("relative_output/scripts/run123")
+        tokens = shlex.split(eng._get_run_command())
+        pom_arg = tokens[3]
+        assert Path(pom_arg).is_absolute()
+        assert pom_arg == str(eng.scripts_dir.resolve() / "pom.xml")
 
     def test_get_run_command_unknown(self, tmp_path):
         """Unknown language defaults to Python command."""
@@ -285,6 +322,12 @@ class TestBaseEngineerBuildPrompt:
         system_prompt, user_message = eng._build_prompts()
         assert "Go program" in system_prompt
         assert "net/http" in system_prompt
+    def test_java_prompt(self, tmp_path):
+        """Java prompt includes Java-specific instructions."""
+        eng = self._make_engineer(tmp_path, output_language="java")
+        system_prompt, user_message = eng._build_prompts()
+        assert "Java program" in system_prompt
+        assert "HttpClient" in system_prompt
 
     def test_docs_prompt(self, tmp_path):
         """Docs mode prompt includes OpenAPI instructions."""
