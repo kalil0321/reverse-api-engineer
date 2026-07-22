@@ -1098,6 +1098,85 @@ class TestOpenCodeEngineerStreamEvents:
         assert eng._pending_text_parts == {}
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "idle_event",
+        [
+            'data: {"type":"session.idle","properties":{"sessionID":"session_abc"}}',
+            'data: {"type":"session.status","properties":{"sessionID":"session_abc","status":{"type":"idle"}}}',
+        ],
+    )
+    async def test_idle_reconciles_buffered_assistant_role(self, tmp_path, idle_event):
+        """Idle resolves buffered roles from final state without waiting on SSE order."""
+        eng = self._make_engineer(tmp_path)
+        lines = [
+            'data: {"type":"message.part.updated","properties":{"sessionID":"session_abc",'
+            '"part":{"id":"part_user","messageID":"message_user","sessionID":"session_abc",'
+            '"type":"text","text":"Internal user prompt"}}}',
+            'data: {"type":"message.part.updated","properties":{"sessionID":"session_abc",'
+            '"part":{"id":"part_assistant","messageID":"message_assistant","sessionID":"session_abc",'
+            '"type":"text","text":"Late assistant answer"}}}',
+            idle_event,
+            'data: {"type":"message.updated","properties":{"sessionID":"session_abc",'
+            '"info":{"id":"message_assistant","sessionID":"session_abc","role":"assistant"}}}',
+        ]
+        mock_response = AsyncMock()
+
+        async def mock_aiter_lines():
+            for line in lines:
+                yield line
+
+        mock_response.aiter_lines = mock_aiter_lines
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=mock_response)
+        cm.__aexit__ = AsyncMock(return_value=False)
+        mock_client = AsyncMock()
+        mock_client.stream = MagicMock(return_value=cm)
+        final_response = MagicMock(status_code=200)
+        final_response.json.return_value = [
+            {"info": {"id": "message_user", "sessionID": "session_abc", "role": "user"}},
+            {"info": {"id": "message_assistant", "sessionID": "session_abc", "role": "assistant"}},
+        ]
+        mock_client.get = AsyncMock(return_value=final_response)
+
+        await eng._stream_events(mock_client)
+
+        assert eng._last_error is None
+        eng.opencode_ui.update_text.assert_called_once_with("Late assistant answer", None)
+        assert eng._pending_text_parts == {}
+        mock_client.get.assert_awaited_once_with("/session/session_abc/message")
+
+    @pytest.mark.asyncio
+    async def test_idle_with_unresolved_buffer_reports_specific_error(self, tmp_path):
+        """A closed stream cannot turn unresolved buffered output into success."""
+        eng = self._make_engineer(tmp_path)
+        lines = [
+            'data: {"type":"message.part.updated","properties":{"sessionID":"session_abc",'
+            '"part":{"id":"part_assistant","messageID":"message_assistant","sessionID":"session_abc",'
+            '"type":"text","text":"Unresolved answer"}}}',
+            'data: {"type":"session.idle","properties":{"sessionID":"session_abc"}}',
+        ]
+        mock_response = AsyncMock()
+
+        async def mock_aiter_lines():
+            for line in lines:
+                yield line
+
+        mock_response.aiter_lines = mock_aiter_lines
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=mock_response)
+        cm.__aexit__ = AsyncMock(return_value=False)
+        mock_client = AsyncMock()
+        mock_client.stream = MagicMock(return_value=cm)
+        final_response = MagicMock(status_code=200)
+        final_response.json.return_value = []
+        mock_client.get = AsyncMock(return_value=final_response)
+
+        await eng._stream_events(mock_client)
+
+        assert eng._last_error == "OpenCode completed without role metadata for buffered message(s): message_assistant."
+        eng.opencode_ui.update_text.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_empty_and_non_data_lines_skipped(self, tmp_path):
         """Empty lines and non-data lines are skipped."""
         eng = self._make_engineer(tmp_path)

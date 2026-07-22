@@ -401,6 +401,8 @@ class OpenCodeEngineer(BaseEngineer):
                         event_sid = properties.get("sessionID")
                         debug_log(f"session.idle: sessionID={event_sid}, our session={self._session_id}")
                         if event_sid == self._session_id:
+                            if not await self._reconcile_pending_text_parts(client, seen_parts):
+                                return
                             debug_log("Our session is idle, returning!")
                             self.opencode_ui.session_status("idle")
                             return  # Done!
@@ -431,6 +433,10 @@ class OpenCodeEngineer(BaseEngineer):
                                     debug_log("Suspiciously fast idle - checking for errors")
                                     # Try to get session details to check for error
                                     await self._check_session_error(client)
+                                if self._last_error:
+                                    return
+                                if not await self._reconcile_pending_text_parts(client, seen_parts):
+                                    return
                                 debug_log("Our session status is idle, returning!")
                                 return  # Done!
 
@@ -555,6 +561,43 @@ class OpenCodeEngineer(BaseEngineer):
         except Exception as e:
             self._last_error = format_error(e)
             debug_log(f"Exception in _stream_events: {self._last_error}")
+
+    async def _reconcile_pending_text_parts(self, client: httpx.AsyncClient, seen_parts: set) -> bool:
+        """Resolve buffered text roles from OpenCode's final session state."""
+
+        if not self._pending_text_parts:
+            return True
+        try:
+            response = await client.get(f"/session/{self._session_id}/message")
+            if not 200 <= response.status_code < 300:
+                self._last_error = f"Could not reconcile final OpenCode messages: HTTP {response.status_code}."
+                return False
+            messages = response.json()
+        except Exception as e:
+            self._last_error = f"Could not reconcile final OpenCode messages: {e}"
+            return False
+        if not isinstance(messages, list):
+            self._last_error = "Could not reconcile final OpenCode messages: invalid response."
+            return False
+
+        for message in messages:
+            info = message.get("info", {}) if isinstance(message, dict) else {}
+            message_id = str(info.get("id") or "")
+            role = str(info.get("role") or "")
+            if not message_id or not role or message_id not in self._pending_text_parts:
+                continue
+            self._message_roles[message_id] = role
+            pending = self._pending_text_parts.pop(message_id)
+            if role == "assistant":
+                self._assistant_message_ids.add(message_id)
+                for pending_properties in pending:
+                    await self._handle_part_update(pending_properties, seen_parts)
+
+        if self._pending_text_parts:
+            unresolved = ", ".join(sorted(self._pending_text_parts))
+            self._last_error = f"OpenCode completed without role metadata for buffered message(s): {unresolved}."
+            return False
+        return True
 
     async def _check_session_error(self, client: httpx.AsyncClient):
         """Check session for errors when we get suspiciously fast idle."""
