@@ -11,35 +11,50 @@ import pytest
 from reverse_api import ollama_runtime
 
 
-def _payload() -> dict:
+def _tags_payload() -> dict:
     return {
         "models": [
             {
                 "name": "qwen3:4b",
                 "size": 2_497_000_000,
-                "capabilities": ["completion", "tools", "thinking"],
-                "details": {"parameter_size": "4.0B", "context_length": 262_144},
             },
             {
                 "name": "tiny:no-tools",
                 "size": 100,
-                "capabilities": ["completion"],
-                "details": {"parameter_size": "1B", "context_length": 131_072},
             },
             {
                 "name": "tools:short-context",
                 "size": 200,
-                "capabilities": ["completion", "tools"],
-                "details": {"parameter_size": "2B", "context_length": 32_768},
             },
         ]
     }
 
 
+def _show_payload(model: str) -> dict:
+    metadata = {
+        "qwen3:4b": ("qwen3", ["completion", "tools", "thinking"], "4.0B", 262_144),
+        "tiny:no-tools": ("llama", ["completion"], "1B", 131_072),
+        "tools:short-context": ("qwen", ["completion", "tools"], "2B", 32_768),
+    }
+    architecture, capabilities, parameter_size, context_length = metadata[model]
+    return {
+        "capabilities": capabilities,
+        "details": {"parameter_size": parameter_size},
+        "model_info": {
+            "general.architecture": architecture,
+            f"{architecture}.context_length": context_length,
+        },
+    }
+
+
+def _models() -> tuple[ollama_runtime.OllamaModel, ...]:
+    return tuple(ollama_runtime._parse_model(tag, _show_payload(tag["name"])) for tag in _tags_payload()["models"])
+
+
 def _response(payload: dict | None = None) -> MagicMock:
     response = MagicMock()
     response.raise_for_status = MagicMock()
-    response.json.return_value = payload or _payload()
+    response.json.return_value = payload if payload is not None else _tags_payload()
     return response
 
 
@@ -52,8 +67,8 @@ def reset_runtime_state():
     ollama_runtime._PROCESS_URL = None
 
 
-def test_parse_models_filters_agent_compatible_models():
-    models = ollama_runtime._parse_models(_payload())
+def test_parse_show_metadata_filters_agent_compatible_models():
+    models = _models()
     status = ollama_runtime.OllamaStatus(base_url="http://127.0.0.1:11434", models=models)
 
     assert [model.name for model in models] == ["qwen3:4b", "tiny:no-tools", "tools:short-context"]
@@ -64,6 +79,7 @@ def test_parse_models_filters_agent_compatible_models():
 async def test_reuses_running_ollama():
     client = AsyncMock()
     client.get = AsyncMock(return_value=_response())
+    client.post = AsyncMock(side_effect=lambda _path, json: _response(_show_payload(json["model"])))
 
     with patch.object(ollama_runtime.httpx, "AsyncClient") as async_client:
         async_client.return_value.__aenter__ = AsyncMock(return_value=client)
@@ -72,6 +88,9 @@ async def test_reuses_running_ollama():
 
     assert status.started is False
     assert status.models[0].name == "qwen3:4b"
+    assert status.models[0].supports_opencode is True
+    assert client.post.await_count == 3
+    client.post.assert_any_await("/api/show", json={"model": "qwen3:4b"})
 
 
 @pytest.mark.asyncio
@@ -80,6 +99,7 @@ async def test_starts_installed_ollama_daemon(monkeypatch: pytest.MonkeyPatch):
     request = httpx.Request("GET", "http://127.0.0.1:11434/api/tags")
     client = AsyncMock()
     client.get = AsyncMock(side_effect=[httpx.ConnectError("refused", request=request), _response()])
+    client.post = AsyncMock(side_effect=lambda _path, json: _response(_show_payload(json["model"])))
     process = MagicMock()
     process.poll.return_value = None
 
@@ -107,7 +127,7 @@ async def test_starts_installed_ollama_daemon(monkeypatch: pytest.MonkeyPatch):
 async def test_prepare_model_rejects_incompatible_models(model_name: str, message: str):
     status = ollama_runtime.OllamaStatus(
         base_url="http://127.0.0.1:11434",
-        models=ollama_runtime._parse_models(_payload()),
+        models=_models(),
     )
     with patch.object(ollama_runtime, "ensure_ollama_models", new=AsyncMock(return_value=status)):
         with pytest.raises(ollama_runtime.OllamaSetupError, match=message):
@@ -118,7 +138,7 @@ def test_opencode_env_preserves_existing_config(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setenv("OPENCODE_CONFIG_CONTENT", '{"plugin":["example"],"provider":{"custom":{"name":"Custom"}}}')
     status = ollama_runtime.OllamaStatus(
         base_url="http://127.0.0.1:11434",
-        models=ollama_runtime._parse_models(_payload()),
+        models=_models(),
     )
     setup = ollama_runtime.OllamaProviderSetup(status=status, model=status.models[0])
 

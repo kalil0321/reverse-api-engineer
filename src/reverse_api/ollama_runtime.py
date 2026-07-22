@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import atexit
 import json
 import os
@@ -101,24 +102,57 @@ def ollama_auto_start() -> bool:
     return bool(_config_manager_snapshot().get("ollama_auto_start", True))
 
 
-def _parse_models(payload: dict[str, Any]) -> tuple[OllamaModel, ...]:
-    models: list[OllamaModel] = []
-    for raw in payload.get("models", []):
-        name = str(raw.get("name") or raw.get("model") or "").strip()
-        if not name:
+def _context_length(show: dict[str, Any]) -> int:
+    """Read the architecture-specific context window returned by /api/show."""
+
+    model_info = show.get("model_info") or {}
+    if not isinstance(model_info, dict):
+        return 0
+    architecture = str(model_info.get("general.architecture") or "").strip()
+    keys = [f"{architecture}.context_length"] if architecture else []
+    keys.extend(key for key in model_info if str(key).endswith(".context_length") and key not in keys)
+    for key in keys:
+        try:
+            return int(model_info[key])
+        except (KeyError, TypeError, ValueError):
             continue
-        details = raw.get("details") or {}
-        capabilities = tuple(str(value) for value in raw.get("capabilities") or ())
-        models.append(
-            OllamaModel(
-                name=name,
-                size=int(raw.get("size") or 0),
-                capabilities=capabilities,
-                context_length=int(details.get("context_length") or 0),
-                parameter_size=str(details.get("parameter_size") or ""),
-            )
-        )
-    return tuple(models)
+    return 0
+
+
+def _parse_model(tag: dict[str, Any], show: dict[str, Any]) -> OllamaModel:
+    """Merge list metadata from /api/tags with capabilities from /api/show."""
+
+    name = str(tag.get("name") or tag.get("model") or "").strip()
+    details = show.get("details") or {}
+    if not isinstance(details, dict):
+        details = {}
+    return OllamaModel(
+        name=name,
+        size=int(tag.get("size") or 0),
+        capabilities=tuple(str(value) for value in show.get("capabilities") or ()),
+        context_length=_context_length(show),
+        parameter_size=str(details.get("parameter_size") or ""),
+    )
+
+
+async def _load_models(client: httpx.AsyncClient, base_url: str, payload: dict[str, Any]) -> tuple[OllamaModel, ...]:
+    """Enrich every installed model with its authoritative /api/show metadata."""
+
+    tags = [raw for raw in payload.get("models", []) if isinstance(raw, dict) and str(raw.get("name") or raw.get("model") or "").strip()]
+
+    async def load(tag: dict[str, Any]) -> OllamaModel:
+        name = str(tag.get("name") or tag.get("model")).strip()
+        response = await client.post("/api/show", json={"model": name})
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            raise OllamaSetupError(f"Ollama at {base_url} returned HTTP {e.response.status_code} for /api/show ({name}).") from e
+        show = response.json()
+        if not isinstance(show, dict):
+            raise OllamaSetupError(f"Ollama returned invalid /api/show metadata for {name!r}.")
+        return _parse_model(tag, show)
+
+    return tuple(await asyncio.gather(*(load(tag) for tag in tags)))
 
 
 def _server_address(base_url: str) -> tuple[str, int]:
@@ -179,7 +213,7 @@ async def ensure_ollama_models(*, timeout: float = _START_TIMEOUT_SECONDS) -> Ol
         try:
             response = await client.get("/api/tags")
             response.raise_for_status()
-            return OllamaStatus(base_url=base_url, models=_parse_models(response.json()))
+            return OllamaStatus(base_url=base_url, models=await _load_models(client, base_url, response.json()))
         except httpx.HTTPStatusError as e:
             raise OllamaSetupError(f"Ollama at {base_url} returned HTTP {e.response.status_code} for /api/tags.") from e
         except httpx.RequestError as initial_error:
@@ -197,15 +231,17 @@ async def ensure_ollama_models(*, timeout: float = _START_TIMEOUT_SECONDS) -> Ol
             try:
                 response = await client.get("/api/tags")
                 response.raise_for_status()
-                return OllamaStatus(base_url=base_url, models=_parse_models(response.json()), started=started)
+                return OllamaStatus(
+                    base_url=base_url,
+                    models=await _load_models(client, base_url, response.json()),
+                    started=started,
+                )
             except httpx.HTTPStatusError as e:
                 if started:
                     stop_managed_ollama_server()
                 raise OllamaSetupError(f"Ollama at {base_url} returned HTTP {e.response.status_code} for /api/tags.") from e
             except httpx.RequestError as e:
                 last_error = e
-                import asyncio
-
                 await asyncio.sleep(0.25)
 
     if started:
