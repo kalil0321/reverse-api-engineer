@@ -27,13 +27,27 @@ or use a non-Anthropic provider.
 ```json
 {
   "sdk": "opencode",
+  "opencode_auto_start": true,
+  "opencode_base_url": "http://127.0.0.1:4096",
   "opencode_model": "claude-opus-4-6",
+  "opencode_npx_package": "opencode-ai@latest",
   "opencode_provider": "anthropic"
 }
 ```
 
-OpenCode must be running locally before the CLI starts. Model identifiers
-are defined by OpenCode itself, see [models.dev](https://models.dev).
+RAE reuses an existing OpenCode server. If none is listening, it starts the
+latest `opencode-ai` release through `npx` and stops that child process
+when RAE exits. Automatic setup needs Node.js 20+; the first run downloads the
+OpenCode npm package and later runs use npm's cache.
+
+Set `opencode_auto_start` to `false` when you manage the server yourself. The
+environment variables `OPENCODE_BASE_URL`, `RAE_OPENCODE_PACKAGE`, and
+`RAE_OPENCODE_AUTO_START` override the matching settings. Provider credentials
+and model identifiers remain OpenCode configuration. Password-protected servers
+use `OPENCODE_SERVER_PASSWORD` and optional `OPENCODE_SERVER_USERNAME`; these
+variables are inherited by an auto-started server. See
+[OpenCode providers](https://opencode.ai/docs/providers/) and
+[models.dev](https://models.dev).
 
 ## Copilot
 

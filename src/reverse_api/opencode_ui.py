@@ -45,6 +45,10 @@ class OpenCodeUI:
         version = health.get("version", "unknown")
         self.console.print(f"  [dim]server: OpenCode v{version}[/dim]")
 
+    def server_started(self, package: str, base_url: str) -> None:
+        """Display managed server startup."""
+        self.console.print(f"  [dim]started: {package} at {base_url}[/dim]")
+
     def session_created(self, session_id: str) -> None:
         """Display session creation."""
         self.console.print(f"  [dim]session: {session_id[:16]}...[/dim]")

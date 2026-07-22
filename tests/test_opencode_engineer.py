@@ -544,6 +544,42 @@ class TestOpenCodeEngineerStreamEvents:
         eng.opencode_ui.permission_approved.assert_called_with("write")
 
     @pytest.mark.asyncio
+    async def test_permission_v2_event_uses_current_reply_endpoint(self, tmp_path):
+        """OpenCode 1.18 permission.v2 events use the non-deprecated endpoint."""
+        eng = self._make_engineer(tmp_path)
+
+        lines = [
+            (
+                'data: {"type":"permission.v2.asked","properties":{"id":"per_1","sessionID":"session_abc",'
+                '"action":"write","resources":["/tmp/client.py"]}}'
+            ),
+            'data: {"type":"session.idle","properties":{"sessionID":"session_abc"}}',
+        ]
+        mock_response = AsyncMock()
+
+        async def mock_aiter_lines():
+            for line in lines:
+                yield line
+
+        mock_response.aiter_lines = mock_aiter_lines
+        stream = AsyncMock()
+        stream.__aenter__ = AsyncMock(return_value=mock_response)
+        stream.__aexit__ = AsyncMock(return_value=False)
+
+        mock_client = AsyncMock()
+        mock_client.stream = MagicMock(return_value=stream)
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=204))
+
+        await eng._stream_events(mock_client)
+
+        mock_client.post.assert_awaited_once_with(
+            "/api/session/session_abc/permission/per_1/reply",
+            json={"reply": "always"},
+        )
+        eng.opencode_ui.permission_requested.assert_called_once_with("write", "/tmp/client.py")
+        eng.opencode_ui.permission_approved.assert_called_once_with("write")
+
+    @pytest.mark.asyncio
     async def test_todo_updated_event(self, tmp_path):
         """todo.updated event updates UI."""
         eng = self._make_engineer(tmp_path)

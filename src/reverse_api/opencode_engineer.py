@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 
 from .base_engineer import BaseEngineer
+from .opencode_runtime import OpenCodeSetupError, ensure_opencode_server, opencode_base_url
 from .opencode_ui import OpenCodeUI
 
 # Enable debug mode with OPENCODE_DEBUG=1
@@ -112,6 +113,7 @@ class OpenCodeEngineer(BaseEngineer):
         # Pop OpenCode-specific kwargs before passing to parent class
         self.opencode_provider = kwargs.pop("opencode_provider", "anthropic")
         self.opencode_model = kwargs.pop("opencode_model", "claude-opus-4-6")
+        self.BASE_URL = opencode_base_url()
 
         super().__init__(*args, **kwargs)
 
@@ -134,6 +136,33 @@ class OpenCodeEngineer(BaseEngineer):
             return httpx.BasicAuth(self.opencode_username, self.opencode_password)
         return None
 
+    async def _prepare_server(self, client: httpx.AsyncClient) -> bool:
+        """Ensure OpenCode is healthy, starting the managed runtime if needed."""
+        try:
+            server = await ensure_opencode_server(client, base_url=self.BASE_URL)
+            if server.started and server.package:
+                self.opencode_ui.server_started(server.package, self.BASE_URL)
+            self.opencode_ui.health_check(server.health)
+            return True
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code != 401:
+                raise
+            debug_log("Health check failed: authentication required")
+            self.opencode_ui.error("Authentication failed. OpenCode server requires a password.")
+            self.opencode_ui.console.print("\n[dim]Please set OPENCODE_SERVER_PASSWORD environment variable[/dim]")
+            if self.opencode_username != "opencode":
+                self.opencode_ui.console.print(f"[dim]Username: {self.opencode_username}[/dim]")
+            return False
+        except OpenCodeSetupError as e:
+            debug_log(f"OpenCode setup failed: {e}")
+            self.opencode_ui.error(str(e))
+            return False
+        except Exception as e:
+            debug_log(f"Health check failed: {e}")
+            self.opencode_ui.error(f"OpenCode server not responding. Is it running on {self.BASE_URL}?")
+            self.opencode_ui.console.print("\n[dim]RAE can auto-start OpenCode when Node.js and npx are available.[/dim]")
+            return False
+
     async def analyze_and_generate(self) -> dict[str, Any] | None:
         """Run the reverse engineering analysis with OpenCode."""
         self.opencode_ui.header(self.run_id, self.prompt, self.opencode_model, self.sdk, mode="engineer")
@@ -146,25 +175,7 @@ class OpenCodeEngineer(BaseEngineer):
         try:
             auth = self._get_auth()
             async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=600.0, auth=auth) as client:
-                # Health check
-                try:
-                    health_r = await client.get("/global/health")
-                    health_r.raise_for_status()
-                    health = health_r.json()
-                    self.opencode_ui.health_check(health)
-                except httpx.HTTPStatusError as e:
-                    if e.response.status_code == 401:
-                        debug_log(f"Health check failed: Authentication required")
-                        self.opencode_ui.error("Authentication failed. OpenCode server requires a password.")
-                        self.opencode_ui.console.print("\n[dim]Please set OPENCODE_SERVER_PASSWORD environment variable[/dim]")
-                        if self.opencode_username != "opencode":
-                            self.opencode_ui.console.print(f"[dim]Username: {self.opencode_username}[/dim]")
-                        return None
-                    raise
-                except Exception as e:
-                    debug_log(f"Health check failed: {e}")
-                    self.opencode_ui.error(f"OpenCode server not responding. Is it running on {self.BASE_URL}?")
-                    self.opencode_ui.console.print("\n[dim]Please run: opencode serve[/dim]")
+                if not await self._prepare_server(client):
                     return None
 
                 # Create a new session
@@ -381,12 +392,14 @@ class OpenCodeEngineer(BaseEngineer):
                                 debug_log("Our session status is idle, returning!")
                                 return  # Done!
 
-                    elif event_type == "permission.updated" or event_type == "permission.asked":
+                    elif event_type in {"permission.updated", "permission.asked", "permission.v2.asked"}:
                         # Auto-approve permissions so the agent can proceed
                         permission_id = properties.get("id")
                         perm_session = properties.get("sessionID")
-                        perm_type = properties.get("type", "")
-                        perm_title = properties.get("title", "")
+                        is_v2 = event_type == "permission.v2.asked"
+                        perm_type = properties.get("type") or properties.get("permission") or properties.get("action") or "permission"
+                        resources = properties.get("resources") or properties.get("patterns") or []
+                        perm_title = properties.get("title") or ", ".join(resources) or perm_type
 
                         debug_log(f"{event_type}: id={permission_id}, type={perm_type}, title={perm_title}")
 
@@ -398,12 +411,18 @@ class OpenCodeEngineer(BaseEngineer):
                             # OpenCode expects: "once" | "always" | "reject"
                             debug_log(f"Auto-approving permission {permission_id}")
                             try:
-                                perm_response = await client.post(
-                                    f"/session/{self._session_id}/permissions/{permission_id}",
-                                    json={"response": "always"},  # "once", "always", or "reject"
-                                )
+                                if is_v2:
+                                    perm_response = await client.post(
+                                        f"/api/session/{self._session_id}/permission/{permission_id}/reply",
+                                        json={"reply": "always"},
+                                    )
+                                else:
+                                    perm_response = await client.post(
+                                        f"/session/{self._session_id}/permissions/{permission_id}",
+                                        json={"response": "always"},  # Legacy OpenCode permission API
+                                    )
                                 debug_log(f"Permission response: {perm_response.status_code}")
-                                if perm_response.status_code == 200:
+                                if 200 <= perm_response.status_code < 300:
                                     self.opencode_ui.permission_approved(perm_type)
                             except Exception as pe:
                                 debug_log(f"Permission approval failed: {pe}")

@@ -19,6 +19,9 @@ DEFAULT_CONFIG = {
     "copilot_model": "gpt-5",  # Model for Copilot SDK sessions
     "opencode_model": "claude-opus-4-6",
     "opencode_provider": "anthropic",
+    "opencode_auto_start": True,
+    "opencode_base_url": "http://127.0.0.1:4096",
+    "opencode_npx_package": "opencode-ai@latest",
     "output_dir": None,  # None means use ~/.reverse-api/runs
     "output_language": "python",  # "python", "javascript", "typescript", "go", "java", "csharp", "php", "ruby", or "c"
     "real_time_sync": True,  # Enable real-time file sync during engineering

@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **OpenCode setup**: RAE now reuses an existing server or starts `opencode-ai@latest` through `npx`, with configurable auto-start, package, and base URL settings plus password inheritance.
+
 ### Fixed
+- **OpenCode permissions**: Permission V2 events now reply through OpenCode's current, non-deprecated permission endpoint while retaining compatibility with older servers.
 - **`run`/`list` now work for every output language**: `discover_scripts()` previously only found `.py` files, so `reverse-api-engineer run <run_id>` failed with "No Python scripts found" for JS/TS/Go/Java/C#/PHP/Ruby/C clients. Discovery now covers all supported extensions (excluding build dirs and the vendored cJSON sources), and the run command dispatches to the right toolchain per language (compile+execute for C), with a clear error when the required tool isn't on PATH.
 - **Windows-safe run-command quoting**: the Java/C#/PHP/Ruby/C run commands quoted paths with POSIX-only `shlex.quote`, which cmd.exe/PowerShell parse incorrectly for paths containing spaces. Paths are now quoted per-platform (`subprocess.list2cmdline` on Windows).
 

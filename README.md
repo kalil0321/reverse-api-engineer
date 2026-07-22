@@ -83,7 +83,10 @@ Settings live in `~/.reverse-api/config.json` and can be edited via `/settings` 
   "agent_browser_notes": "",
   "claude_code_model": "claude-sonnet-4-6",
   "collector_model": "claude-sonnet-4-6",
+  "opencode_auto_start": true,
+  "opencode_base_url": "http://127.0.0.1:4096",
   "opencode_model": "claude-sonnet-4-6",
+  "opencode_npx_package": "opencode-ai@latest",
   "opencode_provider": "anthropic",
   "copilot_model": "gpt-5",
   "cursor_model": "composer-2.5",
@@ -96,6 +99,7 @@ Settings live in `~/.reverse-api/config.json` and can be edited via `/settings` 
 
 - **Models**: Sonnet 4.6 (default), Opus 4.6 (most capable), Haiku 4.5 (fastest). For OpenCode see [models.dev](https://models.dev).
 - **SDK**: `claude` (default), `opencode`, `cursor`, or `copilot` (GitHub Copilot).
+- **OpenCode setup**: with `sdk: "opencode"`, RAE reuses an existing server or starts `opencode-ai@latest` through `npx`. Node.js 20+ is required only for automatic startup. Password-protected servers use `OPENCODE_SERVER_PASSWORD` and optional `OPENCODE_SERVER_USERNAME`. Override startup with `OPENCODE_BASE_URL`, `RAE_OPENCODE_PACKAGE`, or `RAE_OPENCODE_AUTO_START=0`.
 - **Output language**: `python`, `javascript`, `typescript`, `go`, `java`, `csharp`, `php`, `ruby`, or `c`. C needs a POSIX toolchain (`cc`, libcurl headers) — macOS/Linux, or WSL/MSYS2 on Windows.
 
 ## CLI

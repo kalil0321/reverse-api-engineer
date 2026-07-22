@@ -56,6 +56,14 @@ class TestOpenCodeUI:
         output = console.file.getvalue()
         assert "1.2.3" in output
 
+    def test_server_started(self):
+        """Managed server startup shows package and address."""
+        ui, console = self._make_ui()
+        ui.server_started("opencode-ai@latest", "http://127.0.0.1:4096")
+        output = console.file.getvalue()
+        assert "opencode-ai@latest" in output
+        assert "127.0.0.1:4096" in output
+
     def test_session_created(self):
         """Session created shows truncated ID."""
         ui, console = self._make_ui()
