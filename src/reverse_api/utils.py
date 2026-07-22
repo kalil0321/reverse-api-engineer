@@ -29,14 +29,23 @@ OUTPUT_LANGUAGE_EXTENSIONS = {
 
 SCRIPT_EXTENSIONS = frozenset(OUTPUT_LANGUAGE_EXTENSIONS.values())
 
-# Claude Code auto-compacts at 92% of the context window, which leaves less
-# headroom (~16k tokens on a 200k window) than a single max-size tool result
-# (Read caps at ~25k tokens). A large HAR read landing between the compact
-# check and the next API request can therefore jump straight past the hard
-# limit, after which every request — including the compaction request itself —
-# fails with "Prompt is too long" (github.com/kalil0321/reverse-api-engineer
-# issues/93). 85% keeps at least ~30k tokens of headroom.
+# Claude Code's default auto-compaction leaves less headroom than a single
+# max-size tool result (Read caps at ~25k tokens), so a large HAR read landing
+# between the compact check and the next API request can jump straight past
+# the hard context limit — after which every request, including the compaction
+# request itself, fails with "Prompt is too long"
+# (github.com/kalil0321/reverse-api-engineer issues/93).
+#
+# Per https://code.claude.com/docs/en/env-vars, CLAUDE_AUTOCOMPACT_PCT_OVERRIDE
+# lowers the compaction threshold, but only when Claude Code compacts
+# *proactively* — which for local sessions on newer models requires
+# CLAUDE_CODE_AUTO_COMPACT_WINDOW to be set (otherwise compaction waits for
+# the model's context limit: exactly the deadlock-prone behavior). The window
+# value is capped at the model's actual context window, so a large value
+# means "the model's full window" on every model. 85% keeps at least ~30k
+# tokens of headroom on a 200k window.
 AUTOCOMPACT_PCT = "85"
+AUTOCOMPACT_WINDOW = "1000000"
 
 # Substrings (lowercase) identifying the API's context-window-exhausted
 # errors as surfaced through the CLI's result message.
@@ -50,12 +59,13 @@ _CONTEXT_OVERFLOW_MARKERS = (
 def build_sdk_env() -> dict[str, str]:
     """Environment overrides for Claude Agent SDK subprocesses.
 
-    The SDK merges these on top of os.environ, so an explicit
-    CLAUDE_AUTOCOMPACT_PCT_OVERRIDE set by the user wins over our default.
-    CLAUDECODE is cleared so the CLI doesn't think it's nested inside
-    another Claude Code session.
+    The SDK merges these on top of os.environ, so compaction variables the
+    user set explicitly win over our defaults. CLAUDECODE is cleared so the
+    CLI doesn't think it's nested inside another Claude Code session.
     """
     env = {"CLAUDECODE": ""}
+    if "CLAUDE_CODE_AUTO_COMPACT_WINDOW" not in os.environ:
+        env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = AUTOCOMPACT_WINDOW
     if "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" not in os.environ:
         env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] = AUTOCOMPACT_PCT
     return env

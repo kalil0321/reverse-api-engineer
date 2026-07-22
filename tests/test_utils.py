@@ -804,13 +804,23 @@ class TestBuildSdkEnv:
     """Test SDK subprocess environment construction."""
 
     def test_default_sets_autocompact_override(self, monkeypatch):
-        """A lowered auto-compact threshold is applied by default."""
-        from reverse_api.utils import AUTOCOMPACT_PCT, build_sdk_env
+        """A proactive compaction window and lowered threshold apply by default."""
+        from reverse_api.utils import AUTOCOMPACT_PCT, AUTOCOMPACT_WINDOW, build_sdk_env
 
         monkeypatch.delenv("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", raising=False)
+        monkeypatch.delenv("CLAUDE_CODE_AUTO_COMPACT_WINDOW", raising=False)
         env = build_sdk_env()
         assert env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] == AUTOCOMPACT_PCT
+        assert env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == AUTOCOMPACT_WINDOW
         assert env["CLAUDECODE"] == ""
+
+    def test_user_window_wins(self, monkeypatch):
+        """An explicit user CLAUDE_CODE_AUTO_COMPACT_WINDOW is not clobbered."""
+        from reverse_api.utils import build_sdk_env
+
+        monkeypatch.setenv("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "500000")
+        env = build_sdk_env()
+        assert "CLAUDE_CODE_AUTO_COMPACT_WINDOW" not in env
 
     def test_user_override_wins(self, monkeypatch):
         """An explicit user CLAUDE_AUTOCOMPACT_PCT_OVERRIDE is not clobbered."""

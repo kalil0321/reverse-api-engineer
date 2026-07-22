@@ -841,9 +841,10 @@ class TestSdkEnvWiring:
     @pytest.mark.asyncio
     async def test_options_env_includes_autocompact_override(self, tmp_path, monkeypatch):
         """ClaudeAgentOptions receives the lowered auto-compact threshold."""
-        from reverse_api.utils import AUTOCOMPACT_PCT
+        from reverse_api.utils import AUTOCOMPACT_PCT, AUTOCOMPACT_WINDOW
 
         monkeypatch.delenv("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", raising=False)
+        monkeypatch.delenv("CLAUDE_CODE_AUTO_COMPACT_WINDOW", raising=False)
         eng = self._make_engineer(tmp_path)
 
         mock_client = AsyncMock()
@@ -863,4 +864,5 @@ class TestSdkEnvWiring:
 
         env = mock_options.call_args.kwargs["env"]
         assert env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] == AUTOCOMPACT_PCT
+        assert env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == AUTOCOMPACT_WINDOW
         assert env["CLAUDECODE"] == ""
