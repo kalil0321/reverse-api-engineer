@@ -61,9 +61,11 @@ and `run` can stream NDJSON progress with `--json-stream`, and `list` plus
 ### Browser automation with stealth
 
 Manual mode drives a local **Playwright** browser (optional `[manual]` extra)
-with anti-detection patches and viewport randomisation; agent mode captures
-through browser MCP servers. Either way, every request is recorded as HAR:
-headers, cookies, request bodies, response bodies, timing.
+with anti-detection patches and viewport randomisation, recording every request
+as a HAR file — headers, cookies, request bodies, response bodies, timing. Agent
+mode captures the same detail autonomously (see below); the Playwright MCP and
+`agent-browser` providers also produce a HAR, while Chrome DevTools MCP reads
+network traffic directly through its MCP tools.
 
 ### Autonomous agent loop
 
