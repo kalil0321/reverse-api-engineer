@@ -10,6 +10,7 @@ Models invoke the CLI from shell tooling (for example Bash on Claude SDK runs).
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -17,6 +18,35 @@ from dataclasses import dataclass
 from typing import Any
 
 from .utils import get_config_path
+
+_DEFAULT_AGENT_BROWSER_PACKAGE = "agent-browser@0"
+
+# A conservative npm specifier: optional scope, package name, optional
+# @version-range. Deliberately excludes URL/git/tarball/local specs and never
+# permits a leading '-' (which npm would parse as a CLI flag, e.g.
+# `--registry=http://evil`). Anything not matching this falls back to the
+# pinned default rather than being handed to `npm install -g` / `npx`.
+_NPM_SPECIFIER_RE = re.compile(
+    r"^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*"  # (scope/)name
+    r"(?:@[A-Za-z0-9][A-Za-z0-9._~^<>=|. *-]*)?$"  # optional @version-range
+)
+
+
+def _validate_npm_specifier(value: str) -> str | None:
+    """Return ``value`` if it is a safe npm specifier, else ``None``.
+
+    The specifier is passed to ``npm install -g`` / ``npx``; since it can come
+    from an env var or ``~/.reverse-api/config.json`` (both writable by a
+    prompt-injected agent session), an unvalidated value is an arbitrary-code-
+    execution vector via a malicious package's install scripts or npm flag
+    injection.
+    """
+    value = value.strip()
+    if not value or value.startswith("-"):
+        return None
+    if not _NPM_SPECIFIER_RE.match(value):
+        return None
+    return value
 
 _AGENT_BROWSER_TOOLS = frozenset(
     {
@@ -78,9 +108,16 @@ def agent_browser_npx_package() -> str:
 
     env = os.environ.get("RAE_AGENT_BROWSER_PACKAGE", "").strip()
     if env:
-        return env
+        validated = _validate_npm_specifier(env)
+        if validated:
+            return validated
     cfg = _config_manager_snapshot()
-    return str(cfg.get("agent_browser_npx_package") or "agent-browser@0")
+    configured = str(cfg.get("agent_browser_npx_package") or "").strip()
+    if configured:
+        validated = _validate_npm_specifier(configured)
+        if validated:
+            return validated
+    return _DEFAULT_AGENT_BROWSER_PACKAGE
 
 
 def agent_browser_extra_notes() -> str:

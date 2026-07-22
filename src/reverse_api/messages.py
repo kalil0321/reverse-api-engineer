@@ -1,10 +1,11 @@
 """Message persistence for engineer runs."""
 
 import json
+import os
 from datetime import datetime
 from typing import Any
 
-from .utils import get_messages_path
+from .utils import _restrict_permissions, get_messages_path
 
 
 class MessageStore:
@@ -14,6 +15,7 @@ class MessageStore:
         self.run_id = run_id
         self.messages_path = get_messages_path(run_id, output_dir)
         self.messages_path.parent.mkdir(parents=True, exist_ok=True)
+        _restrict_permissions(self.messages_path.parent, 0o700)
 
     def _get_timestamp(self) -> str:
         """Get current timestamp in ISO format."""
@@ -27,7 +29,12 @@ class MessageStore:
             "content": content,
             **kwargs,
         }
-        with open(self.messages_path, "a") as f:
+        # Tool inputs/outputs persisted here can carry live auth headers,
+        # cookies, and tokens; create the log owner-only (0600) so other local
+        # users can't harvest them. os.open with the mode set avoids the brief
+        # window where a default-umask file would be world-readable.
+        fd = os.open(self.messages_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        with os.fdopen(fd, "a") as f:
             f.write(json.dumps(message) + "\n")
 
     def save_prompt(self, prompt: str) -> None:

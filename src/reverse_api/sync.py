@@ -11,6 +11,22 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 
+def _is_safe_regular_file(path: Path) -> bool:
+    """True only for a real regular file that is not a symlink.
+
+    The synced directory holds AI-generated output, and the agent that
+    produces it processes untrusted web content (i.e. is prompt-injectable).
+    A planted symlink such as ``notes.py -> ~/.ssh/id_ed25519`` would otherwise
+    be dereferenced by ``shutil.copy2`` and its target's contents copied into
+    the user-visible destination, exfiltrating secrets from outside the
+    workspace. Rejecting symlinks (and any non-regular file) blocks that.
+    """
+    try:
+        return path.is_file() and not path.is_symlink()
+    except OSError:
+        return False
+
+
 def get_available_directory(base_path: Path, base_name: str) -> Path:
     """
     Find an available directory name, appending timestamp if needed.
@@ -116,14 +132,16 @@ class SyncHandler(FileSystemEventHandler):
                 dest.unlink()
                 self.file_count -= 1
         else:
-            # Check if source file exists before attempting to copy
-            if not source.exists():
+            # Check if source file exists before attempting to copy. Reject
+            # symlinks so a planted link can't be dereferenced into the
+            # destination (see _is_safe_regular_file).
+            if not source.exists() or not _is_safe_regular_file(source):
                 return
 
             # Copy to destination
             dest.parent.mkdir(parents=True, exist_ok=True)
             try:
-                shutil.copy2(source, dest)
+                shutil.copy2(source, dest, follow_symlinks=False)
                 if dest.exists():
                     self.file_count += 1
             except FileNotFoundError:
@@ -218,7 +236,7 @@ class FileSyncWatcher:
             return
 
         for item in self.source_dir.rglob("*"):
-            if not item.is_file():
+            if not _is_safe_regular_file(item):
                 continue
             relative = item.relative_to(self.source_dir)
             if _should_skip_path(relative):
@@ -229,7 +247,7 @@ class FileSyncWatcher:
             try:
                 if not dest.exists() or item.stat().st_mtime > dest.stat().st_mtime:
                     dest.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(item, dest)
+                    shutil.copy2(item, dest, follow_symlinks=False)
                     if self.handler.on_sync:
                         self.handler.on_sync(f"Synced {item.name}")
             except (FileNotFoundError, OSError):
@@ -293,12 +311,12 @@ def sync_directory_once(source_dir: Path, dest_dir: Path):
     final_dest_dir.mkdir(parents=True, exist_ok=True)
 
     for item in source_dir.rglob("*"):
-        if item.is_file():
+        if _is_safe_regular_file(item):
             relative = item.relative_to(source_dir)
             if _should_skip_path(relative):
                 continue
             dest = final_dest_dir / relative
             dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(item, dest)
+            shutil.copy2(item, dest, follow_symlinks=False)
 
     return final_dest_dir

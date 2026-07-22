@@ -18,6 +18,38 @@ _BRIDGE_DIR = Path(__file__).resolve().parent / "cursor_bridge"
 _BRIDGE_SCRIPT = _BRIDGE_DIR / "run.mjs"
 _SDK_MARKER = _BRIDGE_DIR / "node_modules" / "@cursor" / "sdk"
 
+# Environment variables the Node bridge legitimately needs. The Cursor API key
+# is passed in-band via the JSON request, so the full environment (which may
+# hold unrelated cloud/API secrets) is deliberately not forwarded to the
+# third-party @cursor/sdk process.
+_BRIDGE_ENV_ALLOWLIST = (
+    "PATH",
+    "HOME",
+    "USERPROFILE",
+    "SYSTEMROOT",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TZ",
+    "NODE_EXTRA_CA_CERTS",
+    "NODE_OPTIONS",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+    "CURSOR_API_KEY",
+)
+
+
+def _bridge_env() -> dict[str, str]:
+    """Minimal environment for the Node bridge subprocess (see allowlist)."""
+    return {k: v for k in _BRIDGE_ENV_ALLOWLIST if (v := os.environ.get(k)) is not None}
+
 
 def _ensure_cursor_bridge_deps() -> str | None:
     """Install npm dependencies for the bridge if missing. Returns error message or None."""
@@ -239,7 +271,7 @@ class CursorEngineer(BaseEngineer):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(_BRIDGE_DIR),
-            env=os.environ.copy(),
+            env=_bridge_env(),
         )
 
         stderr_acc = bytearray()

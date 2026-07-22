@@ -3,6 +3,11 @@
 
 set -e  # Exit on error
 
+# Always operate on the repository root (the parent of this script's dir), not
+# the caller's current directory. Without this, running the script from an
+# unrelated project would rm -rf that project's dist/, build/, and *.egg-info.
+cd "$(dirname "$0")/.."
+
 echo "🧹 Cleaning build artifacts..."
 
 # Remove Python cache files

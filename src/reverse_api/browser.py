@@ -12,7 +12,7 @@ from playwright_stealth import Stealth
 from rich.console import Console
 from rich.status import Status
 
-from .utils import get_har_dir, get_timestamp
+from .utils import _restrict_permissions, get_har_dir, get_timestamp
 
 console = Console()
 
@@ -215,6 +215,8 @@ class ManualBrowser:
         }
         with open(self.metadata_path, "w") as f:
             json.dump(metadata, f, indent=2)
+        # metadata.json records the captured URL/prompt; keep it owner-only.
+        _restrict_permissions(self.metadata_path, 0o600)
 
     def _handle_signal(self, signum, frame) -> None:
         """Handle interrupt signals gracefully."""
@@ -297,7 +299,11 @@ class ManualBrowser:
         chrome_args = [
             "--start-maximized",
             "--disable-blink-features=AutomationControlled",
-            "--disable-features=IsolateOrigins,site-per-process",
+            # NB: site isolation (IsolateOrigins/site-per-process) is left
+            # enabled on purpose. This browser is used to log into real
+            # accounts on the target site, so keeping Chromium's cross-origin
+            # partitioning intact protects the captured session against a
+            # malicious page exploiting a renderer.
             "--disable-infobars",
             "--disable-dev-shm-usage",
             "--disable-background-networking",
@@ -424,6 +430,11 @@ class ManualBrowser:
                     self._context.close()
 
                     if self.har_path.exists():
+                        # The HAR embeds full request/response bodies including
+                        # Authorization headers, cookies, and session tokens.
+                        # Tighten it to owner-only so other local users on a
+                        # shared machine can't replay the captured session.
+                        _restrict_permissions(self.har_path, 0o600)
                         har_size = self.har_path.stat().st_size
                         status.update(f" [dim]har saved: {har_size:,} bytes[/dim]")
                     else:

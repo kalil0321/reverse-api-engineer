@@ -1,6 +1,7 @@
 """Utility functions for run ID generation and path management."""
 
 import asyncio
+import os
 import platform
 import re
 import uuid
@@ -10,6 +11,19 @@ from pathlib import Path
 import httpx
 
 from . import __version__
+
+
+def _restrict_permissions(path: Path, mode: int) -> None:
+    """Best-effort tighten filesystem permissions on ``path``.
+
+    Used for directories/files that hold captured credentials. Silently does
+    nothing on platforms (e.g. Windows) where ``chmod`` has no effect, and
+    never raises so a permission tweak can't crash a run.
+    """
+    try:
+        os.chmod(path, mode)
+    except (OSError, NotImplementedError):
+        pass
 
 # One entry per supported output language. BaseEngineer's extension map is
 # built from this, and discover_scripts()/build_script_commands() key off the
@@ -283,9 +297,16 @@ def get_project_root() -> Path:
 
 
 def get_app_dir() -> Path:
-    """Get the central application data directory."""
+    """Get the central application data directory.
+
+    The directory holds captured HARs, generated clients, and message logs
+    that routinely contain live auth headers, cookies, and bearer tokens, so
+    it is created (and, if it already exists, tightened) to owner-only 0700 to
+    keep those secrets from other local users on shared machines.
+    """
     app_dir = Path.home() / ".reverse-api"
     app_dir.mkdir(parents=True, exist_ok=True)
+    _restrict_permissions(app_dir, 0o700)
     return app_dir
 
 
@@ -574,8 +595,11 @@ def get_visible_save_path(domain: str, base_dir: Path | str, suffix: int = 0) ->
         # Recursively try next suffix
         return get_visible_save_path(domain, base_dir, suffix + 1)
 
-    # Create directory
+    # Create directory. Exported clients embed the captured auth headers,
+    # cookies, and API keys, so keep the folder owner-only even when it lands
+    # in a shared/synced location like ~/Downloads.
     path.mkdir(parents=True, exist_ok=True)
+    _restrict_permissions(path, 0o700)
     return path
 
 
@@ -647,6 +671,27 @@ def resolve_run(identifier: str, session_manager, *, interactive: bool = True) -
     return selected
 
 
+def _is_trusted_stored_scripts_dir(stored_dir: Path, run_id: str) -> bool:
+    """Whether a script dir recorded in history.json is safe to execute from.
+
+    Requires the `.../scripts/<run_id>/` layout, a matching (already-validated)
+    run_id, a real non-symlink directory, and no `..` traversal. This lets a
+    legitimately-stored path under any output dir work while blocking a tampered
+    entry from pointing `run` at an arbitrary file outside that structure.
+    """
+    try:
+        if stored_dir.is_symlink() or not stored_dir.is_dir():
+            return False
+        resolved = stored_dir.resolve()
+        if resolved.name != run_id:
+            return False
+        if resolved.parent.name != "scripts":
+            return False
+    except (OSError, RuntimeError):
+        return False
+    return True
+
+
 def discover_scripts(run_id: str, output_dir: str | None = None, run_metadata: dict | None = None) -> list[Path]:
     """Find all runnable generated scripts in a run's script directory.
 
@@ -674,18 +719,25 @@ def discover_scripts(run_id: str, output_dir: str | None = None, run_metadata: d
     if len(run_id) > 64:
         raise ValueError(f"run_id too long: {len(run_id)} characters (max 64)")
 
-    # Try stored path from run metadata first
+    # Try stored path from run metadata first. history.json is only as
+    # trustworthy as whatever could write it (including a prompt-injected agent
+    # session with a Write tool). A stored path may legitimately live under a
+    # different output dir than the current one (the user can change
+    # --output-dir between runs), so we can't pin it to the current base. But
+    # we DO require it to follow the expected `.../scripts/<run_id>/` layout and
+    # to not be a symlink, so a tampered entry can't redirect `run` to an
+    # arbitrary sensitive file (e.g. ~/.ssh/...) outside that structure.
+    base_dir = get_base_output_dir(output_dir)
     scripts_dir = None
     if run_metadata:
         script_path = run_metadata.get("paths", {}).get("script_path", "")
         if script_path:
             stored_dir = Path(script_path).parent
-            if stored_dir.exists():
+            if _is_trusted_stored_scripts_dir(stored_dir, run_id):
                 scripts_dir = stored_dir
 
     # Fall back to current output_dir
     if scripts_dir is None:
-        base_dir = get_base_output_dir(output_dir)
         scripts_dir = base_dir / "scripts" / run_id
 
     if not scripts_dir.exists():

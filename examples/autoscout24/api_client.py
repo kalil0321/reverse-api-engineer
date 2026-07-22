@@ -303,7 +303,7 @@ class AutoScout24Client:
             "sort": sort_list
         }
 
-        response = self.session.post(url, params=params, json=body)
+        response = self.session.post(url, params=params, json=body, timeout=15)
         response.raise_for_status()
 
         data = response.json()
@@ -354,7 +354,7 @@ class AutoScout24Client:
         url = f"{self.BASE_URL}/v1/quali-logos/{seller_id}"
         params = {"language": self.language}
 
-        response = self.session.get(url, params=params)
+        response = self.session.get(url, params=params, timeout=15)
         response.raise_for_status()
 
         return response.json()

@@ -1,6 +1,7 @@
 """Terminal UI for collector mode with streaming progress updates."""
 
 from rich.console import Console
+from rich.markup import escape as _esc
 
 from .theme import MODE_COLORS, THEME_DIM
 from .tui import print_session_header
@@ -37,7 +38,7 @@ class CollectorUI:
         """Display when an item is saved."""
         self._items_collected += 1
         display_preview = preview[:50] + "..." if len(preview) > 50 else preview
-        self.console.print(f"  [dim]>[/dim] ++ [white]item_saved[/white]   [dim]{display_preview}[/dim]")
+        self.console.print(f"  [dim]>[/dim] ++ [white]item_saved[/white]   [dim]{_esc(str(display_preview))}[/dim]")
 
     def thinking(self, text: str, max_length: int = 80) -> None:
         """Display agent thinking/response text."""
@@ -48,7 +49,7 @@ class CollectorUI:
         display_text = text[:max_length].replace("\n", " ").strip()
         if len(text) > max_length:
             display_text += "..."
-        self.console.print(f"  [dim].. {display_text}[/dim]")
+        self.console.print(f"  [dim].. {_esc(display_text)}[/dim]")
 
     def tool_start(self, tool_name: str, tool_input: dict) -> None:
         """Display when a tool starts execution."""
@@ -61,28 +62,28 @@ class CollectorUI:
         }
         icon = icon_map.get(tool_name, "> ")
         summary = self._summarize_input(tool_name, tool_input)
-        self.console.print(f"  [dim]>[/dim] {icon} [white]{tool_name[:12]:12}[/white] {summary}")
+        self.console.print(f"  [dim]>[/dim] {icon} [white]{_esc(str(tool_name)[:12]):12}[/white] {summary}")
 
     def tool_result(self, tool_name: str, is_error: bool = False, output: str | None = None) -> None:
         """Display when a tool completes."""
         if is_error:
-            self.console.print(f"  [dim]![/dim] [red]{tool_name} failed[/red]")
+            self.console.print(f"  [dim]![/dim] [red]{_esc(str(tool_name))} failed[/red]")
 
     def _summarize_input(self, tool_name: str, tool_input: dict) -> str:
         """Create a brief summary of tool input."""
         if tool_name == "WebFetch":
-            url = tool_input.get("url", "")
-            return f"[dim]{url[:50]}{'...' if len(url) > 50 else ''}[/dim]"
+            url = str(tool_input.get("url", ""))
+            return f"[dim]{_esc(url[:50])}{'...' if len(url) > 50 else ''}[/dim]"
         elif tool_name == "Write":
-            path = tool_input.get("file_path", "")
-            return f"[dim]{path}[/dim]"
+            path = str(tool_input.get("file_path", ""))
+            return f"[dim]{_esc(path)}[/dim]"
         return ""
 
     def collection_complete(self, total_items: int, output_path: str) -> None:
         """Display collection complete message."""
         self.console.print()
         self.console.print(f" [{COLLECTOR_COLOR}]collection complete[/{COLLECTOR_COLOR}] [white]({total_items} items)[/white]")
-        self.console.print(f" [dim]output:[/dim] [white]{output_path}[/white]")
+        self.console.print(f" [dim]output:[/dim] [white]{_esc(str(output_path))}[/white]")
         self.console.print()
 
     def error(self, message: str) -> None:
@@ -90,7 +91,7 @@ class CollectorUI:
         from .tui import ERROR_CTA
 
         self.console.print()
-        self.console.print(f" [dim]![/dim] [red]error:[/red] {message}")
+        self.console.print(f" [dim]![/dim] [red]error:[/red] {_esc(str(message))}")
         self.console.print(f" [dim]{ERROR_CTA}[/dim]")
 
     def usage_summary(self, usage: dict) -> None:

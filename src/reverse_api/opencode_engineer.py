@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from rich.markup import escape as _esc
 
 from .base_engineer import BaseEngineer
 from .opencode_ui import OpenCodeUI
@@ -35,12 +36,14 @@ def format_error(e: Exception) -> str:
     # Build comprehensive error message with pretty formatting
     lines = []
 
-    # Main error line - always show error type and message
+    # error_type is a Python class name (trusted); error_msg and any HTTP
+    # response text below come from the server, so escape them before they go
+    # into a Rich-markup string that error() will render.
     if error_msg:
-        lines.append(f"[bold red]✗ {error_type}[/bold red]")
-        lines.append(f"  {error_msg}")
+        lines.append(f"[bold red]✗ {_esc(error_type)}[/bold red]")
+        lines.append(f"  {_esc(error_msg)}")
     else:
-        lines.append(f"[bold red]✗ {error_type}[/bold red] (no message)")
+        lines.append(f"[bold red]✗ {_esc(error_type)}[/bold red] (no message)")
 
     # Add additional context for specific exception types
     if isinstance(e, httpx.HTTPStatusError):
@@ -48,7 +51,7 @@ def format_error(e: Exception) -> str:
             try:
                 status_code = e.response.status_code
                 status_text = e.response.reason_phrase or "Unknown"
-                lines.append(f"\n[dim]HTTP Status:[/dim] [yellow]{status_code}[/yellow] {status_text}")
+                lines.append(f"\n[dim]HTTP Status:[/dim] [yellow]{status_code}[/yellow] {_esc(status_text)}")
 
                 # Try to parse JSON response for better formatting
                 try:
@@ -59,30 +62,30 @@ def format_error(e: Exception) -> str:
                     lines.append(f"\n[dim]Response Body:[/dim]")
                     # Split into lines and indent
                     for line in response_text.split("\n"):
-                        lines.append(f"  [dim]{line}[/dim]")
+                        lines.append(f"  [dim]{_esc(line)}[/dim]")
                 except Exception:
                     # Fall back to text if not JSON
                     response_text = e.response.text[:500]
                     if response_text:
                         lines.append(f"\n[dim]Response Body:[/dim]")
-                        lines.append(f"  [dim]{response_text}[/dim]")
+                        lines.append(f"  [dim]{_esc(response_text)}[/dim]")
             except Exception:
                 pass
 
     elif isinstance(e, httpx.ConnectError):
         lines.append(f"\n[dim]Unable to connect to OpenCode server[/dim]")
         if error_msg and "Connection refused" not in error_msg:
-            lines.append(f"  [dim]{error_msg}[/dim]")
+            lines.append(f"  [dim]{_esc(error_msg)}[/dim]")
 
     elif isinstance(e, httpx.ReadError):
         lines.append(f"\n[dim]Connection was interrupted while reading response[/dim]")
         if error_msg:
-            lines.append(f"  [dim]{error_msg}[/dim]")
+            lines.append(f"  [dim]{_esc(error_msg)}[/dim]")
 
     elif isinstance(e, httpx.TimeoutException):
         lines.append(f"\n[dim]Request timed out[/dim]")
         if error_msg:
-            lines.append(f"  [dim]{error_msg}[/dim]")
+            lines.append(f"  [dim]{_esc(error_msg)}[/dim]")
 
     # In debug mode, include traceback
     if DEBUG:
@@ -91,7 +94,7 @@ def format_error(e: Exception) -> str:
         tb_str = "".join(traceback.format_exception(type(e), e, e.__traceback__))
         lines.append(f"\n[dim]Traceback:[/dim]")
         for line in tb_str.split("\n"):
-            lines.append(f"  [dim]{line}[/dim]")
+            lines.append(f"  [dim]{_esc(line)}[/dim]")
 
     return "\n".join(lines)
 
@@ -255,13 +258,15 @@ class OpenCodeEngineer(BaseEngineer):
                 self.opencode_ui.error("Authentication failed. OpenCode server requires a password.")
                 self.opencode_ui.console.print("\n[dim]Please set OPENCODE_SERVER_PASSWORD environment variable[/dim]")
                 if self.opencode_username != "opencode":
-                    self.opencode_ui.console.print(f"[dim]Username: {self.opencode_username}[/dim]")
+                    self.opencode_ui.console.print(f"[dim]Username: {_esc(str(self.opencode_username))}[/dim]")
                 self.message_store.save_error("Authentication failed")
                 return None
-            # Show detailed error including response body
+            # Show detailed error including response body. format_error escapes
+            # the untrusted response content, so the string is safe to render as
+            # markup.
             error_msg = format_error(e)
             debug_log(f"HTTPStatusError in analyze_and_generate: {error_msg}")
-            self.opencode_ui.error(error_msg)
+            self.opencode_ui.error(error_msg, markup=True)
             self.message_store.save_error(error_msg)
             return None
 
@@ -277,7 +282,7 @@ class OpenCodeEngineer(BaseEngineer):
         except Exception as e:
             error_msg = format_error(e)
             debug_log(f"Exception in analyze_and_generate: {error_msg}")
-            self.opencode_ui.error(error_msg)
+            self.opencode_ui.error(error_msg, markup=True)
             self.message_store.save_error(error_msg)
             return None
 
@@ -475,11 +480,14 @@ class OpenCodeEngineer(BaseEngineer):
                         return
 
         except httpx.ReadError as e:
-            self._last_error = format_error(e)
-            debug_log(f"ReadError in _stream_events: {self._last_error}")
+            # _last_error is rendered as escaped plain text, so store a concise
+            # plain message here (the full formatted detail still goes to the
+            # debug log below).
+            self._last_error = f"{type(e).__name__}: {e}"
+            debug_log(f"ReadError in _stream_events: {format_error(e)}")
         except Exception as e:
-            self._last_error = format_error(e)
-            debug_log(f"Exception in _stream_events: {self._last_error}")
+            self._last_error = f"{type(e).__name__}: {e}"
+            debug_log(f"Exception in _stream_events: {format_error(e)}")
 
     async def _check_session_error(self, client: httpx.AsyncClient):
         """Check session for errors when we get suspiciously fast idle."""

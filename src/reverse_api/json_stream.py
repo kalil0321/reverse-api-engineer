@@ -3,8 +3,47 @@
 from __future__ import annotations
 
 import inspect
+import re
 from collections.abc import Callable
 from typing import Any
+
+_REDACTED = "***REDACTED***"
+
+# Keys whose values are secrets (auth headers, cookies, tokens, API keys) that
+# routinely appear in the tool inputs/outputs of a reverse-engineering run.
+_SECRET_KEY_RE = re.compile(
+    r"(authorization|cookie|set-cookie|x-api-key|api[_-]?key|access[_-]?token"
+    r"|refresh[_-]?token|secret|password|bearer|session[_-]?token)",
+    re.IGNORECASE,
+)
+
+# Bearer/JWT-shaped tokens embedded inside free-form strings (e.g. a Bash
+# command line or a Write payload) that no key name would catch.
+_TOKEN_VALUE_RE = re.compile(
+    r"(?i)(bearer\s+)[A-Za-z0-9._~+/-]{12,}=*"
+    r"|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}"
+)
+
+
+def _redact(value: Any) -> Any:
+    """Return a copy of ``value`` with secret-bearing fields masked.
+
+    Recurses through dicts/lists so nested tool inputs (e.g. HTTP header maps)
+    are covered, and scrubs JWT/bearer-shaped substrings out of plain strings.
+    """
+    if isinstance(value, dict):
+        redacted: dict[Any, Any] = {}
+        for key, val in value.items():
+            if isinstance(key, str) and _SECRET_KEY_RE.search(key):
+                redacted[key] = _REDACTED
+            else:
+                redacted[key] = _redact(val)
+        return redacted
+    if isinstance(value, list):
+        return [_redact(item) for item in value]
+    if isinstance(value, str):
+        return _TOKEN_VALUE_RE.sub(_REDACTED, value)
+    return value
 
 
 def make_json_stream_sink(write_line: Callable[[str], None]) -> Callable[[dict[str, Any]], None]:
@@ -52,9 +91,11 @@ class StreamingUIWrapper:
         if call_id:
             event["call_id"] = call_id
         # Emit the real structured input (json.dumps serializes it); a stringified
-        # repr would not be parseable as JSON by downstream consumers.
+        # repr would not be parseable as JSON by downstream consumers. Redact
+        # secret-bearing fields first: json-stream output is meant to be piped
+        # into logs/CI where captured tokens would otherwise persist.
         if tool_input is not None:
-            event["input"] = tool_input
+            event["input"] = _redact(tool_input)
         self._sink(event)
         # Inner UIs render only; not all accept call_id, so don't forward it.
         self._inner.tool_start(tool_name, tool_input)
@@ -70,7 +111,7 @@ class StreamingUIWrapper:
             "event": "tool_end",
             "name": tool_name,
             "is_error": is_error,
-            "output_preview": (output[:200] if output else None),
+            "output_preview": (_redact(output[:200]) if output else None),
         }
         if call_id:
             event["call_id"] = call_id

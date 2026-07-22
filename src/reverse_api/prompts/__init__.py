@@ -18,13 +18,27 @@ _INCLUDE_PREFIX = "{include:"
 _INCLUDE_SUFFIX = "}"
 
 
+def _safe_prompt_path(base: Path, name: str) -> Path:
+    """Resolve ``<base>/<name>.md`` and confirm it stays within ``base``.
+
+    Template/partial names are developer-controlled today, but resolving them
+    with a containment check keeps a ``..``-bearing name (should any name ever
+    become dynamic) from reading files outside the prompts tree.
+    """
+    candidate = (base / f"{name}.md").resolve()
+    base_resolved = base.resolve()
+    if not candidate.is_relative_to(base_resolved):
+        raise ValueError(f"prompt path escapes prompts directory: {name!r}")
+    return candidate
+
+
 def _resolve_includes(text: str) -> str:
     """Recursively resolve `{include:_partial_name}` directives."""
     while _INCLUDE_PREFIX in text:
         start = text.index(_INCLUDE_PREFIX)
         end = text.index(_INCLUDE_SUFFIX, start + len(_INCLUDE_PREFIX))
         partial_name = text[start + len(_INCLUDE_PREFIX) : end]
-        partial_path = _PARTIALS_DIR / f"{partial_name}.md"
+        partial_path = _safe_prompt_path(_PARTIALS_DIR, partial_name)
         partial_text = partial_path.read_text()
         partial_text = _resolve_includes(partial_text)
         text = text[:start] + partial_text + text[end + 1 :]
@@ -42,7 +56,7 @@ def load(template_name: str, **kwargs: str) -> str:
     Returns:
         The fully rendered prompt string.
     """
-    path = _PROMPTS_DIR / f"{template_name}.md"
+    path = _safe_prompt_path(_PROMPTS_DIR, template_name)
     text = path.read_text()
     text = _resolve_includes(text)
     if kwargs:

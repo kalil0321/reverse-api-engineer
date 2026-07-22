@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import random
+import re
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -2663,6 +2664,52 @@ def _extract_missing_module(stderr: str) -> str | None:
     return missing
 
 
+# Environment variables that carry provider credentials. Generated client code
+# never needs them (it authenticates with the captured cookies/headers baked
+# into the script), so they are stripped from the child environment to prevent
+# a prompt-injected, attacker-authored client from exfiltrating the user's keys.
+_SECRET_ENV_RE = re.compile(
+    r"(_API_KEY|_TOKEN|_SECRET|_PASSWORD|ANTHROPIC|OPENAI|GITHUB_|CURSOR|OPENCODE|AWS_|GCP_|AZURE_|HF_)",
+    re.IGNORECASE,
+)
+
+
+def _scrubbed_run_env() -> dict:
+    """Return a copy of ``os.environ`` with provider secrets removed.
+
+    Used for every subprocess that executes (or installs dependencies for)
+    AI-generated code, which is derived from untrusted browsed content.
+    """
+    return {k: v for k, v in os.environ.items() if not _SECRET_ENV_RE.search(k)}
+
+
+def _validate_requirements_file(requirements: Path) -> str | None:
+    """Return an error string if an AI-generated requirements.txt is unsafe.
+
+    Blocks the install-time RCE vectors: requirement-file options (e.g.
+    ``--index-url http://attacker``, ``--find-links``, ``-e``) and direct
+    URL/VCS/local specifiers (``pkg @ https://...``, ``git+https://...``) that
+    would fetch and execute attacker-controlled code. Plain PyPI requirements
+    such as ``requests`` or ``requests==2.31.0`` are allowed. Returns None when
+    the file is acceptable.
+    """
+    try:
+        lines = requirements.read_text().splitlines()
+    except OSError as e:
+        return f"could not read {requirements.name}: {e}"
+
+    bad_url = re.compile(r"(?:^|\s|@)(?:[a-z][a-z0-9+.-]*://|git\+|hg\+|svn\+|bzr\+|file:)", re.IGNORECASE)
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("-"):
+            return f"refusing to install {requirements.name}: contains a pip option line ({line!r})"
+        if bad_url.search(line):
+            return f"refusing to install {requirements.name}: contains a URL/VCS/local specifier ({line!r})"
+    return None
+
+
 def _run_non_python_script(script, script_args) -> None:
     """Run a non-Python generated client with its language's toolchain and exit."""
     import shutil
@@ -2677,8 +2724,9 @@ def _run_non_python_script(script, script_args) -> None:
     if shutil.which(tool) is None:
         raise click.ClickException(f"cannot run {script.name}: '{tool}' is missing from PATH — install it and retry")
     returncode = 0
+    scrubbed_env = _scrubbed_run_env()
     for cmd in steps:
-        returncode = subprocess.run(cmd, cwd=str(script.parent)).returncode
+        returncode = subprocess.run(cmd, cwd=str(script.parent), env=scrubbed_env).returncode
         if returncode != 0:
             break
     raise SystemExit(returncode)
@@ -2778,9 +2826,12 @@ def _run_script_machine_payload(
                     error_kind_hint="config_invalid",
                 )
             result = None
+            scrubbed_env = _scrubbed_run_env()
             for cmd in steps:
                 emit_event("process_started", run_id=run_id, script_path=str(script))
-                result = subprocess.run(cmd, cwd=str(script.parent), capture_output=True, text=True)
+                result = subprocess.run(
+                    cmd, cwd=str(script.parent), capture_output=True, text=True, env=scrubbed_env
+                )
                 if result.returncode != 0:
                     break
             return _build_run_payload(
@@ -2808,15 +2859,32 @@ def _run_script_machine_payload(
             subprocess.run([str(venv_pip), "install", "-q", "requests"], check=True, **subprocess_kwargs)
             emit_event("venv_setup_completed", run_id=run_id, path=str(venv_dir))
 
+        scrubbed_env = _scrubbed_run_env()
         requirements = script.parent / "requirements.txt"
         if requirements.exists():
+            req_error = _validate_requirements_file(requirements)
+            if req_error:
+                return _build_run_payload(
+                    identifier=identifier,
+                    run_id=run_id,
+                    script_path=str(script),
+                    script_args=script_args,
+                    scripts=scripts,
+                    error=req_error,
+                    error_kind_hint="config_invalid",
+                )
             emit_event("requirements_install_started", run_id=run_id, path=str(requirements))
-            subprocess.run([str(venv_pip), "install", "-q", "-r", str(requirements)], check=True, **subprocess_kwargs)
+            subprocess.run(
+                [str(venv_pip), "install", "-q", "-r", str(requirements)],
+                check=True,
+                env=scrubbed_env,
+                **subprocess_kwargs,
+            )
             emit_event("requirements_install_completed", run_id=run_id, path=str(requirements))
 
         cmd = [str(venv_python), str(script), *script_args]
         emit_event("process_started", run_id=run_id, script_path=str(script))
-        result = subprocess.run(cmd, **subprocess_kwargs)
+        result = subprocess.run(cmd, env=scrubbed_env, **subprocess_kwargs)
 
         stderr = result.stderr or ""
         if result.returncode != 0 and "ModuleNotFoundError: No module named" in stderr:
@@ -2825,10 +2893,15 @@ def _run_script_machine_payload(
                 emit_event("dependency_missing", run_id=run_id, package=missing)
                 if auto_install:
                     emit_event("dependency_install_started", run_id=run_id, package=missing)
-                    subprocess.run([str(venv_pip), "install", "-q", missing], check=True, **subprocess_kwargs)
+                    subprocess.run(
+                        [str(venv_pip), "install", "-q", missing],
+                        check=True,
+                        env=scrubbed_env,
+                        **subprocess_kwargs,
+                    )
                     emit_event("dependency_install_completed", run_id=run_id, package=missing)
                     emit_event("process_retried", run_id=run_id, script_path=str(script))
-                    result = subprocess.run(cmd, **subprocess_kwargs)
+                    result = subprocess.run(cmd, env=scrubbed_env, **subprocess_kwargs)
                 else:
                     return _build_run_payload(
                         identifier=identifier,
@@ -3057,17 +3130,25 @@ def run_script(ctx, identifier, script_args, file_name, list_scripts, no_interac
         subprocess.run([str(venv_pip), "install", "-q", "requests"], check=True)
         console.print("Shared venv ready.", style="dim")
 
-    # Install per-run requirements.txt if present
+    # Install per-run requirements.txt if present. The file is AI-generated
+    # from untrusted content, so validate it (and run pip/the client without
+    # provider secrets in the environment) before installing.
+    scrubbed_env = _scrubbed_run_env()
     scripts_dir = script.parent
     requirements = scripts_dir / "requirements.txt"
     if requirements.exists():
-        subprocess.run([str(venv_pip), "install", "-q", "-r", str(requirements)], check=True)
+        req_error = _validate_requirements_file(requirements)
+        if req_error:
+            raise click.ClickException(req_error)
+        subprocess.run(
+            [str(venv_pip), "install", "-q", "-r", str(requirements)], check=True, env=scrubbed_env
+        )
 
     python_path = str(venv_python)
 
     # Execute with real-time stdout, capture stderr for import error detection
     cmd = [python_path, str(script), *script_args]
-    result = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)
+    result = subprocess.run(cmd, stderr=subprocess.PIPE, text=True, env=scrubbed_env)
 
     # Print stderr so the user sees it, then check for missing imports
     if result.stderr:
@@ -3088,9 +3169,9 @@ def run_script(ctx, identifier, script_args, file_name, list_scripts, no_interac
                         f"Install '{missing}' and retry?", default=True
                     ).ask()
                 if install:
-                    subprocess.run([str(venv_pip), "install", "-q", missing], check=True)
+                    subprocess.run([str(venv_pip), "install", "-q", missing], check=True, env=scrubbed_env)
                     console.print(f"Installed [green]{missing}[/green]. Retrying...")
-                    result = subprocess.run(cmd)
+                    result = subprocess.run(cmd, env=scrubbed_env)
                     raise SystemExit(result.returncode)
 
     raise SystemExit(result.returncode)

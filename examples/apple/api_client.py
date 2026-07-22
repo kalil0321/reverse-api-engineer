@@ -147,14 +147,14 @@ class AppleJobsAPI:
             requests.RequestException: If the token request fails
         """
         try:
-            response = self.session.get(f"{self.API_BASE}/CSRFToken")
+            response = self.session.get(f"{self.API_BASE}/CSRFToken", timeout=15)
             response.raise_for_status()
 
             csrf_token = response.headers.get('x-apple-csrf-token')
             if not csrf_token:
                 raise ValueError("No CSRF token found in response headers")
 
-            logger.debug(f"Retrieved CSRF token: {csrf_token[:10]}...")
+            logger.debug("Retrieved CSRF token")
             return csrf_token
 
         except requests.RequestException as e:
