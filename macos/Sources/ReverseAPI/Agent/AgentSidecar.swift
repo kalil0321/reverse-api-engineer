@@ -58,9 +58,17 @@ actor AgentSidecar {
 
     private(set) var process: Process?
     private(set) var port: Int?
+    private(set) var token: String?
 
-    func launch(_ spec: LaunchSpec, timeout: Duration = .seconds(15)) async throws -> Int {
-        if let port, let process, process.isRunning { return port }
+    struct Endpoint: Sendable {
+        var port: Int
+        var token: String
+    }
+
+    func launch(_ spec: LaunchSpec, timeout: Duration = .seconds(15)) async throws -> Endpoint {
+        if let port, let token, let process, process.isRunning {
+            return Endpoint(port: port, token: token)
+        }
         if port != nil || process != nil {
             terminate()
         }
@@ -95,7 +103,8 @@ actor AgentSidecar {
 
         do {
             let bound = try await waitForBoundPort(stdout: stdout, stderr: stderr, deadline: timeout, process: process)
-            self.port = bound
+            self.port = bound.port
+            self.token = bound.token
             let logURL = spec.workdir.appendingPathComponent("sidecar-stderr.log")
             Self.attachStderrTail(handle: stderr.fileHandleForReading, to: logURL)
             return bound
@@ -105,6 +114,7 @@ actor AgentSidecar {
             }
             self.process = nil
             self.port = nil
+            self.token = nil
             throw error
         }
     }
@@ -140,9 +150,10 @@ actor AgentSidecar {
         }
         self.process = nil
         self.port = nil
+        self.token = nil
     }
 
-    private func waitForBoundPort(stdout: Pipe, stderr: Pipe, deadline: Duration, process: Process) async throws -> Int {
+    private func waitForBoundPort(stdout: Pipe, stderr: Pipe, deadline: Duration, process: Process) async throws -> Endpoint {
         let stdoutHandle = stdout.fileHandleForReading
         let stderrHandle = stderr.fileHandleForReading
         let buffer = AsyncStreamBuffer()
@@ -167,6 +178,13 @@ actor AgentSidecar {
                 guard let port = Int(portString) else {
                     throw SidecarError.failedToStart("unexpected line: \(line)")
                 }
+                // The token is printed before the port line, so it is already
+                // buffered by the time the "listening" line lands. Without it
+                // we can't authenticate the websocket, so treat it as fatal.
+                guard let tokenLine = buffer.takeLine(prefix: "RAE_AGENT_TOKEN:") else {
+                    throw SidecarError.failedToStart("sidecar did not announce an auth token")
+                }
+                let token = String(tokenLine.dropFirst("RAE_AGENT_TOKEN:".count))
                 // The sidecar can announce its port and crash one tick later
                 // (e.g. an exception fires while `serve()` enters its first
                 // accept loop). Give the runloop a beat, then re-check
@@ -180,7 +198,7 @@ actor AgentSidecar {
                     }
                     throw SidecarError.processDied(process.terminationStatus)
                 }
-                return port
+                return Endpoint(port: port, token: token)
             }
             if !process.isRunning {
                 let stderrDump = errBuffer.snapshot().trimmingCharacters(in: .whitespacesAndNewlines)

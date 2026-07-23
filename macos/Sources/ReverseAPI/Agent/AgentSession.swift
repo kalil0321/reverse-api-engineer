@@ -110,8 +110,8 @@ final class AgentSession {
         }
         status = .launching
         do {
-            let port = try await sidecar.launch(launchSpec)
-            try await client.connect(port: port)
+            let endpoint = try await sidecar.launch(launchSpec)
+            try await client.connect(port: endpoint.port, token: endpoint.token)
             startReceiver()
             status = .ready
             lastError = nil

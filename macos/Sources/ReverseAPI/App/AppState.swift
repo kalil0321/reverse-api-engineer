@@ -344,6 +344,9 @@ final class AppState {
 
     func shutdownForWindowClose() async {
         restoreProxyBeforeExit()
+        // Stop the agent sidecar too, otherwise it keeps running (and holding
+        // its port) after the window closes.
+        await agent.shutdown()
         if isCapturing {
             do {
                 try await engine.stop()
@@ -357,6 +360,10 @@ final class AppState {
 
     func terminate() async {
         restoreProxyBeforeExit()
+        // Tear down the agent sidecar before the app exits — AgentSession owns
+        // the Python process, and without this it is orphaned on quit and
+        // accumulates across launches.
+        await agent.shutdown()
         do {
             try await engine.terminate()
             isCapturing = false

@@ -13,10 +13,13 @@ actor AgentClient {
         self.session = session
     }
 
-    func connect(port: Int) async throws {
+    func connect(port: Int, token: String) async throws {
         if let existing = task, isLive(existing) { return }
         if task != nil { disconnect() }
-        let url = URL(string: "ws://127.0.0.1:\(port)")!
+        // The token is the sidecar's shared secret, carried in the path so the
+        // server can authenticate the handshake. token_urlsafe output is
+        // already a valid path segment (no percent-encoding needed).
+        let url = URL(string: "ws://127.0.0.1:\(port)/\(token)")!
         let webSocketTask = session.webSocketTask(with: url)
         webSocketTask.resume()
         self.task = webSocketTask

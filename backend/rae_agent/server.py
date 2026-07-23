@@ -4,8 +4,10 @@ import asyncio
 import json
 import logging
 import os
+import secrets
 import sys
 import tempfile
+from http import HTTPStatus
 from pathlib import Path
 
 import websockets
@@ -15,6 +17,33 @@ from rae_agent.protocol import AgentEvent, ChatRequest, ProtocolError
 from rae_agent.session import run_chat
 
 logger = logging.getLogger("rae_agent")
+
+
+def _make_process_request(token: str):
+    """Gate the WebSocket handshake so only the local app can drive the agent.
+
+    The sidecar runs an agent with broad tool access, so an open loopback
+    socket is a real risk: any local process — or a drive-by web page doing
+    `new WebSocket("ws://127.0.0.1:<port>")`, which same-origin policy does not
+    block — could otherwise reach it. Two checks, both at the handshake before
+    any agent logic runs:
+
+    * Reject anything carrying an `Origin` header. Browsers always send one on
+      a WS handshake; the native client sends none, so this drops drive-by
+      pages outright.
+    * Require the shared `token` in the request path (`ws://host:port/<token>`).
+      The app learns the token from the sidecar's stdout; a local process that
+      can reach the port still can't guess it.
+    """
+
+    def process_request(connection, request):
+        if request.headers.get("Origin") is not None:
+            return connection.respond(HTTPStatus.FORBIDDEN, "origin not allowed\n")
+        if request.path.strip("/") != token:
+            return connection.respond(HTTPStatus.UNAUTHORIZED, "unauthorized\n")
+        return None
+
+    return process_request
 
 
 async def handle_connection(websocket, base_dir: Path) -> None:
@@ -109,13 +138,22 @@ async def _stream(websocket, request: ChatRequest, base_dir: Path) -> None:
         log.turn_finished(request.id, "complete")
 
 
-async def serve(host: str, port: int, base_dir: Path) -> None:
+async def serve(host: str, port: int, base_dir: Path, token: str) -> None:
     async def handler(websocket):
         await handle_connection(websocket, base_dir)
 
-    async with websockets.serve(handler, host, port, max_size=64 * 1024 * 1024) as server:
+    async with websockets.serve(
+        handler,
+        host,
+        port,
+        process_request=_make_process_request(token),
+        max_size=64 * 1024 * 1024,
+    ) as server:
         sockets = list(server.sockets or [])
         bound_port = sockets[0].getsockname()[1] if sockets else port
+        # Token first, then port: the parent reads stdout line-by-line and
+        # treats the port line as "ready", so the token must already be there.
+        print(f"RAE_AGENT_TOKEN:{token}", flush=True)
         print(f"RAE_AGENT_LISTENING:{bound_port}", flush=True)
         await asyncio.Future()
 
@@ -132,11 +170,14 @@ def main() -> None:
 
     host = os.environ.get("RAE_AGENT_HOST", "127.0.0.1")
     port = int(os.environ.get("RAE_AGENT_PORT", "0"))
+    # The app may pass a token via env; otherwise generate one. Either way the
+    # handshake requires it, so there is never an unauthenticated code path.
+    token = os.environ.get("RAE_AGENT_TOKEN") or secrets.token_urlsafe(32)
     base_dir = resolve_base_dir()
     base_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        asyncio.run(serve(host, port, base_dir))
+        asyncio.run(serve(host, port, base_dir, token))
     except KeyboardInterrupt:
         sys.exit(0)
 
