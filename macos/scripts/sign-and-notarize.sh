@@ -10,9 +10,8 @@
 #
 # Apple deprecated `codesign --deep` for production signing because it can
 # silently skip nested components or stamp the wrong entitlements on
-# bundled helpers. We sign just the outer .app here; once the Python
-# sidecar lands inside Contents/Resources/agent-runtime, we'll need to
-# walk it explicitly first.
+# bundled helpers. So we walk the embedded Python runtime and sign every
+# nested Mach-O explicitly (inside-out) before sealing the outer .app.
 
 set -euo pipefail
 
@@ -38,23 +37,21 @@ if [ -z "${SIGNING_IDENTITY:-}" ]; then
     exit 1
 fi
 
-# If the bundle embeds a Python runtime, sign every nested executable +
-# dylib + framework first. We don't ship those yet in this branch, but
-# leaving the loop here means the script is correct the day they land
-# without us having to remember to come back and update it.
+# The embedded runtime ships not just .dylib/.so but extensionless Mach-O
+# executables too (python3 and console-script shims), all of which must be
+# signed or notarization/gatekeeper rejects the bundle. Match by file type
+# rather than extension so nothing is missed, and sign each before the outer
+# .app is sealed.
 EMBEDDED_RUNTIME="$APP_BUNDLE/Contents/Resources/agent-runtime"
 if [ -d "$EMBEDDED_RUNTIME" ]; then
-    echo "→ signing embedded agent runtime"
-    while IFS= read -r -d '' bin; do
-        codesign --force --options runtime --timestamp \
-            --sign "$SIGNING_IDENTITY" \
-            "$bin"
-    done < <(find "$EMBEDDED_RUNTIME" \( -name "*.dylib" -o -name "*.so" \) -print0)
-    if [ -x "$EMBEDDED_RUNTIME/bin/python3" ]; then
-        codesign --force --options runtime --timestamp \
-            --sign "$SIGNING_IDENTITY" \
-            "$EMBEDDED_RUNTIME/bin/python3"
-    fi
+    echo "→ signing every Mach-O in the embedded agent runtime"
+    while IFS= read -r -d '' f; do
+        if file -b "$f" | grep -q "Mach-O"; then
+            codesign --force --options runtime --timestamp \
+                --sign "$SIGNING_IDENTITY" \
+                "$f"
+        fi
+    done < <(find "$EMBEDDED_RUNTIME" -type f -print0)
 fi
 
 echo "→ codesign $APP_BUNDLE with $SIGNING_IDENTITY"

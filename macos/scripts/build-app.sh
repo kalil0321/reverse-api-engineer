@@ -94,28 +94,64 @@ if [ -d "$SPM_RESOURCE_BUNDLE" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 4. Embed a relocatable Python runtime with rae-agent installed
+# 4. Embed a self-contained Python runtime with rae-agent installed
 #
-# `uv venv --relocatable` rewrites shebangs + activator so the venv can be
-# moved to its final path. `uv pip install --python <interp>` targets the
-# embedded interpreter so deps land inside the bundled venv's site-packages.
+# We embed a full python-build-standalone interpreter by *copy* rather than a
+# `uv venv`. A venv is NOT self-contained: `uv venv --relocatable` still leaves
+# bin/python3 as an absolute symlink into the build machine's uv-managed
+# CPython and bakes an absolute `home` into pyvenv.cfg, so the interpreter
+# dangles on every machine but the builder's (the app then silently falls back
+# to /usr/bin/env python3 and the sidecar dies with ModuleNotFoundError).
 #
-# Drop any inherited HTTP proxy env vars before `uv` reaches out to PyPI.
-# uv reads HTTP_PROXY / HTTPS_PROXY / ALL_PROXY (case both) from the
-# environment — if rae was previously set as the system proxy and the
-# shell still has them exported pointing at 127.0.0.1:<rae-port>, fetches
-# fail with "Connection refused (os error 61)" the moment rae isn't
-# running. PyPI itself is reachable directly; routing the build through
-# a local MITM never made sense anyway.
+# A python-build-standalone interpreter, by contrast, resolves its stdlib
+# relative to the executable, so a plain directory copy works wherever the user
+# drops rae.app. We install rae-agent into that interpreter's own site-packages
+# (no venv) so everything moves together.
+#
+# NOTE: python-build-standalone is per-architecture; the embedded interpreter
+# matches the build host's arch even though the Swift binary is universal. A
+# universal2 embedded Python (lipo of two arch builds) is a follow-up.
+#
+# Drop any inherited HTTP proxy env vars before `uv` reaches out to fetch the
+# interpreter. uv reads HTTP_PROXY / HTTPS_PROXY / ALL_PROXY (either case) from
+# the environment — if rae was previously set as the system proxy and the shell
+# still has them exported pointing at 127.0.0.1:<rae-port>, fetches fail with
+# "Connection refused (os error 61)" the moment rae isn't running.
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy NO_PROXY no_proxy
 # ---------------------------------------------------------------------------
-echo "→ creating embedded Python $PYTHON_VERSION runtime"
-uv venv --relocatable --python "$PYTHON_VERSION" "$AGENT_RUNTIME"
+echo "→ fetching a standalone Python $PYTHON_VERSION"
+PY_STAGE="$(mktemp -d)"
+trap 'rm -rf "$PY_STAGE"' EXIT
+UV_PYTHON_INSTALL_DIR="$PY_STAGE" uv python install "$PYTHON_VERSION"
+
+# uv lays the download out as <stage>/cpython-<full-version>-<platform>/{bin,lib,…}
+PY_SRC=$(echo "$PY_STAGE"/cpython-"$PYTHON_VERSION"*/)
+if [ ! -x "$PY_SRC/bin/python3" ]; then
+    echo "error: standalone interpreter not found under $PY_STAGE" >&2
+    exit 1
+fi
+
+echo "→ embedding the interpreter under agent-runtime/"
+mkdir -p "$AGENT_RUNTIME"
+cp -R "$PY_SRC"/. "$AGENT_RUNTIME"/
+
+# Guard against a regression: bin/python3 must not be an *absolute* symlink
+# (that is exactly what made the old venv approach non-portable). A relative
+# symlink into the runtime is fine — it moves with the bundle.
+if [ -L "$AGENT_RUNTIME/bin/python3" ]; then
+    target=$(readlink "$AGENT_RUNTIME/bin/python3")
+    case "$target" in
+        /*) echo "error: embedded python3 is an absolute symlink ($target) — not relocatable" >&2; exit 1 ;;
+    esac
+fi
 
 echo "→ installing rae-agent into the embedded runtime"
-uv pip install \
-  --python "$AGENT_RUNTIME/bin/python3" \
-  --quiet \
+# Use the embedded interpreter's own pip so packages land in its site-packages.
+if ! "$AGENT_RUNTIME/bin/python3" -m pip --version >/dev/null 2>&1; then
+    "$AGENT_RUNTIME/bin/python3" -m ensurepip --upgrade >/dev/null
+fi
+"$AGENT_RUNTIME/bin/python3" -m pip install \
+  --quiet --disable-pip-version-check \
   "$REPO_ROOT/backend"
 
 # Strip __pycache__ + bundled tests to shave a few MB from the DMG
