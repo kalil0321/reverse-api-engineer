@@ -1,25 +1,54 @@
 from __future__ import annotations
 
-from rae_agent.protocol import ChatRequest, TargetLanguage
+from rae_agent.protocol import ChatRequest
 
+# Concise, chat-appropriate per-language conventions. These are deliberately
+# separate from the CLI's `prompts/partials/_language_*.md`: those are verbose
+# codegen partials whose flow tail ("test it with `<run_command>`, up to 5
+# attempts") directly contradicts this panel's system prompt ("don't run the
+# generated code"). The supported language *set*, however, comes from
+# reverse-api's registry via TargetLanguage — so the picker can never offer a
+# language the agent has no guidance for.
 LANGUAGE_HINTS = {
-    TargetLanguage.PYTHON: """
+    "python": """
 - Idiomatic Python 3.11+
 - Use `httpx` for HTTP, prefer async if the flows look paginated or interactive
 - Type hints with `from __future__ import annotations`
 - Pydantic models when response shapes are stable
 """,
-    TargetLanguage.TYPESCRIPT: """
+    "javascript": """
+- Modern Node.js 20+, ESM
+- Use the global `fetch` API (no axios); no third-party HTTP deps
+- Export plain async functions
+""",
+    "typescript": """
 - TypeScript 5+, ESM
 - Use the global `fetch` API (no axios)
 - Strict types, no `any`
 - Export plain async functions; group them in a class only if state is required
 """,
-    TargetLanguage.GO: """
+    "go": """
 - Modern Go 1.22+
 - net/http standard client; no third-party HTTP libraries
 - Errors wrapped with `%w`
 - Structs with json tags
+""",
+    "java": """
+- JDK 11+, `java.net.http.HttpClient` (no third-party HTTP library)
+- Gson or records for JSON shapes
+""",
+    "csharp": """
+- .NET 6+, `System.Net.Http.HttpClient` + `System.Text.Json` (no NuGet deps)
+- `record` types for response shapes
+""",
+    "php": """
+- PHP 8+, `curl` + `json_encode`/`json_decode` core extensions (no Composer)
+""",
+    "ruby": """
+- Ruby 3+, `net/http` + `json` from the standard library (no gems)
+""",
+    "c": """
+- C11, `libcurl` for HTTP and a vendored `cJSON` for JSON
 """,
 }
 
@@ -31,7 +60,7 @@ SYSTEM_PROMPT_APPEND = """You are running inside `rae`, a macOS desktop app for 
 ## Context
 
 - A JSON file containing captured HTTP flows (request + response, headers and bodies). Its path is given in the user's first message of each turn.
-- A target language preference (Python / TypeScript / Go), set by the user in the app's language picker.
+- A target language preference (Python, TypeScript, Go, and more — whatever the user picked in the app's language picker), used only if code is needed.
 - Your current working directory is the session's `scripts/` folder. Files you `Write` land there and surface in the app's file viewer.
 
 ## Conversation style
@@ -68,7 +97,7 @@ The flows file can be multi-megabyte once a session captures dozens of flows. **
 
 
 def build_user_prompt(request: ChatRequest, flows_path: str) -> str:
-    hints = LANGUAGE_HINTS.get(request.target, "").strip()
+    hints = LANGUAGE_HINTS.get(request.target.value, "").strip()
     lines = [
         request.user_message,
         "",

@@ -5,11 +5,17 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from reverse_api.utils import OUTPUT_LANGUAGE_EXTENSIONS
 
-class TargetLanguage(str, Enum):
-    PYTHON = "python"
-    TYPESCRIPT = "typescript"
-    GO = "go"
+# Derive the accepted output languages from reverse-api's single source of
+# truth so the agent panel never drifts behind the CLI (it used to accept only
+# python/typescript/go while the CLI had grown to nine). Building the enum from
+# the registry keeps the `.value` interface the rest of the sidecar relies on.
+TargetLanguage = Enum(
+    "TargetLanguage",
+    {lang.upper(): lang for lang in OUTPUT_LANGUAGE_EXTENSIONS},
+    type=str,
+)
 
 
 class ProtocolError(Exception):
