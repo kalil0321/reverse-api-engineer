@@ -823,6 +823,157 @@ class TestContextOverflowHandling:
         assert follow_ups.await_count == 1
 
 
+class TestClientExecutedEvent:
+    """Test the client_executed json-stream event — see
+    BaseEngineer._is_client_verification_command's docstring for why this
+    exists (a real-time "a working client exists now" signal, since
+    non-interactive runs are a single SDK turn that can keep going well
+    past the point verification actually succeeded)."""
+
+    def _make_engineer(self, tmp_path, **kwargs):
+        har_path = tmp_path / "test.har"
+        har_path.touch()
+        defaults = {
+            "run_id": "test123",
+            "har_path": har_path,
+            "prompt": "test prompt",
+            "output_dir": str(tmp_path),
+        }
+        defaults.update(kwargs)
+        with patch("reverse_api.base_engineer.get_scripts_dir", return_value=tmp_path / "scripts"):
+            with patch("reverse_api.base_engineer.MessageStore"):
+                eng = ClaudeEngineer(**defaults)
+                eng.scripts_dir = tmp_path / "scripts"
+                eng.scripts_dir.mkdir(parents=True, exist_ok=True)
+                return eng
+
+    def _make_result_message(self, is_error=False, result_text="Success"):
+        from claude_agent_sdk import ResultMessage
+        mock = MagicMock(spec=ResultMessage)
+        mock.is_error = is_error
+        mock.result = result_text
+        return mock
+
+    def _make_assistant_message(self, content=None):
+        from claude_agent_sdk import AssistantMessage
+        mock = MagicMock(spec=AssistantMessage)
+        mock.content = content or []
+        mock.usage = None
+        return mock
+
+    def _make_tool_use_block(self, name="Bash", tool_input=None):
+        from claude_agent_sdk import ToolUseBlock
+        mock = MagicMock(spec=ToolUseBlock)
+        mock.name = name
+        mock.input = tool_input or {}
+        return mock
+
+    def _make_tool_result_block(self, is_error=False, content="output"):
+        from claude_agent_sdk import ToolResultBlock
+        mock = MagicMock(spec=ToolResultBlock)
+        mock.is_error = is_error
+        mock.content = content
+        return mock
+
+    def _make_client(self, *messages):
+        client = MagicMock()
+
+        async def receive():
+            for m in messages:
+                yield m
+
+        client.receive_response = receive
+        return client
+
+    @pytest.mark.asyncio
+    async def test_emits_event_when_client_is_run_successfully(self, tmp_path):
+        eng = self._make_engineer(tmp_path, output_language="python")
+        events = []
+        eng._json_event_sink = events.append
+
+        tool_use = self._make_tool_use_block("Bash", {"command": "python api_client.py"})
+        tool_result = self._make_tool_result_block(is_error=False)
+        assistant = self._make_assistant_message(content=[tool_use, tool_result])
+        result = self._make_result_message(is_error=False)
+
+        await eng._process_streaming_response(self._make_client(assistant, result))
+
+        client_executed = [e for e in events if e["event"] == "client_executed"]
+        assert len(client_executed) == 1
+        assert client_executed[0]["script_path"] == str(eng.scripts_dir / "api_client.py")
+
+    @pytest.mark.asyncio
+    async def test_no_event_when_verification_command_fails(self, tmp_path):
+        """A failed run (is_error=True) is not a successful verification —
+        must not be reported as one."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        events = []
+        eng._json_event_sink = events.append
+
+        tool_use = self._make_tool_use_block("Bash", {"command": "python api_client.py"})
+        tool_result = self._make_tool_result_block(is_error=True)
+        assistant = self._make_assistant_message(content=[tool_use, tool_result])
+        result = self._make_result_message(is_error=False)
+
+        await eng._process_streaming_response(self._make_client(assistant, result))
+
+        assert [e for e in events if e["event"] == "client_executed"] == []
+
+    @pytest.mark.asyncio
+    async def test_no_event_for_unrelated_bash_command(self, tmp_path):
+        eng = self._make_engineer(tmp_path, output_language="python")
+        events = []
+        eng._json_event_sink = events.append
+
+        tool_use = self._make_tool_use_block("Bash", {"command": "ls -la"})
+        tool_result = self._make_tool_result_block(is_error=False)
+        assistant = self._make_assistant_message(content=[tool_use, tool_result])
+        result = self._make_result_message(is_error=False)
+
+        await eng._process_streaming_response(self._make_client(assistant, result))
+
+        assert [e for e in events if e["event"] == "client_executed"] == []
+
+    @pytest.mark.asyncio
+    async def test_no_event_when_not_streaming(self, tmp_path):
+        """No sink attached (plain --json, not --json-stream) — must not
+        raise, and obviously nothing is captured since there's nowhere to
+        send it."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert eng._json_event_sink is None
+
+        tool_use = self._make_tool_use_block("Bash", {"command": "python api_client.py"})
+        tool_result = self._make_tool_result_block(is_error=False)
+        assistant = self._make_assistant_message(content=[tool_use, tool_result])
+        result = self._make_result_message(is_error=False)
+
+        result_dict = await eng._process_streaming_response(self._make_client(assistant, result))
+        assert result_dict is not None
+
+    @pytest.mark.asyncio
+    async def test_emits_once_per_matching_tool_call_across_multiple(self, tmp_path):
+        """A run that (re-)verifies the client multiple times emits the
+        event each time — callers decide their own policy (act on the
+        first one, or something else) rather than this layer deciding for
+        them."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        events = []
+        eng._json_event_sink = events.append
+
+        run_cmd = self._make_tool_use_block("Bash", {"command": "python api_client.py"})
+        run_result = self._make_tool_result_block(is_error=False)
+        unrelated_cmd = self._make_tool_use_block("Bash", {"command": "ls"})
+        unrelated_result = self._make_tool_result_block(is_error=False)
+        assistant = self._make_assistant_message(
+            content=[run_cmd, run_result, unrelated_cmd, unrelated_result, run_cmd, run_result]
+        )
+        result = self._make_result_message(is_error=False)
+
+        await eng._process_streaming_response(self._make_client(assistant, result))
+
+        assert len([e for e in events if e["event"] == "client_executed"]) == 2
+
+
 class TestSdkEnvWiring:
     """Test that SDK sessions get the auto-compact env override."""
 

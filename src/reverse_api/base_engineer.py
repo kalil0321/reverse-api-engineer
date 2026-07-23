@@ -590,6 +590,35 @@ class BaseEngineer(ABC):
             "go": "go run api_client.go",
         }.get(self.output_language, "python api_client.py")
 
+    def _is_client_verification_command(self, tool_name: str | None, tool_input: Any) -> bool:
+        """True if a Bash tool call looks like it ran the generated client to
+        verify it, for `--json-stream` consumers that want to react as soon as
+        a live-verified client exists instead of only finding out from the
+        final result.
+
+        Matches against `_get_run_command()`'s own return value — the exact
+        command the agent is told to test with (see `_get_codegen_
+        instructions`'s `run_command=` interpolation, used verbatim in every
+        `partials/_language_*.md`, e.g. "test it: `{run_command}`") — rather
+        than a simpler check like "does the command mention the client's
+        filename". That simpler check can't work at all for every compiled
+        language here: Java's run command (`mvn -f <pom> compile exec:exec`)
+        never references `ApiClient.java`, it builds the whole Maven project;
+        C#'s (`dotnet run --project <csproj>`) references the project file,
+        not the source; C's is a multi-step compile-then-run chain. Matching
+        against the one thing already correct for every language avoids
+        duplicating that per-language dispatch a second time at each call
+        site, and avoids false positives from an unrelated command that
+        merely mentions the client's filename (`cat api_client.py`, `rm
+        api_client.py`, ...).
+        """
+        if tool_name != "Bash" or not isinstance(tool_input, dict):
+            return False
+        command = tool_input.get("command")
+        if not isinstance(command, str):
+            return False
+        return self._get_run_command() in command
+
     def _get_codegen_instructions(self) -> str:
         """Return codegen instructions from the appropriate template partial."""
         from .prompts import load

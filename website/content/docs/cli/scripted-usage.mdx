@@ -43,7 +43,15 @@ reverse-api-engineer agent \
   --json-stream
 ```
 
-Common event types for `agent` and `engineer`: `run_started` (includes `run_id`, `sdk`; agent runs also include `mode`, `url`, `command`), `tool_start`, `tool_end`, `thinking`, `ask_user_skipped`, `result`.
+Common event types for `agent` and `engineer`: `run_started` (includes `run_id`, `sdk`; agent runs also include `mode`, `url`, `command`), `tool_start`, `tool_end`, `thinking`, `ask_user_skipped`, `client_executed`, `result`.
+
+`client_executed` (`{"event": "client_executed", "script_path": "..."}`) fires
+the moment a Bash tool call runs the generated client with the same command
+it was told to test with — a real-time "a working client exists now" signal
+for wrapper scripts that want to react before the run otherwise ends (a
+long session can keep going well past that point doing unrelated cleanup or
+documentation work). Claude SDK only (`agent`/`engineer` with the default
+`sdk`); not emitted by the OpenCode, Copilot, or Cursor backends.
 
 ### Validate an agent run without launching a browser
 

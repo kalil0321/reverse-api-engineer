@@ -82,9 +82,11 @@ class ClaudeEngineer(BaseEngineer):
 
             if isinstance(message, AssistantMessage):
                 last_tool_name = None
+                last_tool_input = None
                 for block in message.content:
                     if isinstance(block, ToolUseBlock):
                         last_tool_name = block.name
+                        last_tool_input = block.input
                         self.ui.tool_start(block.name, block.input)
                         self.message_store.save_tool_start(block.name, block.input)
                     elif isinstance(block, ToolResultBlock):
@@ -101,6 +103,19 @@ class ClaudeEngineer(BaseEngineer):
                         tool_name = last_tool_name or "Tool"
                         self.ui.tool_result(tool_name, is_error, output)
                         self.message_store.save_tool_result(tool_name, is_error, str(output) if output else None)
+
+                        # Real-time signal for --json-stream callers: a
+                        # working, live-verified client exists *now*, not
+                        # just once (if ever) the session otherwise ends.
+                        # See _is_client_verification_command's docstring for
+                        # why this can't be a simpler filename check.
+                        if not is_error and self._is_client_verification_command(last_tool_name, last_tool_input):
+                            self._emit_json_event(
+                                {
+                                    "event": "client_executed",
+                                    "script_path": str(self.scripts_dir / self._get_client_filename()),
+                                }
+                            )
                     elif isinstance(block, TextBlock):
                         self.ui.thinking(block.text)
                         self.message_store.save_thinking(block.text)

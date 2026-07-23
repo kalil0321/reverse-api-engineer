@@ -432,6 +432,62 @@ class TestBaseEngineerHelpers:
         eng = self._make_engineer(tmp_path, output_language="rust")
         assert eng._get_run_command() == "python api_client.py"
 
+    def test_is_client_verification_command_matches_exact_run_command(self, tmp_path):
+        """A Bash call running the exact command the agent was told to test
+        with is recognized as a verification run."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert eng._is_client_verification_command("Bash", {"command": "python api_client.py"}) is True
+
+    def test_is_client_verification_command_matches_as_substring(self, tmp_path):
+        """The agent may wrap the run command (cd first, env vars, etc.) —
+        matched as a substring, not requiring an exact whole-string match."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        command = "cd /tmp && python api_client.py"
+        assert eng._is_client_verification_command("Bash", {"command": command}) is True
+
+    def test_is_client_verification_command_rejects_non_bash_tool(self, tmp_path):
+        """Only Bash tool calls count — a Read/Write/Grep on a matching path
+        is not an execution of the client."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert eng._is_client_verification_command("Read", {"command": "python api_client.py"}) is False
+
+    def test_is_client_verification_command_rejects_unrelated_bash_command(self, tmp_path):
+        """A Bash call that doesn't run the client (e.g. listing files)
+        must not be mistaken for a verification run."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert eng._is_client_verification_command("Bash", {"command": "ls -la"}) is False
+
+    def test_is_client_verification_command_rejects_filename_mention_without_running_it(self, tmp_path):
+        """A command that merely mentions the client's filename (viewing,
+        removing) is not the same as running it — exactly the false
+        positive a naive filename-substring check would produce."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert eng._is_client_verification_command("Bash", {"command": "cat api_client.py"}) is False
+        assert eng._is_client_verification_command("Bash", {"command": "rm api_client.py"}) is False
+
+    def test_is_client_verification_command_works_for_compiled_languages(self, tmp_path):
+        """The whole reason this matches against _get_run_command() instead
+        of the client's filename: for compiled languages, the run command
+        never mentions the source filename at all (Java builds a Maven
+        project, C# runs a project file), so a filename check could never
+        detect these."""
+        eng = self._make_engineer(tmp_path, output_language="java")
+        run_command = eng._get_run_command()
+        assert "ApiClient.java" not in run_command  # confirms the premise
+        assert eng._is_client_verification_command("Bash", {"command": run_command}) is True
+
+    def test_is_client_verification_command_none_tool_input(self, tmp_path):
+        """A Bash call with no input dict (unexpected shape) is handled
+        without raising."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert eng._is_client_verification_command("Bash", None) is False
+
+    def test_is_client_verification_command_non_string_command(self, tmp_path):
+        """A command field that isn't a string (unexpected shape) is
+        handled without raising."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert eng._is_client_verification_command("Bash", {"command": None}) is False
+
     def test_quote_path_posix(self, monkeypatch):
         """POSIX platforms use shlex.quote (single quotes for spaces)."""
         from reverse_api import base_engineer as be
