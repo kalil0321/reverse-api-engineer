@@ -44,7 +44,7 @@ private struct TrafficListHeader: View {
         HStack(spacing: 10) {
             SelectAllCheckbox(visibleIDs: visibleIDs)
             Text("Traffic")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.fraunces(size: 18, weight: 600))
                 .foregroundStyle(Theme.textPrimary)
             Text("\(visibleCount)")
                 .font(.caption.monospacedDigit())

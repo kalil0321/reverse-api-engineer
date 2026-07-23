@@ -31,6 +31,9 @@ final class AgentSession {
     var target: AgentTargetLanguage = .python
     var mode: Mode = .list
 
+    var selectedModel: String = "claude-sonnet-4-6"
+    private(set) var sessionUsage: AgentUsage = .zero
+
     let store: AgentSessionStore
 
     private let sidecar = AgentSidecar()
@@ -39,9 +42,8 @@ final class AgentSession {
     private(set) var sessionID = UUID().uuidString
     private var sessionCreatedAt = Date()
     private var sessionTitle: String?
-    /// SDK-assigned session id, captured on the first turn. Passed back as
-    /// `resume` on subsequent sends so Claude rehydrates the conversation
-    /// without us replaying `history` on every message.
+    /// Passed back as `resume` so the SDK rehydrates the conversation
+    /// without us replaying `history`.
     private var claudeSessionID: String?
     private let workdir: URL
     private let launchSpec: AgentSidecar.LaunchSpec
@@ -52,10 +54,8 @@ final class AgentSession {
         self.store = AgentSessionStore(rootDirectory: workdir)
     }
 
-    // MARK: - Session lifecycle (list / new / load)
+    // MARK: - Session lifecycle
 
-    /// Reset state and switch into a fresh, unsaved session. The session is
-    /// only persisted to disk once the user sends their first message.
     func startNewSession() {
         events.removeAll()
         history.removeAll()
@@ -66,11 +66,11 @@ final class AgentSession {
         sessionCreatedAt = Date()
         sessionTitle = nil
         claudeSessionID = nil
+        sessionUsage = .zero
         if status == .failed { status = .idle }
         mode = .session
     }
 
-    /// Load a session from disk and switch the panel to its timeline.
     func openSession(id: String) async {
         guard let record = await store.load(id: id) else { return }
         events = record.events
@@ -82,18 +82,17 @@ final class AgentSession {
         sessionCreatedAt = record.createdAt
         sessionTitle = record.title
         claudeSessionID = record.claudeSessionID
+        if let savedModel = record.selectedModel { selectedModel = savedModel }
+        sessionUsage = record.sessionUsage ?? .zero
         lastError = nil
         if status == .failed { status = .idle }
         mode = .session
     }
 
-    /// Drop back to the sessions list without clearing in-memory state.
     func backToList() {
         mode = .list
     }
 
-    /// Delete a session permanently (from disk + the store's index). If the
-    /// currently open session is the one being deleted, also reset memory.
     func deleteSession(id: String) async {
         if sessionID == id {
             startNewSession()
@@ -101,8 +100,6 @@ final class AgentSession {
         }
         await store.delete(id: id)
     }
-
-    // MARK: - Existing API
 
     func ensureRunning() async {
         switch status {
@@ -113,8 +110,8 @@ final class AgentSession {
         }
         status = .launching
         do {
-            let port = try await sidecar.launch(launchSpec)
-            try await client.connect(port: port)
+            let endpoint = try await sidecar.launch(launchSpec)
+            try await client.connect(port: endpoint.port, token: endpoint.token)
             startReceiver()
             status = .ready
             lastError = nil
@@ -132,9 +129,6 @@ final class AgentSession {
         await ensureRunning()
         guard status == .ready || status == .streaming else { return }
         let userHistoryItem = AgentHistoryItem(role: "user", content: trimmed)
-        // Once the SDK has assigned us a session id, lean on `resume` and
-        // skip shipping our own history — the SDK reattaches to its
-        // persisted conversation state instead.
         let historyToSend: [AgentHistoryItem] = claudeSessionID == nil ? history : []
         let request = AgentChatRequest(
             id: sessionID,
@@ -142,12 +136,11 @@ final class AgentSession {
             target: target.rawValue,
             flows: flows.map { AgentFlowPayload($0) },
             history: historyToSend,
-            claudeSessionId: claudeSessionID
+            claudeSessionId: claudeSessionID,
+            model: selectedModel.isEmpty ? nil : selectedModel
         )
         history.append(userHistoryItem)
         events.append(.userText(eventID: UUID(), text: trimmed))
-        // Auto-derive a title from the first user prompt so the sessions
-        // list shows something meaningful instead of a UUID.
         if sessionTitle == nil {
             sessionTitle = Self.deriveTitle(from: trimmed)
         }
@@ -162,9 +155,19 @@ final class AgentSession {
         }
     }
 
-    /// Clear the active conversation in memory. Doesn't touch disk — the
-    /// previous session record stays on disk until the user explicitly
-    /// deletes it from the list.
+    func cancel() async {
+        guard status == .streaming else { return }
+        let request = AgentCancelRequest(id: sessionID)
+        do {
+            try await client.cancel(request)
+        } catch {
+            // Local fallback so the UI doesn't stay stuck on the stop
+            // button if the cancel send itself fails.
+            lastError = "Failed to send cancel: \(error)"
+            status = .ready
+        }
+    }
+
     func clear() {
         events.removeAll()
         history.removeAll()
@@ -175,6 +178,7 @@ final class AgentSession {
         sessionCreatedAt = Date()
         sessionTitle = nil
         claudeSessionID = nil
+        sessionUsage = .zero
         if status == .failed { status = .idle }
     }
 
@@ -228,20 +232,26 @@ final class AgentSession {
             lastError = message
             status = .failed
         case .sessionStarted(_, _, let claudeID):
-            // Don't surface as a timeline row; just remember the id so the
-            // next send can pass it as `resume`.
             if !claudeID.isEmpty { claudeSessionID = claudeID }
+        case .usage(_, _, let turnUsage):
+            sessionUsage = sessionUsage + turnUsage
+        case .cancelled:
+            status = .ready
+            recordStreamedAssistantTextIntoHistory()
+            // Drop the SDK session id after a cancel — Claude CLI may
+            // have written a partial/aborted turn to the resume log,
+            // and a follow-up `resume=<that-id>` errors with "No
+            // conversation found …" or replays a corrupt state. Forces
+            // the next send to start a fresh CLI session.
+            claudeSessionID = nil
         case .userText, .toolUse, .toolResult, .fileWritten:
             events.append(event)
         }
         Task { await persist() }
     }
 
-    /// Walk back from the timeline tail only as far as the most recent
-    /// `userText` event — that's where the current turn started. If the
-    /// turn ended without an assistant reply (tool-only turn, error, etc.)
-    /// we do nothing instead of re-committing a previous turn's reply, which
-    /// was the bug in the un-scoped version.
+    /// Scope the lookup to the current turn so a tool-only turn (no
+    /// assistant reply) doesn't re-commit a previous turn's reply.
     private func recordStreamedAssistantTextIntoHistory() {
         var turnStart = events.startIndex
         for (index, event) in events.enumerated().reversed() {
@@ -265,12 +275,7 @@ final class AgentSession {
 
     // MARK: - Persistence
 
-    /// Snapshot the current in-memory session and write it to disk. Cheap
-    /// (the whole record is just a handful of fields plus the events array)
-    /// so we can call this after every event without buffering.
     private func persist() async {
-        // Don't bother saving an empty, never-used session — it would just
-        // clutter the list with no-op entries on every app launch.
         guard !events.isEmpty || !history.isEmpty else { return }
         let record = AgentSessionRecord(
             id: sessionID,
@@ -282,7 +287,9 @@ final class AgentSession {
             history: history,
             lastWorkdir: lastWorkdir,
             generatedFiles: generatedFiles,
-            claudeSessionID: claudeSessionID
+            claudeSessionID: claudeSessionID,
+            selectedModel: selectedModel,
+            sessionUsage: sessionUsage == .zero ? nil : sessionUsage
         )
         await store.save(record)
     }

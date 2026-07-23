@@ -60,8 +60,13 @@ def test_chat_request_rejects_non_chat_type():
         ChatRequest.from_payload({"type": "ping"})
 
 
-def test_chat_request_accepts_all_languages():
-    for value in ("python", "typescript", "go"):
+def test_chat_request_accepts_every_registry_language():
+    # Anti-drift guard: the panel must accept every language reverse-api's CLI
+    # supports, not a hand-picked subset (it used to accept only 3 of 9).
+    from reverse_api.utils import OUTPUT_LANGUAGE_EXTENSIONS
+
+    assert len(OUTPUT_LANGUAGE_EXTENSIONS) >= 9
+    for value in OUTPUT_LANGUAGE_EXTENSIONS:
         request = ChatRequest.from_payload({"type": "chat", "target": value})
         assert request.target.value == value
 

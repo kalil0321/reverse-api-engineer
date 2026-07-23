@@ -20,7 +20,7 @@ struct SessionsListView: View {
     private var header: some View {
         HStack(spacing: 10) {
             Text("Sessions")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.fraunces(size: 18, weight: 600))
                 .foregroundStyle(Theme.textPrimary)
             Spacer()
             Button {

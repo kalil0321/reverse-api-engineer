@@ -43,6 +43,16 @@ let package = Package(
                 "ReverseAPIProxy",
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "MarkdownUI", package: "swift-markdown-ui"),
+            ],
+            resources: [
+                // Bundle the brand fonts (Fraunces italic variable) so the
+                // `*` asterisk + "rae" wordmark render in serif italic
+                // instead of falling back to SF. SwiftPM compiles this into
+                // a `ReverseAPI_ReverseAPI.bundle` next to the executable;
+                // Bundle.module locates it at runtime. scripts/build-app.sh
+                // copies that .bundle into the .app's Contents/Resources/
+                // for distribution.
+                .copy("Resources"),
             ]
         ),
         .testTarget(

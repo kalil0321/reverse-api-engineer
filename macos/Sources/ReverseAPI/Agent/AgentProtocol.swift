@@ -82,10 +82,13 @@ struct AgentChatRequest: Encodable {
     let target: String
     let flows: [AgentFlowPayload]
     let history: [AgentHistoryItem]
-    /// Claude Agent SDK session id from a previous turn. When present, the
-    /// backend passes it as `ClaudeAgentOptions.resume` so the SDK can
-    /// re-attach to its own persisted state for that conversation.
     let claudeSessionId: String?
+    let model: String?
+}
+
+struct AgentCancelRequest: Encodable {
+    let type = "cancel"
+    let id: String
 }
 
 enum AgentEvent: Sendable, Identifiable, Codable {
@@ -97,10 +100,9 @@ enum AgentEvent: Sendable, Identifiable, Codable {
     case fileWritten(chatID: String, eventID: UUID, path: String)
     case complete(chatID: String, eventID: UUID, workdir: String, files: [String])
     case error(chatID: String?, eventID: UUID, message: String)
-    /// Backend hands us the Claude Agent SDK session id on the first turn
-    /// so we can pass it back as `resume` on subsequent turns and let the
-    /// SDK rehydrate the conversation history itself.
     case sessionStarted(chatID: String, eventID: UUID, claudeSessionID: String)
+    case usage(chatID: String, eventID: UUID, usage: AgentUsage)
+    case cancelled(chatID: String, eventID: UUID)
 
     var id: UUID {
         switch self {
@@ -113,7 +115,44 @@ enum AgentEvent: Sendable, Identifiable, Codable {
         case .complete(_, let id, _, _): return id
         case .error(_, let id, _): return id
         case .sessionStarted(_, let id, _): return id
+        case .usage(_, let id, _): return id
+        case .cancelled(_, let id): return id
         }
+    }
+}
+
+struct AgentUsage: Codable, Sendable, Equatable {
+    var model: String?
+    var inputTokens: Int
+    var outputTokens: Int
+    var cacheCreationInputTokens: Int
+    var cacheReadInputTokens: Int
+    var totalCostUsd: Double?
+    var durationMs: Int
+    var numTurns: Int
+
+    static let zero = AgentUsage(
+        model: nil,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+        totalCostUsd: nil,
+        durationMs: 0,
+        numTurns: 0
+    )
+
+    static func + (lhs: AgentUsage, rhs: AgentUsage) -> AgentUsage {
+        AgentUsage(
+            model: rhs.model ?? lhs.model,
+            inputTokens: lhs.inputTokens + rhs.inputTokens,
+            outputTokens: lhs.outputTokens + rhs.outputTokens,
+            cacheCreationInputTokens: lhs.cacheCreationInputTokens + rhs.cacheCreationInputTokens,
+            cacheReadInputTokens: lhs.cacheReadInputTokens + rhs.cacheReadInputTokens,
+            totalCostUsd: (lhs.totalCostUsd ?? 0) + (rhs.totalCostUsd ?? 0),
+            durationMs: lhs.durationMs + rhs.durationMs,
+            numTurns: lhs.numTurns + rhs.numTurns
+        )
     }
 }
 
@@ -176,6 +215,20 @@ enum AgentEventDecoder {
                 eventID: eventID,
                 claudeSessionID: object["claudeSessionId"] as? String ?? ""
             )
+        case "usage":
+            let usage = AgentUsage(
+                model: object["model"] as? String,
+                inputTokens: object["inputTokens"] as? Int ?? 0,
+                outputTokens: object["outputTokens"] as? Int ?? 0,
+                cacheCreationInputTokens: object["cacheCreationInputTokens"] as? Int ?? 0,
+                cacheReadInputTokens: object["cacheReadInputTokens"] as? Int ?? 0,
+                totalCostUsd: object["totalCostUsd"] as? Double,
+                durationMs: object["durationMs"] as? Int ?? 0,
+                numTurns: object["numTurns"] as? Int ?? 0
+            )
+            return .usage(chatID: chatID ?? "", eventID: eventID, usage: usage)
+        case "cancelled":
+            return .cancelled(chatID: chatID ?? "", eventID: eventID)
         default:
             throw DecodeError.unknownType(type)
         }
