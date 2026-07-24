@@ -643,6 +643,62 @@ class TestBaseEngineerHelpers:
             eng._is_client_verification_command("Bash", {"command": "echo sudo python api_client.py"}) is False
         )
 
+    def test_is_client_verification_command_rejects_and_boundary_masked_by_trailing_semicolon(self, tmp_path):
+        """`false && python api_client.py; true` never actually runs the
+        client — `false` fails, so the "&&" right-hand side is skipped —
+        yet the overall tool call still reports success, because the
+        trailing `; true` determines the exit status instead. Flagged by
+        automated review against the original reasoning that a "&&"
+        boundary is always safe because a left-side failure propagates as
+        the whole chain's failure; that's only true when the chain is the
+        last status-affecting construct in the command."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert (
+            eng._is_client_verification_command(
+                "Bash", {"command": "false && python api_client.py; true"}
+            )
+            is False
+        )
+
+    def test_is_client_verification_command_rejects_and_boundary_masked_by_trailing_or(self, tmp_path):
+        """Same false-positive class as the trailing-semicolon case, via
+        "||" instead: if `false` fails, the "&&" right-hand side (the
+        client) never runs, and the whole `false && python api_client.py`
+        chain fails — but the trailing `|| true` then succeeds precisely
+        *because* that chain failed, resetting the overall exit status to
+        success."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert (
+            eng._is_client_verification_command(
+                "Bash", {"command": "false && python api_client.py || true"}
+            )
+            is False
+        )
+
+    def test_is_client_verification_command_matches_and_boundary_at_end_of_command(self, tmp_path):
+        """The safe, common case: a "&&"-gated match with nothing after it
+        at all — the overall exit status can only reflect the match's own
+        chain, so it's still trusted."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert (
+            eng._is_client_verification_command("Bash", {"command": "cd /tmp && python api_client.py"})
+            is True
+        )
+
+    def test_is_client_verification_command_matches_and_boundary_chained_with_more_and(self, tmp_path):
+        """A "&&"-gated match followed by more "&&"-chained commands is
+        still safe: if the match didn't run (an earlier stage failed),
+        nothing chained after it via "&&" runs either, so the failure still
+        propagates to the overall exit status untouched — unlike ";" or
+        "||" after the match, which don't depend on the chain's outcome."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert (
+            eng._is_client_verification_command(
+                "Bash", {"command": "cd /tmp && python api_client.py && echo done"}
+            )
+            is True
+        )
+
     def test_quote_path_posix(self, monkeypatch):
         """POSIX platforms use shlex.quote (single quotes for spaces)."""
         from reverse_api import base_engineer as be

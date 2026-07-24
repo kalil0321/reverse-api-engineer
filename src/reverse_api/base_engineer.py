@@ -48,13 +48,16 @@ NON_INTERACTIVE_ASK_USER_MESSAGE = (
 # method behind `if not is_error`, so a failure the exit code itself
 # reveals is already handled):
 #   - "&&": the right side only runs if the left succeeded, so a left-side
-#     failure makes the *whole* chain's exit status a failure too (bash
-#     propagates it) — is_error=True, the caller's own gate blocks this
-#     method before it's ever reached. Safe to keep.
+#     failure makes that `&&` chain's own exit status a failure too. But
+#     that only makes is_error=True for the *whole* tool call if the chain
+#     is the last status-affecting construct in the command — see
+#     _UNSAFE_AFTER_AND_BOUNDARY below for the case where it isn't. Safe
+#     to keep as a boundary, with that additional check.
 #   - ";" / "|": the right side always runs regardless of the left side's
 #     outcome (a pipe's right side starts concurrently; ";" doesn't check
-#     the left's exit code at all), and the overall exit status reflects
-#     the right side's own outcome. Safe to keep.
+#     the left's exit code at all), so a match right after either one is
+#     unconditionally a real execution no matter what precedes or follows
+#     it. Safe to keep.
 #   - "||": the *opposite* of "&&" — the right side runs only if the left
 #     *failed*. If the left side (e.g. a bare `true`) succeeds, the right
 #     side (the run command) never executes at all, yet the overall exit
@@ -64,6 +67,20 @@ NON_INTERACTIVE_ASK_USER_MESSAGE = (
 #     failure case, so "||" has to be excluded from this set entirely
 #     rather than treated as an equivalent boundary.
 _COMMAND_SEPARATORS = {"&&", ";", "|"}
+
+# Tokens that, if they appear *anywhere after* a "&&"-gated match, break the
+# assumption behind treating "&&" as a safe boundary (see _COMMAND_SEPARATORS
+# above) — flagged by automated review: `false && python api_client.py;
+# true` reports a successful tool result (is_error=False, since the overall
+# exit status is `true`'s) even though the client never ran at all, because
+# `false` failed and short-circuited the "&&". A trailing ";" always runs
+# regardless of the chain's outcome, and a trailing "||" runs precisely
+# *because* the chain failed — either way it can reset the overall exit
+# status to success independent of whether the matched command actually
+# executed. A trailing "&&" doesn't have this problem: if the match didn't
+# run, nothing chained after it via "&&" runs either, so the failure still
+# propagates to the overall exit status untouched.
+_UNSAFE_AFTER_AND_BOUNDARY = {";", "||"}
 
 # Command-modifier prefixes that don't change *what* actually runs, just
 # how — `sudo python api_client.py`, `time python api_client.py`. Allowed
@@ -723,6 +740,13 @@ class BaseEngineer(ABC):
         only cares about the token(s) *immediately before* the match, not
         about parsing the whole command into sub-command groups.
 
+        A `&&`-gated match is rejected, even though `&&` is otherwise a
+        trusted boundary, if a `;` or `||` appears anywhere later in the
+        command: `false && python api_client.py; true` looks like a
+        successful tool call (is_error=False, since the overall exit status
+        is `true`'s) even though the client never actually ran — see
+        `_UNSAFE_AFTER_AND_BOUNDARY`'s own comment for the full reasoning.
+
         An unparseable command (unbalanced quotes) is treated as a
         non-match rather than raising, same posture as every other
         unexpected-shape check in this method.
@@ -749,8 +773,20 @@ class BaseEngineer(ABC):
             j = i
             while j > 0 and command_tokens[j - 1] in _COMMAND_MODIFIERS:
                 j -= 1
-            if j == 0 or command_tokens[j - 1] in _COMMAND_SEPARATORS:
+            if j == 0:
                 return True
+            boundary = command_tokens[j - 1]
+            if boundary not in _COMMAND_SEPARATORS:
+                continue
+            if boundary == "&&" and any(
+                t in _UNSAFE_AFTER_AND_BOUNDARY for t in command_tokens[i + window :]
+            ):
+                # See _UNSAFE_AFTER_AND_BOUNDARY — something later in the
+                # command can mask a skipped "&&" right-hand side as an
+                # overall success. Keep scanning; a later window (if any)
+                # might still be a genuine, safely-bounded match.
+                continue
+            return True
         return False
 
     def _get_codegen_instructions(self) -> str:
