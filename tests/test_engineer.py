@@ -868,6 +868,44 @@ class TestReportClientVerifiedTool:
         assert client_executed[0]["script_path"] == str(eng.scripts_dir / "api_client.py")
 
     @pytest.mark.asyncio
+    async def test_tool_second_call_in_same_session_does_not_re_emit(self, tmp_path):
+        """The tool's own description tells the agent to call it exactly
+        once, but that's prompt text, not enforced — flagged by automated
+        review: a misbehaving or confused agent calling it twice must not
+        emit two client_executed records for one job. Same `tool` object
+        both times (matching how one _build_verification_tool() call is
+        reused for a whole session, not rebuilt per tool-call)."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        events = []
+        eng._json_event_sink = events.append
+
+        tool = eng._build_verification_tool()
+        await tool.handler({"summary": "first confirmation"})
+        second_result = await tool.handler({"summary": "second confirmation, just to be sure"})
+
+        client_executed = [e for e in events if e["event"] == "client_executed"]
+        assert len(client_executed) == 1
+        assert "already recorded" in second_result["content"][0]["text"].lower()
+
+    @pytest.mark.asyncio
+    async def test_tool_two_separate_sessions_each_get_their_own_event(self, tmp_path):
+        """The de-dup guard is per-session (per _build_verification_tool()
+        call), not per-engine-instance or global — a fresh session (a new
+        call to analyze_and_generate, hence a fresh _build_verification_
+        tool()) must still be able to report verification normally."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        events = []
+        eng._json_event_sink = events.append
+
+        first_tool = eng._build_verification_tool()
+        await first_tool.handler({"summary": "session one"})
+
+        second_tool = eng._build_verification_tool()
+        await second_tool.handler({"summary": "session two"})
+
+        assert len([e for e in events if e["event"] == "client_executed"]) == 2
+
+    @pytest.mark.asyncio
     async def test_tool_returns_confirmation_content(self, tmp_path):
         """The SDK requires a dict with a "content" key back from every
         tool call — confirms the handler's return value satisfies that,
@@ -909,6 +947,34 @@ class TestReportClientVerifiedTool:
         server = eng._build_verification_mcp_server()
         assert server["type"] == "sdk"
         assert server["name"] == "verification"
+
+    def test_get_codegen_instructions_appends_report_client_verified(self, tmp_path):
+        """ClaudeEngineer's own override (the one place this actually
+        applies — see engineer.py's own comment on why it's not in the
+        shared BaseEngineer method) appends the tool-call instruction for
+        every non-docs language."""
+        from reverse_api.base_engineer import REPORT_CLIENT_VERIFIED_INSTRUCTION
+
+        eng = self._make_engineer(tmp_path, output_language="python", output_mode="client")
+        assert eng._get_codegen_instructions().endswith(REPORT_CLIENT_VERIFIED_INSTRUCTION)
+
+    def test_get_codegen_instructions_docs_mode_has_no_verification_instruction(self, tmp_path):
+        """Docs mode generates an OpenAPI spec document, not runnable code —
+        nothing to live-verify, so it must not get the instruction."""
+        from reverse_api.base_engineer import REPORT_CLIENT_VERIFIED_INSTRUCTION
+
+        eng = self._make_engineer(tmp_path, output_language="python", output_mode="docs")
+        assert REPORT_CLIENT_VERIFIED_INSTRUCTION not in eng._get_codegen_instructions()
+
+    def test_get_codegen_instructions_appends_for_every_language(self, tmp_path):
+        """Confirms this isn't accidentally scoped to one language's own
+        partial template — every partials/_language_*.md gets it the same
+        way, since it's appended in Python after loading whichever one."""
+        from reverse_api.base_engineer import REPORT_CLIENT_VERIFIED_INSTRUCTION
+
+        for language in ("python", "javascript", "typescript", "go", "java", "csharp", "php", "ruby", "c"):
+            eng = self._make_engineer(tmp_path, output_language=language, output_mode="client")
+            assert eng._get_codegen_instructions().endswith(REPORT_CLIENT_VERIFIED_INSTRUCTION), language
 
     @pytest.mark.asyncio
     async def test_process_streaming_response_no_longer_infers_from_bash(self, tmp_path):

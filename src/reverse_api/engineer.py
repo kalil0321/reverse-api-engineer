@@ -20,7 +20,7 @@ from claude_agent_sdk import (
     tool,
 )
 
-from .base_engineer import BaseEngineer
+from .base_engineer import REPORT_CLIENT_VERIFIED_INSTRUCTION, BaseEngineer
 from .utils import build_sdk_env, is_context_overflow_error
 
 # Suppress claude_agent_sdk logs
@@ -92,8 +92,18 @@ class ClaudeEngineer(BaseEngineer):
         Built fresh per call (not a module-level singleton): the inner
         tool function is a closure over `self`, so it needs this specific
         engineer instance's `_emit_json_event`/`scripts_dir`/
-        `_get_client_filename`, not a shared one.
+        `_get_client_filename`, not a shared one. The same closure also
+        holds `already_reported`, a per-session (not per-instance) guard —
+        flagged by automated review: the tool's own description already
+        tells the agent to call it exactly once, but that's prompt text
+        only, not enforced, so a misbehaving or confused agent calling it
+        twice would otherwise emit two client_executed records for one
+        job. A closure-local flag is enough here (no need to touch
+        __init__/self for state that only needs to last one session) —
+        rebuilt fresh alongside the rest of this tool every time
+        analyze_and_generate starts one.
         """
+        already_reported = False
 
         @tool(
             self._REPORT_CLIENT_VERIFIED_TOOL_NAME,
@@ -104,6 +114,14 @@ class ClaudeEngineer(BaseEngineer):
             {"summary": str},
         )
         async def report_client_verified(args: dict[str, Any]) -> dict[str, Any]:
+            nonlocal already_reported
+            if already_reported:
+                return {
+                    "content": [
+                        {"type": "text", "text": "Already recorded earlier in this session — no need to call this again."}
+                    ]
+                }
+            already_reported = True
             # Deliberately no manual message_store/UI logging here — the
             # generic ToolUseBlock/ToolResultBlock handling in
             # _process_streaming_response already logs every tool call,
@@ -124,6 +142,23 @@ class ClaudeEngineer(BaseEngineer):
         return create_sdk_mcp_server(
             name=self._VERIFICATION_MCP_SERVER_NAME, tools=[self._build_verification_tool()]
         )
+
+    def _get_codegen_instructions(self) -> str:
+        """BaseEngineer's own codegen instructions, plus the
+        report_client_verified tool-call instruction — scoped to this
+        Claude-SDK-specific override (inherited by ClaudeAutoEngineer too)
+        rather than living in the shared base method, since that tool only
+        exists for this backend. Flagged by automated review: appending it
+        in BaseEngineer directly meant OpenCode/Copilot/Cursor sessions
+        were also being told to call a tool that was never registered in
+        their environment. Docs mode still gets no suffix — BaseEngineer's
+        own version already returns before any run_command-related content
+        would apply, so there's nothing to append here either.
+        """
+        instructions = super()._get_codegen_instructions()
+        if self.output_mode == "docs":
+            return instructions
+        return instructions + REPORT_CLIENT_VERIFIED_INSTRUCTION
 
     _USAGE_ACCUMULATE_KEYS = {
         "input_tokens",

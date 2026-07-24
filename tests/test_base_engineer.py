@@ -432,27 +432,19 @@ class TestBaseEngineerHelpers:
         eng = self._make_engineer(tmp_path, output_language="rust")
         assert eng._get_run_command() == "python api_client.py"
 
-    def test_get_codegen_instructions_appends_report_client_verified(self, tmp_path):
-        """Every non-docs language gets the same shared instruction to call
-        report_client_verified once live-verified — see engineer.py's tool
-        of the same name, and REPORT_CLIENT_VERIFIED_INSTRUCTION's own
-        comment for why this replaced the old Bash-parsing approach."""
-        eng = self._make_engineer(tmp_path, output_language="python", output_mode="client")
-        assert eng._get_codegen_instructions().endswith(REPORT_CLIENT_VERIFIED_INSTRUCTION)
-
-    def test_get_codegen_instructions_docs_mode_has_no_verification_instruction(self, tmp_path):
-        """Docs mode generates an OpenAPI spec document, not runnable code —
-        nothing to live-verify, so it must not get the instruction."""
-        eng = self._make_engineer(tmp_path, output_language="python", output_mode="docs")
-        assert REPORT_CLIENT_VERIFIED_INSTRUCTION not in eng._get_codegen_instructions()
-
-    def test_get_codegen_instructions_appends_for_every_language(self, tmp_path):
-        """Confirms this isn't accidentally scoped to one language's own
-        partial template — every partials/_language_*.md gets it the same
-        way, since it's appended in Python after loading whichever one."""
+    def test_get_codegen_instructions_base_version_has_no_verification_instruction(self, tmp_path):
+        """BaseEngineer's own version (shared by OpenCode/Copilot/Cursor,
+        which don't subclass ClaudeEngineer) must NOT append
+        REPORT_CLIENT_VERIFIED_INSTRUCTION — that tool only exists for the
+        Claude Agent SDK path (see engineer.py's ClaudeEngineer override,
+        the one place this actually gets appended, and its own test
+        coverage in test_engineer.py). Regression flagged by automated
+        review: an earlier version of this appended it here directly,
+        which would have told every other backend's agent to call a tool
+        that was never registered in its environment."""
         for language in ("python", "javascript", "typescript", "go", "java", "csharp", "php", "ruby", "c"):
             eng = self._make_engineer(tmp_path, output_language=language, output_mode="client")
-            assert eng._get_codegen_instructions().endswith(REPORT_CLIENT_VERIFIED_INSTRUCTION), language
+            assert REPORT_CLIENT_VERIFIED_INSTRUCTION not in eng._get_codegen_instructions(), language
 
     def test_quote_path_posix(self, monkeypatch):
         """POSIX platforms use shlex.quote (single quotes for spaces)."""

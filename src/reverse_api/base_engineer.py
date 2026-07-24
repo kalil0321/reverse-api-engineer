@@ -34,9 +34,16 @@ NON_INTERACTIVE_ASK_USER_MESSAGE = (
     "to start a new session with a clearer, more specific prompt."
 )
 
-# Appended to every non-docs language's own codegen instructions (see
-# _get_codegen_instructions) — applies identically regardless of language,
-# so it lives here once rather than being repeated in every partials/
+# Appended to every non-docs language's own codegen instructions, but only
+# for the Claude Agent SDK backend (see ClaudeEngineer._get_codegen_
+# instructions in engineer.py, the only place this is actually appended —
+# scoped there rather than in this shared BaseEngineer method specifically
+# because the report_client_verified tool it references only exists for
+# that one backend; OpenCode/Copilot/Cursor sessions would otherwise be
+# told to call a tool that was never registered in their environment, a
+# real regression flagged by automated review). Kept as one shared string
+# here since the wording applies identically regardless of language, so it
+# lives here once rather than being repeated in every partials/
 # _language_*.md file. Replaces the old approach entirely: previously,
 # --json-stream's real-time "client_executed" signal was inferred after
 # the fact by pattern-matching the agent's own Bash tool calls
@@ -616,23 +623,25 @@ class BaseEngineer(ABC):
     def _get_codegen_instructions(self) -> str:
         """Return codegen instructions from the appropriate template partial.
 
-        Docs mode gets no REPORT_CLIENT_VERIFIED_INSTRUCTION suffix — it
-        generates an OpenAPI spec document, not runnable code, so there's
-        nothing to live-verify or report.
+        Base version, shared by every SDK backend (OpenCode, Copilot,
+        Cursor, Claude) — deliberately does NOT append
+        REPORT_CLIENT_VERIFIED_INSTRUCTION here. That tool only exists for
+        the Claude Agent SDK path (see engineer.py's
+        _build_verification_mcp_server); telling every other backend's
+        agent to call it too would just be an instruction for a tool that
+        was never registered in its environment. See ClaudeEngineer's own
+        override, the one place this actually applies.
         """
         from .prompts import load
 
         if self.output_mode == "docs":
             return load("partials/_docs_instructions", scripts_dir=str(self.scripts_dir))
 
-        return (
-            load(
-                f"partials/_language_{self.output_language}",
-                scripts_dir=str(self.scripts_dir),
-                client_filename=self._get_client_filename(),
-                run_command=self._get_run_command(),
-            )
-            + REPORT_CLIENT_VERIFIED_INSTRUCTION
+        return load(
+            f"partials/_language_{self.output_language}",
+            scripts_dir=str(self.scripts_dir),
+            client_filename=self._get_client_filename(),
+            run_command=self._get_run_command(),
         )
 
     def _build_prompts(self) -> tuple[str, str]:
