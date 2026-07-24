@@ -530,6 +530,66 @@ class TestBaseEngineerHelpers:
         eng = self._make_engineer(tmp_path, output_language="python")
         assert eng._is_client_verification_command("Bash", {"command": None}) is False
 
+    def test_is_client_verification_command_rejects_unquoted_echo(self, tmp_path):
+        """A second, distinct false-positive shape flagged by review after
+        the quoted-echo fix above: with no quoting at all, `echo python
+        api_client.py` tokenizes to three separate tokens
+        (["echo", "python", "api_client.py"]), so the run command's own
+        two-token sequence still appears contiguously within them — a
+        plain "does the sequence appear anywhere" search (this method's
+        prior revision) matched this. The fix requires the match to start
+        a sub-command, not merely appear as arguments to an unrelated one."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert eng._is_client_verification_command("Bash", {"command": "echo python api_client.py"}) is False
+
+    def test_is_client_verification_command_rejects_unquoted_grep(self, tmp_path):
+        """Same false-positive shape as the unquoted-echo case above."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert (
+            eng._is_client_verification_command("Bash", {"command": "grep python api_client.py history.log"})
+            is False
+        )
+
+    def test_is_client_verification_command_matches_with_trailing_extra_args(self, tmp_path):
+        """`python api_client.py --extra` really does run the client — a
+        trailing argument after a genuine match doesn't make it not an
+        execution. A third example raised alongside the two rejected above
+        in the same review round, but this one was never actually broken;
+        pinned here so a future change to the boundary check can't
+        silently start rejecting it."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert eng._is_client_verification_command("Bash", {"command": "python api_client.py --extra"}) is True
+
+    def test_is_client_verification_command_matches_bash_c_wrapper(self, tmp_path):
+        """`bash -c '<run command>'` is a real, plausible way an agent
+        might invoke the client (e.g. to force a login shell) — without
+        unwrapping the -c argument first, shlex.split leaves the whole
+        quoted inner command as one token, and it could never match the
+        run command's own multi-token sequence at all."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert eng._is_client_verification_command("Bash", {"command": "bash -c 'python api_client.py'"}) is True
+
+    def test_is_client_verification_command_matches_bash_lc_wrapper(self, tmp_path):
+        """Same as the bash -c case, for the -lc (login + interactive-ish)
+        variant specifically reported."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert eng._is_client_verification_command("Bash", {"command": "bash -lc 'python api_client.py'"}) is True
+
+    def test_is_client_verification_command_matches_sh_c_wrapper(self, tmp_path):
+        """Same shell-wrapper case for `sh` specifically, not just `bash`."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert eng._is_client_verification_command("Bash", {"command": "sh -c 'python api_client.py'"}) is True
+
+    def test_is_client_verification_command_shell_wrapper_still_rejects_unrelated_command(self, tmp_path):
+        """Unwrapping `bash -c '<inner>'` must still apply the same
+        boundary/mention checks to the unwrapped inner command — a wrapped
+        echo is still just an echo, not an execution."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert (
+            eng._is_client_verification_command("Bash", {"command": "bash -c 'echo python api_client.py'"})
+            is False
+        )
+
     def test_quote_path_posix(self, monkeypatch):
         """POSIX platforms use shlex.quote (single quotes for spaces)."""
         from reverse_api import base_engineer as be

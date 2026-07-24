@@ -34,6 +34,42 @@ NON_INTERACTIVE_ASK_USER_MESSAGE = (
     "to start a new session with a clearer, more specific prompt."
 )
 
+# Tokens that separate one sub-command from the next in a Bash tool call —
+# see _is_client_verification_command. A run-command token match only
+# counts as a real execution if it starts a sub-command (index 0, or right
+# after one of these), not when it's buried inside another command's own
+# arguments (`echo python api_client.py`, `grep python api_client.py
+# history.log` — both contain the token sequence but neither runs it).
+_COMMAND_SEPARATORS = {"&&", ";", "|", "||"}
+
+# Shell interpreters whose -c/-lc/-ic/-lic flag takes a single quoted
+# command string as its next argument (`bash -c '<cmd>'`) — see
+# _unwrap_shell_c_flag.
+_SHELL_WRAPPERS = {"bash", "sh", "zsh", "dash"}
+_SHELL_WRAPPER_FLAGS = {"-c", "-lc", "-ic", "-lic"}
+
+
+def _unwrap_shell_c_flag(tokens: list[str]) -> list[str]:
+    """`["bash", "-c", "<cmd>", ...rest]` -> re-tokenized `<cmd>` + rest,
+    unchanged otherwise.
+
+    shlex.split necessarily collapses the whole quoted inner command into
+    one token (`bash -c 'python api_client.py'` -> `["bash", "-c", "python
+    api_client.py"]`), so without this, a genuine verification run
+    launched this way (a real, plausible agent pattern — e.g. to force a
+    login shell) would never match the run command's own multi-token
+    sequence at all. Scoped to the wrapper appearing as the very first
+    command only (not `cd X && bash -c ...`) — only the bare case has
+    actually been reported; generalizing further trades simplicity for a
+    case that hasn't come up.
+    """
+    if len(tokens) >= 3 and tokens[0] in _SHELL_WRAPPERS and tokens[1] in _SHELL_WRAPPER_FLAGS:
+        try:
+            return shlex.split(tokens[2]) + tokens[3:]
+        except ValueError:
+            return tokens
+    return tokens
+
 
 class BaseEngineer(ABC):
     """Abstract base class for API reverse engineering implementations."""
@@ -612,27 +648,48 @@ class BaseEngineer(ABC):
 
         Compares tokenized (shlex.split) command sequences, not raw
         substring containment — a plain substring check can be fooled by a
-        command that merely *mentions* the run command as quoted text
-        without executing it (`echo 'python api_client.py'`, `grep 'python
-        api_client.py' file.txt`), independently flagged by two automated
-        PR reviewers on exactly those repro commands, on top of the
-        already-covered `cat api_client.py`/`rm api_client.py` filename-
-        mention case. shlex.split collapses a quoted argument into a single
-        token, so `echo 'python api_client.py'` tokenizes to `["echo",
-        "python api_client.py"]` — one token for the whole quoted string —
-        which can never contain the run command's own two-token sequence
-        `["python", "api_client.py"]` as a match; the quoting that makes it
-        "just text" to a real shell is exactly what makes it fail this
-        check too, without needing separate shell-operator/boundary
-        detection to tell a real sub-command apart from a quoted argument.
-        A wrapped invocation (`cd /tmp && python api_client.py`, or a
-        compiled language's own `&&`-chained run command reappearing after
-        such a wrapper) still matches: the search is for the run command's
-        token sequence appearing contiguously anywhere in the actual
-        command's tokens, not just as a whole-string prefix. An
-        unparseable command (unbalanced quotes) is treated as a non-match
-        rather than raising, same posture as every other unexpected-shape
-        check in this method.
+        command that merely *mentions* the run command's text without
+        executing it, several variants of which were independently flagged
+        across two rounds of automated PR review:
+
+        - Quoted mention: `echo 'python api_client.py'`, `grep 'python
+          api_client.py' file.txt`. shlex.split collapses a quoted argument
+          into a single token (`["echo", "python api_client.py"]`), which
+          can never equal-match the run command's own multi-token sequence
+          `["python", "api_client.py"]`.
+        - Unquoted mention as *arguments* to an unrelated command: `echo
+          python api_client.py`, `grep python api_client.py history.log`.
+          Both contain the run command's token sequence contiguously, so a
+          plain "does this sequence appear anywhere" search (this method's
+          first revision) still matched them — the fix is requiring the
+          match to *start* a sub-command (index 0, or immediately after a
+          `_COMMAND_SEPARATORS` token) rather than merely appear somewhere
+          in the token list. `python api_client.py --extra` is correctly
+          still a match under this rule (and under the original one) — it
+          really does run the client, an extra trailing argument doesn't
+          change that; a third example along those lines in the same
+          review round was not a real instance of this bug.
+        - Filename-only mention: `cat api_client.py`, `rm api_client.py` —
+          the client's filename alone is never enough, only the earlier-
+          matched two-token run command sequence is (see the module-level
+          comment on why a filename check can't work for every language
+          here regardless).
+
+        A wrapped invocation still matches: `cd /tmp && python
+        api_client.py` (a `_COMMAND_SEPARATORS` boundary immediately before
+        the match) and `bash -lc 'python api_client.py'` (unwrapped by
+        _unwrap_shell_c_flag before the token search runs — see its own
+        docstring for why plain shlex.split can't see through a `-c`/`-lc`
+        argument on its own) both still count as real executions. A
+        compiled language's own `&&`-chained run command (C) matches as one
+        contiguous window starting the sub-command, same as any other
+        language's — its internal `&&` needs no special handling since the
+        boundary check only cares about the token *immediately before* the
+        match, not about parsing the whole command into sub-command groups.
+
+        An unparseable command (unbalanced quotes) is treated as a
+        non-match rather than raising, same posture as every other
+        unexpected-shape check in this method.
         """
         if tool_name != "Bash" or not isinstance(tool_input, dict):
             return False
@@ -640,14 +697,19 @@ class BaseEngineer(ABC):
         if not isinstance(command, str):
             return False
         try:
-            command_tokens = shlex.split(command)
+            command_tokens = _unwrap_shell_c_flag(shlex.split(command))
             run_tokens = shlex.split(self._get_run_command())
         except ValueError:
             return False
         if not run_tokens:
             return False
         window = len(run_tokens)
-        return any(command_tokens[i : i + window] == run_tokens for i in range(len(command_tokens) - window + 1))
+        for i in range(len(command_tokens) - window + 1):
+            if command_tokens[i : i + window] != run_tokens:
+                continue
+            if i == 0 or command_tokens[i - 1] in _COMMAND_SEPARATORS:
+                return True
+        return False
 
     def _get_codegen_instructions(self) -> str:
         """Return codegen instructions from the appropriate template partial."""
