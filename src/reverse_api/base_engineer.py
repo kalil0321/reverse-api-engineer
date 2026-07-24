@@ -97,6 +97,27 @@ _COMMAND_MODIFIERS = {"sudo", "nohup", "time", "env"}
 _SHELL_WRAPPERS = {"bash", "sh", "zsh", "dash"}
 _SHELL_WRAPPER_FLAGS = {"-c", "-lc", "-ic", "-lic"}
 
+# Every boundary check in this method assumes a token right after "&&"/";"/
+# "|" unconditionally runs — true for a flat command list, false the moment
+# any of these shell control-flow keywords are involved, since they gate
+# whether their body executes at all. Flagged by automated review (round
+# 6): `if false; then; python api_client.py; fi` (an explicit empty
+# statement right after "then" — valid bash) tokenizes with a bare ";"
+# immediately before "python", a trusted boundary, even though the
+# condition being false means Bash never runs it. Rather than actually
+# parsing compound-command structure (a real shell grammar, well beyond
+# what token-boundary matching can do), any occurrence of one of these
+# words anywhere in the command conservatively disqualifies the whole
+# match — consistent with this method's existing bias (see "||"'s
+# exclusion above) toward under-detecting a real verification over
+# fabricating one; this only delays a --json-stream consumer's real-time
+# "verified" signal, it doesn't affect the job's actual pass/fail outcome.
+_SHELL_CONTROL_FLOW_KEYWORDS = {
+    "if", "then", "elif", "else", "fi",
+    "for", "while", "until", "do", "done",
+    "case", "esac", "select", "function", "{", "}",
+}
+
 
 def _tokenize_command(command: str) -> list[str]:
     """Like shlex.split, but "&&"/"||"/";"/"|" always come back as their own
@@ -767,6 +788,13 @@ class BaseEngineer(ABC):
         is `true`'s) even though the client never actually ran — see
         `_UNSAFE_AFTER_AND_BOUNDARY`'s own comment for the full reasoning.
 
+        A match is also rejected if a shell control-flow keyword (`if`,
+        `for`, `do`, ...) appears anywhere *before* it — see
+        `_SHELL_CONTROL_FLOW_KEYWORDS`'s own comment. Every boundary check
+        above assumes a flat command list; a match sitting inside a
+        conditional/loop/function body breaks that assumption regardless of
+        which boundary token happens to precede it.
+
         An unparseable command (unbalanced quotes) is treated as a
         non-match rather than raising, same posture as every other
         unexpected-shape check in this method.
@@ -786,6 +814,17 @@ class BaseEngineer(ABC):
         window = len(run_tokens)
         for i in range(len(command_tokens) - window + 1):
             if command_tokens[i : i + window] != run_tokens:
+                continue
+            # See _SHELL_CONTROL_FLOW_KEYWORDS — a keyword anywhere *before*
+            # this candidate match means it can sit inside a conditional/
+            # loop/function body, where a boundary token no longer
+            # guarantees unconditional execution the way every check below
+            # assumes. Scoped to tokens before the match, not the whole
+            # command: a keyword *after* it (an `echo done` tail, say)
+            # can't retroactively un-run something that already executed,
+            # and rejecting on those too would falsely reject common, safe
+            # commands that just happen to use one of these words normally.
+            if any(t in _SHELL_CONTROL_FLOW_KEYWORDS for t in command_tokens[:i]):
                 continue
             # Walk back over any stacked modifier prefixes (`sudo time
             # python api_client.py` skips both) to find the token that

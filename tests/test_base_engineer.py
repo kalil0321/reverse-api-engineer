@@ -720,6 +720,57 @@ class TestBaseEngineerHelpers:
             eng._is_client_verification_command("Bash", {"command": "false&&python api_client.py"}) is True
         )
 
+    def test_is_client_verification_command_rejects_match_inside_untaken_if_branch(self, tmp_path):
+        """`if false; then; python api_client.py; fi` (an explicit empty
+        statement right after "then" — valid bash) never actually runs the
+        client, since the condition is false — but it tokenizes with a bare
+        ";" immediately before "python", a token this method otherwise
+        trusts as an unconditional boundary. Flagged by automated review
+        (round 6): every boundary check here assumes a flat command list,
+        which breaks down the moment shell control-flow keywords are
+        involved. The literal example from that review
+        (`if false;then python api_client.py;fi`, no ";" right after
+        "then") turned out to already be safe — "then" itself isn't a
+        recognized boundary token — but this closely related variant,
+        confirmed live against the pre-fix code, was a real false
+        positive."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert (
+            eng._is_client_verification_command(
+                "Bash", {"command": "if false;then;python api_client.py;fi"}
+            )
+            is False
+        )
+
+    def test_is_client_verification_command_rejects_match_inside_loop_body(self, tmp_path):
+        """Same false-positive class as the if/then case above, via a
+        for-loop's "do" instead."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert (
+            eng._is_client_verification_command(
+                "Bash", {"command": "for i in 1;do;python api_client.py;done"}
+            )
+            is False
+        )
+
+    def test_is_client_verification_command_control_flow_keyword_after_match_is_harmless(self, tmp_path):
+        """The scope of the control-flow-keyword check matters: a keyword
+        *after* a genuine match can't retroactively un-run something that
+        already executed, so it must not cause a false rejection either —
+        `echo done` here is just a plain, harmless trailing command that
+        happens to contain the literal word a for/while/until loop also
+        uses to close its body. Regression case: an earlier, broader
+        version of this fix (rejecting on a keyword appearing *anywhere* in
+        the whole command) briefly broke this exact scenario, caught by
+        the existing and-boundary-chained-with-more-and test below."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert (
+            eng._is_client_verification_command(
+                "Bash", {"command": "cd /tmp && python api_client.py && echo done"}
+            )
+            is True
+        )
+
     def test_is_client_verification_command_matches_and_boundary_at_end_of_command(self, tmp_path):
         """The safe, common case: a "&&"-gated match with nothing after it
         at all — the overall exit status can only reflect the match's own
