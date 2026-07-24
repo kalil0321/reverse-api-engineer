@@ -823,12 +823,19 @@ class TestContextOverflowHandling:
         assert follow_ups.await_count == 1
 
 
-class TestClientExecutedEvent:
-    """Test the client_executed json-stream event — see
-    BaseEngineer._is_client_verification_command's docstring for why this
-    exists (a real-time "a working client exists now" signal, since
-    non-interactive runs are a single SDK turn that can keep going well
-    past the point verification actually succeeded)."""
+class TestReportClientVerifiedTool:
+    """Test the report_client_verified MCP tool and the client_executed
+    json-stream event it now emits directly. Replaces the old approach of
+    inferring a real client execution from the agent's own Bash tool-call
+    text (_is_client_verification_command, removed) — eight rounds of
+    automated PR review kept finding new ways a shell command could *look*
+    like a real execution without being one (quoted mentions, "||"/"&&"
+    masking, control-flow bodies, quoted keywords, index-misaligned
+    quoting...). Suggested directly by the upstream maintainer on the PR:
+    have the agent report verification itself via a dedicated tool call
+    instead of inferring it from shell syntax after the fact — closes the
+    whole bug class by construction.
+    """
 
     def _make_engineer(self, tmp_path, **kwargs):
         har_path = tmp_path / "test.har"
@@ -847,131 +854,130 @@ class TestClientExecutedEvent:
                 eng.scripts_dir.mkdir(parents=True, exist_ok=True)
                 return eng
 
-    def _make_result_message(self, is_error=False, result_text="Success"):
-        from claude_agent_sdk import ResultMessage
-        mock = MagicMock(spec=ResultMessage)
-        mock.is_error = is_error
-        mock.result = result_text
-        return mock
-
-    def _make_assistant_message(self, content=None):
-        from claude_agent_sdk import AssistantMessage
-        mock = MagicMock(spec=AssistantMessage)
-        mock.content = content or []
-        mock.usage = None
-        return mock
-
-    def _make_tool_use_block(self, name="Bash", tool_input=None):
-        from claude_agent_sdk import ToolUseBlock
-        mock = MagicMock(spec=ToolUseBlock)
-        mock.name = name
-        mock.input = tool_input or {}
-        return mock
-
-    def _make_tool_result_block(self, is_error=False, content="output"):
-        from claude_agent_sdk import ToolResultBlock
-        mock = MagicMock(spec=ToolResultBlock)
-        mock.is_error = is_error
-        mock.content = content
-        return mock
-
-    def _make_client(self, *messages):
-        client = MagicMock()
-
-        async def receive():
-            for m in messages:
-                yield m
-
-        client.receive_response = receive
-        return client
-
     @pytest.mark.asyncio
-    async def test_emits_event_when_client_is_run_successfully(self, tmp_path):
+    async def test_tool_emits_client_executed_event_when_called(self, tmp_path):
         eng = self._make_engineer(tmp_path, output_language="python")
         events = []
         eng._json_event_sink = events.append
 
-        tool_use = self._make_tool_use_block("Bash", {"command": "python api_client.py"})
-        tool_result = self._make_tool_result_block(is_error=False)
-        assistant = self._make_assistant_message(content=[tool_use, tool_result])
-        result = self._make_result_message(is_error=False)
-
-        await eng._process_streaming_response(self._make_client(assistant, result))
+        tool = eng._build_verification_tool()
+        await tool.handler({"summary": "ran api_client.py, got a real 200 response"})
 
         client_executed = [e for e in events if e["event"] == "client_executed"]
         assert len(client_executed) == 1
         assert client_executed[0]["script_path"] == str(eng.scripts_dir / "api_client.py")
 
     @pytest.mark.asyncio
-    async def test_no_event_when_verification_command_fails(self, tmp_path):
-        """A failed run (is_error=True) is not a successful verification —
-        must not be reported as one."""
+    async def test_tool_returns_confirmation_content(self, tmp_path):
+        """The SDK requires a dict with a "content" key back from every
+        tool call — confirms the handler's return value satisfies that,
+        not just that it has the side effect."""
         eng = self._make_engineer(tmp_path, output_language="python")
-        events = []
-        eng._json_event_sink = events.append
+        eng._json_event_sink = lambda e: None
 
-        tool_use = self._make_tool_use_block("Bash", {"command": "python api_client.py"})
-        tool_result = self._make_tool_result_block(is_error=True)
-        assistant = self._make_assistant_message(content=[tool_use, tool_result])
-        result = self._make_result_message(is_error=False)
+        tool = eng._build_verification_tool()
+        result = await tool.handler({"summary": "verified"})
 
-        await eng._process_streaming_response(self._make_client(assistant, result))
-
-        assert [e for e in events if e["event"] == "client_executed"] == []
+        assert "content" in result
+        assert isinstance(result["content"], list)
 
     @pytest.mark.asyncio
-    async def test_no_event_for_unrelated_bash_command(self, tmp_path):
-        eng = self._make_engineer(tmp_path, output_language="python")
-        events = []
-        eng._json_event_sink = events.append
-
-        tool_use = self._make_tool_use_block("Bash", {"command": "ls -la"})
-        tool_result = self._make_tool_result_block(is_error=False)
-        assistant = self._make_assistant_message(content=[tool_use, tool_result])
-        result = self._make_result_message(is_error=False)
-
-        await eng._process_streaming_response(self._make_client(assistant, result))
-
-        assert [e for e in events if e["event"] == "client_executed"] == []
-
-    @pytest.mark.asyncio
-    async def test_no_event_when_not_streaming(self, tmp_path):
+    async def test_tool_no_event_when_no_sink_attached(self, tmp_path):
         """No sink attached (plain --json, not --json-stream) — must not
-        raise, and obviously nothing is captured since there's nowhere to
-        send it."""
+        raise, same posture as _emit_json_event's own no-op-when-unset
+        design."""
         eng = self._make_engineer(tmp_path, output_language="python")
         assert eng._json_event_sink is None
 
-        tool_use = self._make_tool_use_block("Bash", {"command": "python api_client.py"})
-        tool_result = self._make_tool_result_block(is_error=False)
-        assistant = self._make_assistant_message(content=[tool_use, tool_result])
-        result = self._make_result_message(is_error=False)
+        tool = eng._build_verification_tool()
+        result = await tool.handler({"summary": "verified"})
+        assert "content" in result  # didn't raise
 
-        result_dict = await eng._process_streaming_response(self._make_client(assistant, result))
-        assert result_dict is not None
+    def test_tool_name_matches_the_documented_instruction(self, tmp_path):
+        """Must match REPORT_CLIENT_VERIFIED_INSTRUCTION's own reference to
+        this exact tool name — the two are only connected by string
+        agreement, nothing enforces it structurally."""
+        from reverse_api.base_engineer import REPORT_CLIENT_VERIFIED_INSTRUCTION
+
+        eng = self._make_engineer(tmp_path, output_language="python")
+        tool = eng._build_verification_tool()
+        assert tool.name == "report_client_verified"
+        assert f"`{tool.name}`" in REPORT_CLIENT_VERIFIED_INSTRUCTION
+
+    def test_build_verification_mcp_server_returns_sdk_server_config(self, tmp_path):
+        eng = self._make_engineer(tmp_path, output_language="python")
+        server = eng._build_verification_mcp_server()
+        assert server["type"] == "sdk"
+        assert server["name"] == "verification"
 
     @pytest.mark.asyncio
-    async def test_emits_once_per_matching_tool_call_across_multiple(self, tmp_path):
-        """A run that (re-)verifies the client multiple times emits the
-        event each time — callers decide their own policy (act on the
-        first one, or something else) rather than this layer deciding for
-        them."""
+    async def test_process_streaming_response_no_longer_infers_from_bash(self, tmp_path):
+        """The old mechanism (removed) would have emitted client_executed
+        just from seeing a successful `python api_client.py` Bash call.
+        That inference is gone entirely now — _process_streaming_response
+        must not emit the event no matter what the Bash command looks
+        like; only the tool itself does that."""
         eng = self._make_engineer(tmp_path, output_language="python")
         events = []
         eng._json_event_sink = events.append
 
-        run_cmd = self._make_tool_use_block("Bash", {"command": "python api_client.py"})
-        run_result = self._make_tool_result_block(is_error=False)
-        unrelated_cmd = self._make_tool_use_block("Bash", {"command": "ls"})
-        unrelated_result = self._make_tool_result_block(is_error=False)
-        assistant = self._make_assistant_message(
-            content=[run_cmd, run_result, unrelated_cmd, unrelated_result, run_cmd, run_result]
-        )
-        result = self._make_result_message(is_error=False)
+        from claude_agent_sdk import AssistantMessage, ResultMessage, ToolResultBlock, ToolUseBlock
 
-        await eng._process_streaming_response(self._make_client(assistant, result))
+        tool_use = MagicMock(spec=ToolUseBlock)
+        tool_use.name = "Bash"
+        tool_use.input = {"command": "python api_client.py"}
+        tool_result = MagicMock(spec=ToolResultBlock)
+        tool_result.is_error = False
+        tool_result.content = "output"
+        assistant = MagicMock(spec=AssistantMessage)
+        assistant.content = [tool_use, tool_result]
+        assistant.usage = None
+        result = MagicMock(spec=ResultMessage)
+        result.is_error = False
+        result.result = "Success"
 
-        assert len([e for e in events if e["event"] == "client_executed"]) == 2
+        async def receive():
+            yield assistant
+            yield result
+
+        client = MagicMock()
+        client.receive_response = receive
+
+        await eng._process_streaming_response(client)
+
+        assert [e for e in events if e["event"] == "client_executed"] == []
+
+    @pytest.mark.asyncio
+    async def test_analyze_and_generate_registers_verification_mcp_server(self, tmp_path):
+        """Integration-level: the actual ClaudeAgentOptions built by
+        analyze_and_generate must include the verification server, not
+        just that _build_verification_mcp_server works correctly in
+        isolation."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+
+        mock_result = MagicMock()
+        mock_result.is_error = False
+        mock_result.result = "Success"
+
+        mock_client = AsyncMock()
+        mock_client.query = AsyncMock()
+
+        async def mock_receive():
+            yield mock_result
+
+        mock_client.receive_response = mock_receive
+
+        with patch("reverse_api.engineer.ClaudeSDKClient") as mock_sdk:
+            mock_sdk.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_sdk.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            with patch.object(eng, "_prompt_follow_up", new_callable=AsyncMock, return_value=None):
+                await eng.analyze_and_generate()
+
+        _, kwargs = mock_sdk.call_args
+        options = kwargs["options"]
+        assert "verification" in options.mcp_servers
+        assert options.mcp_servers["verification"]["name"] == "verification"
 
 
 class TestSdkEnvWiring:

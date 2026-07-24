@@ -34,171 +34,28 @@ NON_INTERACTIVE_ASK_USER_MESSAGE = (
     "to start a new session with a clearer, more specific prompt."
 )
 
-# Tokens that separate one sub-command from the next in a Bash tool call —
-# see _is_client_verification_command. A run-command token match only
-# counts as a real execution if it starts a sub-command (index 0, or right
-# after one of these), not when it's buried inside another command's own
-# arguments (`echo python api_client.py`, `grep python api_client.py
-# history.log` — both contain the token sequence but neither runs it).
-#
-# Deliberately excludes "||": unlike these three, its right-hand side is
-# only *conditionally* run — only if the left side fails. Whether that
-# matters here comes down to what the overall Bash tool result's is_error
-# actually reflects for each operator (the caller already gates this whole
-# method behind `if not is_error`, so a failure the exit code itself
-# reveals is already handled):
-#   - "&&": the right side only runs if the left succeeded, so a left-side
-#     failure makes that `&&` chain's own exit status a failure too. But
-#     that only makes is_error=True for the *whole* tool call if the chain
-#     is the last status-affecting construct in the command — see
-#     _UNSAFE_AFTER_AND_BOUNDARY below for the case where it isn't. Safe
-#     to keep as a boundary, with that additional check.
-#   - ";" / "|": the right side always runs regardless of the left side's
-#     outcome (a pipe's right side starts concurrently; ";" doesn't check
-#     the left's exit code at all), so a match right after either one is
-#     unconditionally a real execution no matter what precedes or follows
-#     it. Safe to keep.
-#   - "||": the *opposite* of "&&" — the right side runs only if the left
-#     *failed*. If the left side (e.g. a bare `true`) succeeds, the right
-#     side (the run command) never executes at all, yet the overall exit
-#     status is still success (is_error=False) — so a match right after
-#     "||" can be reported as a real execution when it demonstrably wasn't
-#     one. No is_error check catches this the way it catches "&&"'s
-#     failure case, so "||" has to be excluded from this set entirely
-#     rather than treated as an equivalent boundary.
-_COMMAND_SEPARATORS = {"&&", ";", "|"}
-
-# Tokens that, if they appear *anywhere after* a "&&"-gated match, break the
-# assumption behind treating "&&" as a safe boundary (see _COMMAND_SEPARATORS
-# above) — flagged by automated review: `false && python api_client.py;
-# true` reports a successful tool result (is_error=False, since the overall
-# exit status is `true`'s) even though the client never ran at all, because
-# `false` failed and short-circuited the "&&". A trailing ";" always runs
-# regardless of the chain's outcome, and a trailing "||" runs precisely
-# *because* the chain failed — either way it can reset the overall exit
-# status to success independent of whether the matched command actually
-# executed. A trailing "&&" doesn't have this problem: if the match didn't
-# run, nothing chained after it via "&&" runs either, so the failure still
-# propagates to the overall exit status untouched.
-_UNSAFE_AFTER_AND_BOUNDARY = {";", "||"}
-
-# Command-modifier prefixes that don't change *what* actually runs, just
-# how — `sudo python api_client.py`, `time python api_client.py`. Allowed
-# to appear (stacked, in any combination) between a real boundary and the
-# run command's own match; see the backward walk in
-# _is_client_verification_command. Scoped to bare prefixes with no flags
-# of their own (`sudo -u appuser ...` isn't recognized) — only the
-# no-flags form has actually been reported.
-_COMMAND_MODIFIERS = {"sudo", "nohup", "time", "env"}
-
-# Shell interpreters whose -c/-lc/-ic/-lic flag takes a single quoted
-# command string as its next argument (`bash -c '<cmd>'`) — see
-# _unwrap_shell_c_flag.
-_SHELL_WRAPPERS = {"bash", "sh", "zsh", "dash"}
-_SHELL_WRAPPER_FLAGS = {"-c", "-lc", "-ic", "-lic"}
-
-# Every boundary check in this method assumes a token right after "&&"/";"/
-# "|" unconditionally runs — true for a flat command list, false the moment
-# any of these shell control-flow keywords are involved, since they gate
-# whether their body executes at all. Flagged by automated review (round
-# 6): `if false; then; python api_client.py; fi` (an explicit empty
-# statement right after "then" — valid bash) tokenizes with a bare ";"
-# immediately before "python", a trusted boundary, even though the
-# condition being false means Bash never runs it. Rather than actually
-# parsing compound-command structure (a real shell grammar, well beyond
-# what token-boundary matching can do), any occurrence of one of these
-# words anywhere in the command conservatively disqualifies the whole
-# match — consistent with this method's existing bias (see "||"'s
-# exclusion above) toward under-detecting a real verification over
-# fabricating one; this only delays a --json-stream consumer's real-time
-# "verified" signal, it doesn't affect the job's actual pass/fail outcome.
-# Checked against a quote-preserving tokenization (see
-# _is_client_verification_command's keyword_check_tokens), not the
-# dequoted one, so a *quoted* occurrence like `echo 'if'; python
-# api_client.py` — flagged by automated review (round 7) — correctly
-# doesn't count; "if" there is a literal echo argument, not real control
-# flow, and quoting is the one signal available to tell the two apart
-# without a real shell parser. An *unquoted* occurrence still can't be
-# told apart this way (`echo done && python api_client.py` still under-
-# detects, same as before this round) — accepted, not fixed: this is the
-# same bias as everywhere else in this method, a missed real-time signal
-# rather than a fabricated one, and unlike quoting there's no token-level
-# signal left to lean on short of actually parsing shell grammar.
-_SHELL_CONTROL_FLOW_KEYWORDS = {
-    "if", "then", "elif", "else", "fi",
-    "for", "while", "until", "do", "done",
-    "case", "esac", "select", "function", "{", "}",
-}
-
-
-def _tokenize_command(command: str) -> list[str]:
-    """Like shlex.split, but "&&"/"||"/";"/"|" always come back as their own
-    token even with no surrounding whitespace — plain shlex.split only ever
-    splits on whitespace/quoting, so `false && python api_client.py ||true`
-    (no space before `true`) tokenizes to a single fused `"||true"` token
-    that can never equal-match `_UNSAFE_AFTER_AND_BOUNDARY`'s bare `"||"`,
-    silently defeating that check. Flagged by automated review (round 5)
-    against exactly that command. shlex's own `punctuation_chars=True` mode
-    exists specifically for this — it still fully respects quoting (a
-    quoted `'||'` argument survives as a literal token, not an operator;
-    confirmed live), so `bash -c 'python api_client.py'`-style wrapping and
-    the existing "quoted mention" rejection tests are unaffected. Raises
-    ValueError on unparseable input, same as shlex.split (unbalanced
-    quotes) — callers already handle that identically either way.
-    """
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
-    return list(lexer)
-
-
-def _tokenize_command_raw(command: str) -> list[str]:
-    """Same token boundaries as _tokenize_command (confirmed live: the two
-    always agree on token count/positions for the same input — punctuation_
-    chars mode decides *where* to split independent of posix quote removal)
-    but with posix=False, so quote characters survive in each token's text
-    instead of being stripped (`'if'` stays `"'if'"`, not bare `if`). Used
-    only to tell a bare shell keyword from the same word appearing quoted as
-    a literal argument — see _SHELL_CONTROL_FLOW_KEYWORDS's own comment and
-    _is_client_verification_command's keyword scan for why that distinction
-    matters. Never call this instead of _tokenize_command for anything that
-    needs the actual dequoted argument text (the run-command match itself,
-    _unwrap_shell_c_flag's inner-command content) — it's for this one
-    quoted-vs-bare check alone.
-    """
-    lexer = shlex.shlex(command, posix=False, punctuation_chars=True)
-    lexer.whitespace_split = True
-    return list(lexer)
-
-
-def _unwrap_shell_c_flag(tokens: list[str], raw_tokens: list[str]) -> tuple[list[str], list[str]]:
-    """`(["bash", "-c", "<cmd>", ...rest], <raw-mode equivalent>)` ->
-    re-tokenized `<cmd>` + rest, both tokenizations in lockstep so they stay
-    index-aligned afterward too — unchanged (both) otherwise.
-
-    shlex.split necessarily collapses the whole quoted inner command into
-    one token (`bash -c 'python api_client.py'` -> `["bash", "-c", "python
-    api_client.py"]`), so without this, a genuine verification run
-    launched this way (a real, plausible agent pattern — e.g. to force a
-    login shell) would never match the run command's own multi-token
-    sequence at all. Scoped to the wrapper appearing as the very first
-    command only (not `cd X && bash -c ...`) — only the bare case has
-    actually been reported; generalizing further trades simplicity for a
-    case that hasn't come up.
-
-    Re-tokenizes `tokens[2]` (the already-dequoted posix inner command
-    text) in *both* modes to get the inner command's own raw-mode
-    equivalent — not `raw_tokens[2]`, which is still wrapped in the outer
-    quote marks `bash -c` itself used and would tokenize as one opaque
-    quoted blob instead of the inner command's real structure.
-    """
-    if len(tokens) >= 3 and tokens[0] in _SHELL_WRAPPERS and tokens[1] in _SHELL_WRAPPER_FLAGS:
-        try:
-            inner = _tokenize_command(tokens[2])
-            inner_raw = _tokenize_command_raw(tokens[2])
-        except ValueError:
-            return tokens, raw_tokens
-        return inner + tokens[3:], inner_raw + raw_tokens[3:]
-    return tokens, raw_tokens
+# Appended to every non-docs language's own codegen instructions (see
+# _get_codegen_instructions) — applies identically regardless of language,
+# so it lives here once rather than being repeated in every partials/
+# _language_*.md file. Replaces the old approach entirely: previously,
+# --json-stream's real-time "client_executed" signal was inferred after
+# the fact by pattern-matching the agent's own Bash tool calls
+# (_is_client_verification_command, removed) — eight rounds of automated
+# PR review kept finding new ways a generated shell command could *look*
+# like a real execution without being one (quoted mentions, "||"/"&&"
+# masking, control-flow bodies, quoted keywords, index-misaligned
+# quoting from the fix for the previous one...). Suggested by the
+# upstream maintainer directly on the PR: have the agent report
+# verification itself via a dedicated tool call instead of inferring it
+# from shell syntax after the fact — see engineer.py's
+# report_client_verified tool. This closes the whole bug class by
+# construction rather than risking a ninth edge case.
+REPORT_CLIENT_VERIFIED_INSTRUCTION = (
+    "\n\nOnce you have confirmed the generated client actually works via a "
+    "real live execution against the target, call the `report_client_verified` "
+    "tool exactly once to report that. Call it only after a genuine successful "
+    "run you have actually observed — never before, and never speculatively."
+)
 
 
 class BaseEngineer(ABC):
@@ -756,172 +613,26 @@ class BaseEngineer(ABC):
             "go": "go run api_client.go",
         }.get(self.output_language, "python api_client.py")
 
-    def _is_client_verification_command(self, tool_name: str | None, tool_input: Any) -> bool:
-        """True if a Bash tool call looks like it ran the generated client to
-        verify it, for `--json-stream` consumers that want to react as soon as
-        a live-verified client exists instead of only finding out from the
-        final result.
-
-        Matches against `_get_run_command()`'s own return value — the exact
-        command the agent is told to test with (see `_get_codegen_
-        instructions`'s `run_command=` interpolation, used verbatim in every
-        `partials/_language_*.md`, e.g. "test it: `{run_command}`") — rather
-        than a simpler check like "does the command mention the client's
-        filename". That simpler check can't work at all for every compiled
-        language here: Java's run command (`mvn -f <pom> compile exec:exec`)
-        never references `ApiClient.java`, it builds the whole Maven project;
-        C#'s (`dotnet run --project <csproj>`) references the project file,
-        not the source; C's is a multi-step compile-then-run chain. Matching
-        against the one thing already correct for every language avoids
-        duplicating that per-language dispatch a second time at each call
-        site.
-
-        Compares tokenized (_tokenize_command) command sequences, not raw
-        substring containment — a plain substring check can be fooled by a
-        command that merely *mentions* the run command's text without
-        executing it, several variants of which were independently flagged
-        across multiple rounds of automated PR review:
-
-        - Quoted mention: `echo 'python api_client.py'`, `grep 'python
-          api_client.py' file.txt`. _tokenize_command collapses a quoted
-          argument into a single token (`["echo", "python api_client.py"]`),
-          which can never equal-match the run command's own multi-token
-          sequence `["python", "api_client.py"]`.
-        - Unquoted mention as *arguments* to an unrelated command: `echo
-          python api_client.py`, `grep python api_client.py history.log`.
-          Both contain the run command's token sequence contiguously, so a
-          plain "does this sequence appear anywhere" search (this method's
-          first revision) still matched them — the fix is requiring the
-          match to *start* a sub-command (index 0, or immediately after a
-          `_COMMAND_SEPARATORS` token) rather than merely appear somewhere
-          in the token list. `python api_client.py --extra` is correctly
-          still a match under this rule (and under the original one) — it
-          really does run the client, an extra trailing argument doesn't
-          change that; a third example along those lines in the same
-          review round was not a real instance of this bug.
-        - Filename-only mention: `cat api_client.py`, `rm api_client.py` —
-          the client's filename alone is never enough, only the earlier-
-          matched two-token run command sequence is (see the module-level
-          comment on why a filename check can't work for every language
-          here regardless).
-
-        A wrapped invocation still matches: `cd /tmp && python
-        api_client.py` (a `_COMMAND_SEPARATORS` boundary immediately before
-        the match), `sudo python api_client.py` / `time python
-        api_client.py` (a `_COMMAND_MODIFIERS` prefix — see its own
-        comment for why these don't change what actually runs, and why
-        `||` is deliberately *not* one of the separators), and `bash -lc
-        'python api_client.py'` (unwrapped by _unwrap_shell_c_flag before
-        the token search runs — see its own docstring for why a plain
-        whitespace-only split can't see through a `-c`/`-lc` argument on
-        its own) — all still count as real executions. A compiled language's own
-        `&&`-chained run command (C) matches as one contiguous window
-        starting the sub-command, same as any other language's — its
-        internal `&&` needs no special handling since the boundary check
-        only cares about the token(s) *immediately before* the match, not
-        about parsing the whole command into sub-command groups.
-
-        A `&&`-gated match is rejected, even though `&&` is otherwise a
-        trusted boundary, if a `;` or `||` appears anywhere later in the
-        command: `false && python api_client.py; true` looks like a
-        successful tool call (is_error=False, since the overall exit status
-        is `true`'s) even though the client never actually ran — see
-        `_UNSAFE_AFTER_AND_BOUNDARY`'s own comment for the full reasoning.
-
-        A match is also rejected if a shell control-flow keyword (`if`,
-        `for`, `do`, ...) appears anywhere *before* it — see
-        `_SHELL_CONTROL_FLOW_KEYWORDS`'s own comment. Every boundary check
-        above assumes a flat command list; a match sitting inside a
-        conditional/loop/function body breaks that assumption regardless of
-        which boundary token happens to precede it. That check runs against
-        a quote-preserving tokenization, not the dequoted one used
-        everywhere else in this method, specifically so a *quoted*
-        occurrence of one of those words (`echo 'if'; python api_client.py`
-        — "if" there is a literal argument, not real syntax) doesn't cause
-        a false rejection — see `_tokenize_command_raw`'s own docstring.
-
-        An unparseable command (unbalanced quotes) is treated as a
-        non-match rather than raising, same posture as every other
-        unexpected-shape check in this method.
-        """
-        if tool_name != "Bash" or not isinstance(tool_input, dict):
-            return False
-        command = tool_input.get("command")
-        if not isinstance(command, str):
-            return False
-        try:
-            command_tokens, keyword_check_tokens = _unwrap_shell_c_flag(
-                _tokenize_command(command), _tokenize_command_raw(command)
-            )
-            run_tokens = _tokenize_command(self._get_run_command())
-        except ValueError:
-            return False
-        if not run_tokens:
-            return False
-        window = len(run_tokens)
-        for i in range(len(command_tokens) - window + 1):
-            if command_tokens[i : i + window] != run_tokens:
-                continue
-            # See _SHELL_CONTROL_FLOW_KEYWORDS — a keyword anywhere *before*
-            # this candidate match means it can sit inside a conditional/
-            # loop/function body, where a boundary token no longer
-            # guarantees unconditional execution the way every check below
-            # assumes. Scoped to tokens before the match, not the whole
-            # command: a keyword *after* it (an `echo done` tail, say)
-            # can't retroactively un-run something that already executed,
-            # and rejecting on those too would falsely reject common, safe
-            # commands that just happen to use one of these words normally.
-            #
-            # Checked against keyword_check_tokens (raw/quote-preserving),
-            # not command_tokens (posix/dequoted) — flagged by automated
-            # review (round 7): `echo 'if'; python api_client.py` never
-            # actually involves any control flow, "if" here is just a
-            # literal argument to echo, but posix-mode tokenizing strips
-            # the quotes and leaves a bare "if" indistinguishable from a
-            # real keyword. A quoted occurrence stays quoted in raw mode
-            # (`"'if'"`, not `"if"`), so it correctly never equals a bare
-            # entry in _SHELL_CONTROL_FLOW_KEYWORDS. Multi-word quoted
-            # phrases ("Checking if this works") don't even need this —
-            # quoting already collapses them into one token that can never
-            # equal a single keyword either way; this only matters for a
-            # standalone quoted-or-bare word that happens to exactly match
-            # one of these keywords.
-            if any(t in _SHELL_CONTROL_FLOW_KEYWORDS for t in keyword_check_tokens[:i]):
-                continue
-            # Walk back over any stacked modifier prefixes (`sudo time
-            # python api_client.py` skips both) to find the token that
-            # actually has to be a real boundary.
-            j = i
-            while j > 0 and command_tokens[j - 1] in _COMMAND_MODIFIERS:
-                j -= 1
-            if j == 0:
-                return True
-            boundary = command_tokens[j - 1]
-            if boundary not in _COMMAND_SEPARATORS:
-                continue
-            if boundary == "&&" and any(
-                t in _UNSAFE_AFTER_AND_BOUNDARY for t in command_tokens[i + window :]
-            ):
-                # See _UNSAFE_AFTER_AND_BOUNDARY — something later in the
-                # command can mask a skipped "&&" right-hand side as an
-                # overall success. Keep scanning; a later window (if any)
-                # might still be a genuine, safely-bounded match.
-                continue
-            return True
-        return False
-
     def _get_codegen_instructions(self) -> str:
-        """Return codegen instructions from the appropriate template partial."""
+        """Return codegen instructions from the appropriate template partial.
+
+        Docs mode gets no REPORT_CLIENT_VERIFIED_INSTRUCTION suffix — it
+        generates an OpenAPI spec document, not runnable code, so there's
+        nothing to live-verify or report.
+        """
         from .prompts import load
 
         if self.output_mode == "docs":
             return load("partials/_docs_instructions", scripts_dir=str(self.scripts_dir))
 
-        return load(
-            f"partials/_language_{self.output_language}",
-            scripts_dir=str(self.scripts_dir),
-            client_filename=self._get_client_filename(),
-            run_command=self._get_run_command(),
+        return (
+            load(
+                f"partials/_language_{self.output_language}",
+                scripts_dir=str(self.scripts_dir),
+                client_filename=self._get_client_filename(),
+                run_command=self._get_run_command(),
+            )
+            + REPORT_CLIENT_VERIFIED_INSTRUCTION
         )
 
     def _build_prompts(self) -> tuple[str, str]:

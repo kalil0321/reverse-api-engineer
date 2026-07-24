@@ -9,12 +9,15 @@ from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
+    McpSdkServerConfig,
     PermissionResultAllow,
     ResultMessage,
     TextBlock,
     ToolPermissionContext,
     ToolResultBlock,
     ToolUseBlock,
+    create_sdk_mcp_server,
+    tool,
 )
 
 from .base_engineer import BaseEngineer
@@ -56,6 +59,72 @@ class ClaudeEngineer(BaseEngineer):
         # Auto-approve all other tools
         return PermissionResultAllow(updated_input=input_data)
 
+    # The tool name Claude actually sees is namespaced by the SDK as
+    # "mcp__<server_name>__<tool_name>" (confirmed live against real
+    # chrome-devtools-mcp tool-use blocks, which show up the same way) —
+    # kept here as a constant since both the tool's own registration and
+    # base_engineer.py's REPORT_CLIENT_VERIFIED_INSTRUCTION need the bare
+    # name, and this file additionally needs the qualified form wherever
+    # an explicit allowed_tools list is used (see auto_engineer.py's
+    # agent-browser branch).
+    _VERIFICATION_MCP_SERVER_NAME = "verification"
+    _REPORT_CLIENT_VERIFIED_TOOL_NAME = "report_client_verified"
+
+    def _build_verification_tool(self):
+        """The report_client_verified SdkMcpTool itself (handler + schema),
+        separate from _build_verification_mcp_server's server-wrapping step
+        purely so tests can call `.handler(args)` directly — create_sdk_mcp_
+        server hands back an opaque MCP `Server` instance with no easy way
+        to reach back into an individual tool's handler for a unit test.
+
+        So the agent can explicitly report a real, observed live-
+        verification success, instead of the caller trying to infer that
+        after the fact from the agent's own Bash tool-call text.
+
+        Replaces the previous approach entirely (see base_engineer.py's
+        REPORT_CLIENT_VERIFIED_INSTRUCTION for the full history: eight
+        rounds of automated review kept finding new ways a Bash command
+        could *look* like a real client execution without being one).
+        Suggested directly by the upstream maintainer on the PR this
+        shipped in — a deliberate tool call closes that whole bug class by
+        construction rather than risking a ninth parsing edge case.
+
+        Built fresh per call (not a module-level singleton): the inner
+        tool function is a closure over `self`, so it needs this specific
+        engineer instance's `_emit_json_event`/`scripts_dir`/
+        `_get_client_filename`, not a shared one.
+        """
+
+        @tool(
+            self._REPORT_CLIENT_VERIFIED_TOOL_NAME,
+            "Call this exactly once, after you have actually run the generated "
+            "client live against the target and personally confirmed it works. "
+            "Do not call this speculatively, before a real run, or more than "
+            "once per session.",
+            {"summary": str},
+        )
+        async def report_client_verified(args: dict[str, Any]) -> dict[str, Any]:
+            # Deliberately no manual message_store/UI logging here — the
+            # generic ToolUseBlock/ToolResultBlock handling in
+            # _process_streaming_response already logs every tool call,
+            # this one included, the same way it does for Bash/Read/etc.
+            self._emit_json_event(
+                {
+                    "event": "client_executed",
+                    "script_path": str(self.scripts_dir / self._get_client_filename()),
+                }
+            )
+            return {"content": [{"type": "text", "text": "Recorded — thanks for confirming."}]}
+
+        return report_client_verified
+
+    def _build_verification_mcp_server(self) -> McpSdkServerConfig:
+        """In-process MCP server exposing report_client_verified — see
+        _build_verification_tool's own docstring for the full reasoning."""
+        return create_sdk_mcp_server(
+            name=self._VERIFICATION_MCP_SERVER_NAME, tools=[self._build_verification_tool()]
+        )
+
     _USAGE_ACCUMULATE_KEYS = {
         "input_tokens",
         "output_tokens",
@@ -82,11 +151,9 @@ class ClaudeEngineer(BaseEngineer):
 
             if isinstance(message, AssistantMessage):
                 last_tool_name = None
-                last_tool_input = None
                 for block in message.content:
                     if isinstance(block, ToolUseBlock):
                         last_tool_name = block.name
-                        last_tool_input = block.input
                         self.ui.tool_start(block.name, block.input)
                         self.message_store.save_tool_start(block.name, block.input)
                     elif isinstance(block, ToolResultBlock):
@@ -103,19 +170,12 @@ class ClaudeEngineer(BaseEngineer):
                         tool_name = last_tool_name or "Tool"
                         self.ui.tool_result(tool_name, is_error, output)
                         self.message_store.save_tool_result(tool_name, is_error, str(output) if output else None)
-
-                        # Real-time signal for --json-stream callers: a
-                        # working, live-verified client exists *now*, not
-                        # just once (if ever) the session otherwise ends.
-                        # See _is_client_verification_command's docstring for
-                        # why this can't be a simpler filename check.
-                        if not is_error and self._is_client_verification_command(last_tool_name, last_tool_input):
-                            self._emit_json_event(
-                                {
-                                    "event": "client_executed",
-                                    "script_path": str(self.scripts_dir / self._get_client_filename()),
-                                }
-                            )
+                        # The real-time "client_executed" --json-stream event
+                        # (once inferred here from Bash tool-call text) now
+                        # comes from the report_client_verified tool itself —
+                        # see _build_verification_mcp_server — which fires it
+                        # directly when called, so there's nothing left to do
+                        # in this generic per-tool-result branch.
                     elif isinstance(block, TextBlock):
                         self.ui.thinking(block.text)
                         self.message_store.save_thinking(block.text)
@@ -196,6 +256,7 @@ class ClaudeEngineer(BaseEngineer):
             model=self.model,
             env=build_sdk_env(),
             stderr=self._handle_cli_stderr,
+            mcp_servers={self._VERIFICATION_MCP_SERVER_NAME: self._build_verification_mcp_server()},
         )
 
         last_result: dict[str, Any] | None = None
