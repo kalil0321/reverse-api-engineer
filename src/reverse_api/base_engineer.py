@@ -34,6 +34,36 @@ NON_INTERACTIVE_ASK_USER_MESSAGE = (
     "to start a new session with a clearer, more specific prompt."
 )
 
+# Appended to every non-docs language's own codegen instructions, but only
+# for the Claude Agent SDK backend (see ClaudeEngineer._get_codegen_
+# instructions in engineer.py, the only place this is actually appended —
+# scoped there rather than in this shared BaseEngineer method specifically
+# because the report_client_verified tool it references only exists for
+# that one backend; OpenCode/Copilot/Cursor sessions would otherwise be
+# told to call a tool that was never registered in their environment, a
+# real regression flagged by automated review). Kept as one shared string
+# here since the wording applies identically regardless of language, so it
+# lives here once rather than being repeated in every partials/
+# _language_*.md file. Replaces the old approach entirely: previously,
+# --json-stream's real-time "client_executed" signal was inferred after
+# the fact by pattern-matching the agent's own Bash tool calls
+# (_is_client_verification_command, removed) — eight rounds of automated
+# PR review kept finding new ways a generated shell command could *look*
+# like a real execution without being one (quoted mentions, "||"/"&&"
+# masking, control-flow bodies, quoted keywords, index-misaligned
+# quoting from the fix for the previous one...). Suggested by the
+# upstream maintainer directly on the PR: have the agent report
+# verification itself via a dedicated tool call instead of inferring it
+# from shell syntax after the fact — see engineer.py's
+# report_client_verified tool. This closes the whole bug class by
+# construction rather than risking a ninth edge case.
+REPORT_CLIENT_VERIFIED_INSTRUCTION = (
+    "\n\nOnce you have confirmed the generated client actually works via a "
+    "real live execution against the target, call the `report_client_verified` "
+    "tool exactly once to report that. Call it only after a genuine successful "
+    "run you have actually observed — never before, and never speculatively."
+)
+
 
 class BaseEngineer(ABC):
     """Abstract base class for API reverse engineering implementations."""
@@ -591,7 +621,17 @@ class BaseEngineer(ABC):
         }.get(self.output_language, "python api_client.py")
 
     def _get_codegen_instructions(self) -> str:
-        """Return codegen instructions from the appropriate template partial."""
+        """Return codegen instructions from the appropriate template partial.
+
+        Base version, shared by every SDK backend (OpenCode, Copilot,
+        Cursor, Claude) — deliberately does NOT append
+        REPORT_CLIENT_VERIFIED_INSTRUCTION here. That tool only exists for
+        the Claude Agent SDK path (see engineer.py's
+        _build_verification_mcp_server); telling every other backend's
+        agent to call it too would just be an instruction for a tool that
+        was never registered in its environment. See ClaudeEngineer's own
+        override, the one place this actually applies.
+        """
         from .prompts import load
 
         if self.output_mode == "docs":

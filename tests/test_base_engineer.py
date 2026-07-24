@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from reverse_api.base_engineer import BaseEngineer
+from reverse_api.base_engineer import REPORT_CLIENT_VERIFIED_INSTRUCTION, BaseEngineer
 
 
 class ConcreteEngineer(BaseEngineer):
@@ -431,6 +431,20 @@ class TestBaseEngineerHelpers:
         """Unknown language defaults to Python command."""
         eng = self._make_engineer(tmp_path, output_language="rust")
         assert eng._get_run_command() == "python api_client.py"
+
+    def test_get_codegen_instructions_base_version_has_no_verification_instruction(self, tmp_path):
+        """BaseEngineer's own version (shared by OpenCode/Copilot/Cursor,
+        which don't subclass ClaudeEngineer) must NOT append
+        REPORT_CLIENT_VERIFIED_INSTRUCTION — that tool only exists for the
+        Claude Agent SDK path (see engineer.py's ClaudeEngineer override,
+        the one place this actually gets appended, and its own test
+        coverage in test_engineer.py). Regression flagged by automated
+        review: an earlier version of this appended it here directly,
+        which would have told every other backend's agent to call a tool
+        that was never registered in its environment."""
+        for language in ("python", "javascript", "typescript", "go", "java", "csharp", "php", "ruby", "c"):
+            eng = self._make_engineer(tmp_path, output_language=language, output_mode="client")
+            assert REPORT_CLIENT_VERIFIED_INSTRUCTION not in eng._get_codegen_instructions(), language
 
     def test_quote_path_posix(self, monkeypatch):
         """POSIX platforms use shlex.quote (single quotes for spaces)."""

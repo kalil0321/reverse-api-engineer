@@ -207,11 +207,26 @@ class ClaudeAutoEngineer(ClaudeEngineer):
         system_prompt, user_message = self._get_active_prompts()
         self.message_store.save_prompt(user_message)
 
+        # Every provider branch below needs the report_client_verified tool
+        # available (see engineer.py's _build_verification_mcp_server) —
+        # agent-drive sessions live-verify a generated client exactly the
+        # same way engineer-mode ones do.
+        verification_server = self._build_verification_mcp_server()
+
         if self.agent_provider == "agent-browser":
             options = ClaudeAgentOptions(
                 system_prompt=system_prompt,
-                mcp_servers={},
-                allowed_tools=allowed_tools_agent_browser_agent_mode(),
+                mcp_servers={self._VERIFICATION_MCP_SERVER_NAME: verification_server},
+                # allowed_tools is an explicit allow-list here (unlike the
+                # else branch below), so the verification tool needs its
+                # SDK-qualified name added alongside it — confirmed live
+                # this is how the SDK namespaces an in-process MCP tool
+                # (matches real chrome-devtools-mcp tool-use blocks, e.g.
+                # "mcp__chrome-devtools__navigate_page").
+                allowed_tools=[
+                    *allowed_tools_agent_browser_agent_mode(),
+                    f"mcp__{self._VERIFICATION_MCP_SERVER_NAME}__{self._REPORT_CLIENT_VERIFIED_TOOL_NAME}",
+                ],
                 permission_mode="bypassPermissions",
                 can_use_tool=self._handle_tool_permission,
                 cwd=str(self.scripts_dir.parent.parent),
@@ -223,7 +238,7 @@ class ClaudeAutoEngineer(ClaudeEngineer):
             mcp_name, mcp_config = self._get_mcp_config()
             options = ClaudeAgentOptions(
                 system_prompt=system_prompt,
-                mcp_servers={mcp_name: mcp_config},
+                mcp_servers={mcp_name: mcp_config, self._VERIFICATION_MCP_SERVER_NAME: verification_server},
                 permission_mode="bypassPermissions",
                 can_use_tool=self._handle_tool_permission,
                 cwd=str(self.scripts_dir.parent.parent),

@@ -9,15 +9,18 @@ from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
+    McpSdkServerConfig,
     PermissionResultAllow,
     ResultMessage,
     TextBlock,
     ToolPermissionContext,
     ToolResultBlock,
     ToolUseBlock,
+    create_sdk_mcp_server,
+    tool,
 )
 
-from .base_engineer import BaseEngineer
+from .base_engineer import REPORT_CLIENT_VERIFIED_INSTRUCTION, BaseEngineer
 from .utils import build_sdk_env, is_context_overflow_error
 
 # Suppress claude_agent_sdk logs
@@ -55,6 +58,107 @@ class ClaudeEngineer(BaseEngineer):
 
         # Auto-approve all other tools
         return PermissionResultAllow(updated_input=input_data)
+
+    # The tool name Claude actually sees is namespaced by the SDK as
+    # "mcp__<server_name>__<tool_name>" (confirmed live against real
+    # chrome-devtools-mcp tool-use blocks, which show up the same way) —
+    # kept here as a constant since both the tool's own registration and
+    # base_engineer.py's REPORT_CLIENT_VERIFIED_INSTRUCTION need the bare
+    # name, and this file additionally needs the qualified form wherever
+    # an explicit allowed_tools list is used (see auto_engineer.py's
+    # agent-browser branch).
+    _VERIFICATION_MCP_SERVER_NAME = "verification"
+    _REPORT_CLIENT_VERIFIED_TOOL_NAME = "report_client_verified"
+
+    def _build_verification_tool(self):
+        """The report_client_verified SdkMcpTool itself (handler + schema),
+        separate from _build_verification_mcp_server's server-wrapping step
+        purely so tests can call `.handler(args)` directly — create_sdk_mcp_
+        server hands back an opaque MCP `Server` instance with no easy way
+        to reach back into an individual tool's handler for a unit test.
+
+        So the agent can explicitly report a real, observed live-
+        verification success, instead of the caller trying to infer that
+        after the fact from the agent's own Bash tool-call text.
+
+        Replaces the previous approach entirely (see base_engineer.py's
+        REPORT_CLIENT_VERIFIED_INSTRUCTION for the full history: eight
+        rounds of automated review kept finding new ways a Bash command
+        could *look* like a real client execution without being one).
+        Suggested directly by the upstream maintainer on the PR this
+        shipped in — a deliberate tool call closes that whole bug class by
+        construction rather than risking a ninth parsing edge case.
+
+        Built fresh per call (not a module-level singleton): the inner
+        tool function is a closure over `self`, so it needs this specific
+        engineer instance's `_emit_json_event`/`scripts_dir`/
+        `_get_client_filename`, not a shared one. The same closure also
+        holds `already_reported`, a per-session (not per-instance) guard —
+        flagged by automated review: the tool's own description already
+        tells the agent to call it exactly once, but that's prompt text
+        only, not enforced, so a misbehaving or confused agent calling it
+        twice would otherwise emit two client_executed records for one
+        job. A closure-local flag is enough here (no need to touch
+        __init__/self for state that only needs to last one session) —
+        rebuilt fresh alongside the rest of this tool every time
+        analyze_and_generate starts one.
+        """
+        already_reported = False
+
+        @tool(
+            self._REPORT_CLIENT_VERIFIED_TOOL_NAME,
+            "Call this exactly once, after you have actually run the generated "
+            "client live against the target and personally confirmed it works. "
+            "Do not call this speculatively, before a real run, or more than "
+            "once per session.",
+            {"summary": str},
+        )
+        async def report_client_verified(args: dict[str, Any]) -> dict[str, Any]:
+            nonlocal already_reported
+            if already_reported:
+                return {
+                    "content": [
+                        {"type": "text", "text": "Already recorded earlier in this session — no need to call this again."}
+                    ]
+                }
+            already_reported = True
+            # Deliberately no manual message_store/UI logging here — the
+            # generic ToolUseBlock/ToolResultBlock handling in
+            # _process_streaming_response already logs every tool call,
+            # this one included, the same way it does for Bash/Read/etc.
+            self._emit_json_event(
+                {
+                    "event": "client_executed",
+                    "script_path": str(self.scripts_dir / self._get_client_filename()),
+                }
+            )
+            return {"content": [{"type": "text", "text": "Recorded — thanks for confirming."}]}
+
+        return report_client_verified
+
+    def _build_verification_mcp_server(self) -> McpSdkServerConfig:
+        """In-process MCP server exposing report_client_verified — see
+        _build_verification_tool's own docstring for the full reasoning."""
+        return create_sdk_mcp_server(
+            name=self._VERIFICATION_MCP_SERVER_NAME, tools=[self._build_verification_tool()]
+        )
+
+    def _get_codegen_instructions(self) -> str:
+        """BaseEngineer's own codegen instructions, plus the
+        report_client_verified tool-call instruction — scoped to this
+        Claude-SDK-specific override (inherited by ClaudeAutoEngineer too)
+        rather than living in the shared base method, since that tool only
+        exists for this backend. Flagged by automated review: appending it
+        in BaseEngineer directly meant OpenCode/Copilot/Cursor sessions
+        were also being told to call a tool that was never registered in
+        their environment. Docs mode still gets no suffix — BaseEngineer's
+        own version already returns before any run_command-related content
+        would apply, so there's nothing to append here either.
+        """
+        instructions = super()._get_codegen_instructions()
+        if self.output_mode == "docs":
+            return instructions
+        return instructions + REPORT_CLIENT_VERIFIED_INSTRUCTION
 
     _USAGE_ACCUMULATE_KEYS = {
         "input_tokens",
@@ -101,6 +205,12 @@ class ClaudeEngineer(BaseEngineer):
                         tool_name = last_tool_name or "Tool"
                         self.ui.tool_result(tool_name, is_error, output)
                         self.message_store.save_tool_result(tool_name, is_error, str(output) if output else None)
+                        # The real-time "client_executed" --json-stream event
+                        # (once inferred here from Bash tool-call text) now
+                        # comes from the report_client_verified tool itself —
+                        # see _build_verification_mcp_server — which fires it
+                        # directly when called, so there's nothing left to do
+                        # in this generic per-tool-result branch.
                     elif isinstance(block, TextBlock):
                         self.ui.thinking(block.text)
                         self.message_store.save_thinking(block.text)
@@ -181,6 +291,7 @@ class ClaudeEngineer(BaseEngineer):
             model=self.model,
             env=build_sdk_env(),
             stderr=self._handle_cli_stderr,
+            mcp_servers={self._VERIFICATION_MCP_SERVER_NAME: self._build_verification_mcp_server()},
         )
 
         last_result: dict[str, Any] | None = None

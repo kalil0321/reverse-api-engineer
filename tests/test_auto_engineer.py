@@ -530,6 +530,72 @@ class TestClaudeAutoEngineerAnalyze:
                 assert "script_path" in result
 
     @pytest.mark.asyncio
+    async def test_registers_verification_mcp_server_alongside_browser_mcp(self, tmp_path):
+        """The default/chrome-mcp path (what route-reveal's agent-drive
+        actually uses via ExternalChromeAutoEngineer) must register the
+        report_client_verified tool's server *alongside* the browser MCP
+        server, not instead of it — see engineer.py's
+        _build_verification_mcp_server."""
+        eng = self._make_engineer(tmp_path)
+
+        mock_result = _sdk_result_message(result="Success")
+
+        mock_client = AsyncMock()
+        mock_client.query = AsyncMock()
+
+        async def mock_receive():
+            yield mock_result
+
+        mock_client.receive_response = mock_receive
+
+        with patch.object(eng, "_prompt_follow_up", new=AsyncMock(return_value=None)):
+            with patch("reverse_api.auto_engineer.ClaudeSDKClient") as mock_sdk:
+                mock_sdk.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+                mock_sdk.return_value.__aexit__ = AsyncMock(return_value=False)
+
+                await eng.analyze_and_generate()
+
+        _, kwargs = mock_sdk.call_args
+        options = kwargs["options"]
+        assert "verification" in options.mcp_servers
+        assert options.mcp_servers["verification"]["name"] == "verification"
+        # The browser MCP server (playwright, for the default "auto"
+        # provider) must still be present too — this isn't a replacement.
+        assert len(options.mcp_servers) == 2
+
+    @pytest.mark.asyncio
+    async def test_agent_browser_path_allows_the_verification_tool(self, tmp_path):
+        """agent-browser mode uses an explicit allowed_tools list (unlike
+        the chrome-mcp/default path above), so the verification tool needs
+        its SDK-qualified name added there too, or Claude could never
+        actually call it even though the server is registered."""
+        eng = self._make_engineer(tmp_path, agent_provider="agent-browser")
+
+        with patch("reverse_api.auto_engineer.ensure_agent_browser_runtime") as mock_ensure:
+            mock_ensure.return_value = MagicMock(ok=True, error=None, notices=())
+
+            mock_result = _sdk_result_message(result="Success")
+            mock_client = AsyncMock()
+            mock_client.query = AsyncMock()
+
+            async def mock_receive():
+                yield mock_result
+
+            mock_client.receive_response = mock_receive
+
+            with patch.object(eng, "_prompt_follow_up", new=AsyncMock(return_value=None)):
+                with patch("reverse_api.auto_engineer.ClaudeSDKClient") as mock_sdk:
+                    mock_sdk.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+                    mock_sdk.return_value.__aexit__ = AsyncMock(return_value=False)
+
+                    await eng.analyze_and_generate()
+
+        _, kwargs = mock_sdk.call_args
+        options = kwargs["options"]
+        assert "verification" in options.mcp_servers
+        assert "mcp__verification__report_client_verified" in options.allowed_tools
+
+    @pytest.mark.asyncio
     async def test_result_with_usage(self, tmp_path):
         """Result with usage metadata calculates cost."""
         eng = self._make_engineer(tmp_path)
