@@ -590,6 +590,59 @@ class TestBaseEngineerHelpers:
             is False
         )
 
+    def test_is_client_verification_command_rejects_conditionally_skipped_or(self, tmp_path):
+        """`true || python api_client.py` never actually runs the client —
+        `true` always succeeds, so the "||" right-hand side is skipped —
+        yet the overall command's exit status is still success. Unlike
+        "&&" (where a left-side failure propagates as the whole chain's
+        failure, already caught by the is_error gate this method is
+        always called behind), nothing else catches this for "||", so it
+        has to be excluded from _COMMAND_SEPARATORS entirely."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert eng._is_client_verification_command("Bash", {"command": "true || python api_client.py"}) is False
+
+    def test_is_client_verification_command_matches_run_command_left_of_or(self, tmp_path):
+        """The run command appearing on the *left* of "||" is unaffected
+        by excluding "||" from the separator set — that match starts at
+        index 0, a boundary regardless of what any separator set contains."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert (
+            eng._is_client_verification_command("Bash", {"command": "python api_client.py || echo failed"})
+            is True
+        )
+
+    def test_is_client_verification_command_matches_sudo_prefix(self, tmp_path):
+        """`sudo python api_client.py` really does run the client, just
+        with elevated privileges — sudo doesn't change what executes."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert eng._is_client_verification_command("Bash", {"command": "sudo python api_client.py"}) is True
+
+    def test_is_client_verification_command_matches_time_prefix(self, tmp_path):
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert eng._is_client_verification_command("Bash", {"command": "time python api_client.py"}) is True
+
+    def test_is_client_verification_command_matches_nohup_and_env_prefixes(self, tmp_path):
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert eng._is_client_verification_command("Bash", {"command": "nohup python api_client.py"}) is True
+        assert eng._is_client_verification_command("Bash", {"command": "env python api_client.py"}) is True
+
+    def test_is_client_verification_command_matches_stacked_modifiers(self, tmp_path):
+        """Modifiers can stack (`sudo time python api_client.py`) — the
+        backward walk skips over all of them, not just one."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert (
+            eng._is_client_verification_command("Bash", {"command": "sudo time python api_client.py"}) is True
+        )
+
+    def test_is_client_verification_command_modifier_chain_still_needs_a_real_boundary(self, tmp_path):
+        """Skipping modifier tokens must still terminate at a genuine
+        boundary — `echo sudo python api_client.py` is `echo` printing the
+        words "sudo python api_client.py", not sudo running anything."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert (
+            eng._is_client_verification_command("Bash", {"command": "echo sudo python api_client.py"}) is False
+        )
+
     def test_quote_path_posix(self, monkeypatch):
         """POSIX platforms use shlex.quote (single quotes for spaces)."""
         from reverse_api import base_engineer as be

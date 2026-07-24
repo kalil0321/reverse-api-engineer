@@ -40,7 +40,39 @@ NON_INTERACTIVE_ASK_USER_MESSAGE = (
 # after one of these), not when it's buried inside another command's own
 # arguments (`echo python api_client.py`, `grep python api_client.py
 # history.log` — both contain the token sequence but neither runs it).
-_COMMAND_SEPARATORS = {"&&", ";", "|", "||"}
+#
+# Deliberately excludes "||": unlike these three, its right-hand side is
+# only *conditionally* run — only if the left side fails. Whether that
+# matters here comes down to what the overall Bash tool result's is_error
+# actually reflects for each operator (the caller already gates this whole
+# method behind `if not is_error`, so a failure the exit code itself
+# reveals is already handled):
+#   - "&&": the right side only runs if the left succeeded, so a left-side
+#     failure makes the *whole* chain's exit status a failure too (bash
+#     propagates it) — is_error=True, the caller's own gate blocks this
+#     method before it's ever reached. Safe to keep.
+#   - ";" / "|": the right side always runs regardless of the left side's
+#     outcome (a pipe's right side starts concurrently; ";" doesn't check
+#     the left's exit code at all), and the overall exit status reflects
+#     the right side's own outcome. Safe to keep.
+#   - "||": the *opposite* of "&&" — the right side runs only if the left
+#     *failed*. If the left side (e.g. a bare `true`) succeeds, the right
+#     side (the run command) never executes at all, yet the overall exit
+#     status is still success (is_error=False) — so a match right after
+#     "||" can be reported as a real execution when it demonstrably wasn't
+#     one. No is_error check catches this the way it catches "&&"'s
+#     failure case, so "||" has to be excluded from this set entirely
+#     rather than treated as an equivalent boundary.
+_COMMAND_SEPARATORS = {"&&", ";", "|"}
+
+# Command-modifier prefixes that don't change *what* actually runs, just
+# how — `sudo python api_client.py`, `time python api_client.py`. Allowed
+# to appear (stacked, in any combination) between a real boundary and the
+# run command's own match; see the backward walk in
+# _is_client_verification_command. Scoped to bare prefixes with no flags
+# of their own (`sudo -u appuser ...` isn't recognized) — only the
+# no-flags form has actually been reported.
+_COMMAND_MODIFIERS = {"sudo", "nohup", "time", "env"}
 
 # Shell interpreters whose -c/-lc/-ic/-lic flag takes a single quoted
 # command string as its next argument (`bash -c '<cmd>'`) — see
@@ -677,15 +709,19 @@ class BaseEngineer(ABC):
 
         A wrapped invocation still matches: `cd /tmp && python
         api_client.py` (a `_COMMAND_SEPARATORS` boundary immediately before
-        the match) and `bash -lc 'python api_client.py'` (unwrapped by
-        _unwrap_shell_c_flag before the token search runs — see its own
-        docstring for why plain shlex.split can't see through a `-c`/`-lc`
-        argument on its own) both still count as real executions. A
-        compiled language's own `&&`-chained run command (C) matches as one
-        contiguous window starting the sub-command, same as any other
-        language's — its internal `&&` needs no special handling since the
-        boundary check only cares about the token *immediately before* the
-        match, not about parsing the whole command into sub-command groups.
+        the match), `sudo python api_client.py` / `time python
+        api_client.py` (a `_COMMAND_MODIFIERS` prefix — see its own
+        comment for why these don't change what actually runs, and why
+        `||` is deliberately *not* one of the separators), and `bash -lc
+        'python api_client.py'` (unwrapped by _unwrap_shell_c_flag before
+        the token search runs — see its own docstring for why plain
+        shlex.split can't see through a `-c`/`-lc` argument on its own) —
+        all still count as real executions. A compiled language's own
+        `&&`-chained run command (C) matches as one contiguous window
+        starting the sub-command, same as any other language's — its
+        internal `&&` needs no special handling since the boundary check
+        only cares about the token(s) *immediately before* the match, not
+        about parsing the whole command into sub-command groups.
 
         An unparseable command (unbalanced quotes) is treated as a
         non-match rather than raising, same posture as every other
@@ -707,7 +743,13 @@ class BaseEngineer(ABC):
         for i in range(len(command_tokens) - window + 1):
             if command_tokens[i : i + window] != run_tokens:
                 continue
-            if i == 0 or command_tokens[i - 1] in _COMMAND_SEPARATORS:
+            # Walk back over any stacked modifier prefixes (`sudo time
+            # python api_client.py` skips both) to find the token that
+            # actually has to be a real boundary.
+            j = i
+            while j > 0 and command_tokens[j - 1] in _COMMAND_MODIFIERS:
+                j -= 1
+            if j == 0 or command_tokens[j - 1] in _COMMAND_SEPARATORS:
                 return True
         return False
 
