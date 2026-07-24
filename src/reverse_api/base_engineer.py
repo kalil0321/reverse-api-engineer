@@ -608,16 +608,46 @@ class BaseEngineer(ABC):
         not the source; C's is a multi-step compile-then-run chain. Matching
         against the one thing already correct for every language avoids
         duplicating that per-language dispatch a second time at each call
-        site, and avoids false positives from an unrelated command that
-        merely mentions the client's filename (`cat api_client.py`, `rm
-        api_client.py`, ...).
+        site.
+
+        Compares tokenized (shlex.split) command sequences, not raw
+        substring containment — a plain substring check can be fooled by a
+        command that merely *mentions* the run command as quoted text
+        without executing it (`echo 'python api_client.py'`, `grep 'python
+        api_client.py' file.txt`), independently flagged by two automated
+        PR reviewers on exactly those repro commands, on top of the
+        already-covered `cat api_client.py`/`rm api_client.py` filename-
+        mention case. shlex.split collapses a quoted argument into a single
+        token, so `echo 'python api_client.py'` tokenizes to `["echo",
+        "python api_client.py"]` — one token for the whole quoted string —
+        which can never contain the run command's own two-token sequence
+        `["python", "api_client.py"]` as a match; the quoting that makes it
+        "just text" to a real shell is exactly what makes it fail this
+        check too, without needing separate shell-operator/boundary
+        detection to tell a real sub-command apart from a quoted argument.
+        A wrapped invocation (`cd /tmp && python api_client.py`, or a
+        compiled language's own `&&`-chained run command reappearing after
+        such a wrapper) still matches: the search is for the run command's
+        token sequence appearing contiguously anywhere in the actual
+        command's tokens, not just as a whole-string prefix. An
+        unparseable command (unbalanced quotes) is treated as a non-match
+        rather than raising, same posture as every other unexpected-shape
+        check in this method.
         """
         if tool_name != "Bash" or not isinstance(tool_input, dict):
             return False
         command = tool_input.get("command")
         if not isinstance(command, str):
             return False
-        return self._get_run_command() in command
+        try:
+            command_tokens = shlex.split(command)
+            run_tokens = shlex.split(self._get_run_command())
+        except ValueError:
+            return False
+        if not run_tokens:
+            return False
+        window = len(run_tokens)
+        return any(command_tokens[i : i + window] == run_tokens for i in range(len(command_tokens) - window + 1))
 
     def _get_codegen_instructions(self) -> str:
         """Return codegen instructions from the appropriate template partial."""

@@ -465,6 +465,48 @@ class TestBaseEngineerHelpers:
         assert eng._is_client_verification_command("Bash", {"command": "cat api_client.py"}) is False
         assert eng._is_client_verification_command("Bash", {"command": "rm api_client.py"}) is False
 
+    def test_is_client_verification_command_rejects_echoed_run_command(self, tmp_path):
+        """A command that merely *prints* the run command as quoted text
+        (never actually invoking it) must not register as a real
+        execution — flagged independently by two automated PR reviewers
+        against the original substring-containment implementation, which
+        matched this. shlex.split collapses the single-quoted argument
+        into one token ("python api_client.py"), which can never equal
+        the run command's own two-token sequence (["python",
+        "api_client.py"])."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert eng._is_client_verification_command("Bash", {"command": "echo 'python api_client.py'"}) is False
+
+    def test_is_client_verification_command_rejects_grepped_run_command(self, tmp_path):
+        """Same false-positive class as the echo case above, reported
+        against the same original implementation — searching *for* the run
+        command's text is not running it."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert (
+            eng._is_client_verification_command("Bash", {"command": "grep 'python api_client.py' history.log"})
+            is False
+        )
+
+    def test_is_client_verification_command_matches_run_command_after_a_wrapper(self, tmp_path):
+        """The token-sequence search isn't anchored to the start of the
+        whole string — a real execution wrapped in a preceding sub-command
+        (cd, env vars, ...) still matches, same as the original substring
+        check did, just without also matching quoted mentions."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert (
+            eng._is_client_verification_command(
+                "Bash", {"command": "cd /tmp/run123 && python api_client.py"}
+            )
+            is True
+        )
+
+    def test_is_client_verification_command_handles_unparseable_command(self, tmp_path):
+        """A command with unbalanced quotes (shlex.split raises ValueError)
+        is treated as a non-match, not an unhandled exception — same
+        defensive posture as the None/non-string input cases below."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert eng._is_client_verification_command("Bash", {"command": "echo 'unterminated"}) is False
+
     def test_is_client_verification_command_works_for_compiled_languages(self, tmp_path):
         """The whole reason this matches against _get_run_command() instead
         of the client's filename: for compiled languages, the run command
