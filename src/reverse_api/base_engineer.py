@@ -98,6 +98,26 @@ _SHELL_WRAPPERS = {"bash", "sh", "zsh", "dash"}
 _SHELL_WRAPPER_FLAGS = {"-c", "-lc", "-ic", "-lic"}
 
 
+def _tokenize_command(command: str) -> list[str]:
+    """Like shlex.split, but "&&"/"||"/";"/"|" always come back as their own
+    token even with no surrounding whitespace — plain shlex.split only ever
+    splits on whitespace/quoting, so `false && python api_client.py ||true`
+    (no space before `true`) tokenizes to a single fused `"||true"` token
+    that can never equal-match `_UNSAFE_AFTER_AND_BOUNDARY`'s bare `"||"`,
+    silently defeating that check. Flagged by automated review (round 5)
+    against exactly that command. shlex's own `punctuation_chars=True` mode
+    exists specifically for this — it still fully respects quoting (a
+    quoted `'||'` argument survives as a literal token, not an operator;
+    confirmed live), so `bash -c 'python api_client.py'`-style wrapping and
+    the existing "quoted mention" rejection tests are unaffected. Raises
+    ValueError on unparseable input, same as shlex.split (unbalanced
+    quotes) — callers already handle that identically either way.
+    """
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    return list(lexer)
+
+
 def _unwrap_shell_c_flag(tokens: list[str]) -> list[str]:
     """`["bash", "-c", "<cmd>", ...rest]` -> re-tokenized `<cmd>` + rest,
     unchanged otherwise.
@@ -114,7 +134,7 @@ def _unwrap_shell_c_flag(tokens: list[str]) -> list[str]:
     """
     if len(tokens) >= 3 and tokens[0] in _SHELL_WRAPPERS and tokens[1] in _SHELL_WRAPPER_FLAGS:
         try:
-            return shlex.split(tokens[2]) + tokens[3:]
+            return _tokenize_command(tokens[2]) + tokens[3:]
         except ValueError:
             return tokens
     return tokens
@@ -695,17 +715,17 @@ class BaseEngineer(ABC):
         duplicating that per-language dispatch a second time at each call
         site.
 
-        Compares tokenized (shlex.split) command sequences, not raw
+        Compares tokenized (_tokenize_command) command sequences, not raw
         substring containment — a plain substring check can be fooled by a
         command that merely *mentions* the run command's text without
         executing it, several variants of which were independently flagged
-        across two rounds of automated PR review:
+        across multiple rounds of automated PR review:
 
         - Quoted mention: `echo 'python api_client.py'`, `grep 'python
-          api_client.py' file.txt`. shlex.split collapses a quoted argument
-          into a single token (`["echo", "python api_client.py"]`), which
-          can never equal-match the run command's own multi-token sequence
-          `["python", "api_client.py"]`.
+          api_client.py' file.txt`. _tokenize_command collapses a quoted
+          argument into a single token (`["echo", "python api_client.py"]`),
+          which can never equal-match the run command's own multi-token
+          sequence `["python", "api_client.py"]`.
         - Unquoted mention as *arguments* to an unrelated command: `echo
           python api_client.py`, `grep python api_client.py history.log`.
           Both contain the run command's token sequence contiguously, so a
@@ -731,9 +751,9 @@ class BaseEngineer(ABC):
         comment for why these don't change what actually runs, and why
         `||` is deliberately *not* one of the separators), and `bash -lc
         'python api_client.py'` (unwrapped by _unwrap_shell_c_flag before
-        the token search runs — see its own docstring for why plain
-        shlex.split can't see through a `-c`/`-lc` argument on its own) —
-        all still count as real executions. A compiled language's own
+        the token search runs — see its own docstring for why a plain
+        whitespace-only split can't see through a `-c`/`-lc` argument on
+        its own) — all still count as real executions. A compiled language's own
         `&&`-chained run command (C) matches as one contiguous window
         starting the sub-command, same as any other language's — its
         internal `&&` needs no special handling since the boundary check
@@ -757,8 +777,8 @@ class BaseEngineer(ABC):
         if not isinstance(command, str):
             return False
         try:
-            command_tokens = _unwrap_shell_c_flag(shlex.split(command))
-            run_tokens = shlex.split(self._get_run_command())
+            command_tokens = _unwrap_shell_c_flag(_tokenize_command(command))
+            run_tokens = _tokenize_command(self._get_run_command())
         except ValueError:
             return False
         if not run_tokens:

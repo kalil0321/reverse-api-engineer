@@ -675,6 +675,51 @@ class TestBaseEngineerHelpers:
             is False
         )
 
+    def test_is_client_verification_command_rejects_and_boundary_masked_by_unspaced_trailing_or(self, tmp_path):
+        """Same false-positive class as the spaced trailing-"||" case above,
+        but with no space before `true` (`||true`). Flagged by automated
+        review (round 5): plain shlex.split only ever splits on whitespace,
+        so `||true` came back as one fused token that could never equal-match
+        the bare `"||"` _UNSAFE_AFTER_AND_BOUNDARY was checking for —
+        silently defeating that whole check. _tokenize_command's
+        punctuation_chars=True mode splits shell operators into their own
+        token regardless of adjacent spacing, which is what actually fixes
+        this."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert (
+            eng._is_client_verification_command(
+                "Bash", {"command": "false && python api_client.py ||true"}
+            )
+            is False
+        )
+
+    def test_is_client_verification_command_rejects_and_boundary_masked_by_unspaced_trailing_semicolon(self, tmp_path):
+        """Same unspaced-operator gap as above, via ";" instead of "||"."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert (
+            eng._is_client_verification_command(
+                "Bash", {"command": "false && python api_client.py;true"}
+            )
+            is False
+        )
+
+    def test_is_client_verification_command_matches_unspaced_and_boundary(self, tmp_path):
+        """The positive-side mirror of the unspaced-operator fix: a "&&"-
+        gated match with no space before the operator (`false&&python
+        api_client.py`) and nothing after it is still trusted, same as the
+        spaced `cd /tmp && python api_client.py` case above — this method
+        only judges the token pattern, not real exit codes (a genuinely
+        failing `false&&...` would report is_error=True for the whole tool
+        call, which the caller's own `if not is_error` gate filters out
+        before this method is ever reached; see _COMMAND_SEPARATORS'
+        comment). This confirms _tokenize_command's punctuation_chars mode
+        still recognizes "&&" as a boundary with no surrounding whitespace,
+        not just that it catches the unsafe unspaced "||"/";" cases above."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert (
+            eng._is_client_verification_command("Bash", {"command": "false&&python api_client.py"}) is True
+        )
+
     def test_is_client_verification_command_matches_and_boundary_at_end_of_command(self, tmp_path):
         """The safe, common case: a "&&"-gated match with nothing after it
         at all — the overall exit status can only reflect the match's own
