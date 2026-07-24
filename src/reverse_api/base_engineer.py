@@ -112,6 +112,18 @@ _SHELL_WRAPPER_FLAGS = {"-c", "-lc", "-ic", "-lic"}
 # exclusion above) toward under-detecting a real verification over
 # fabricating one; this only delays a --json-stream consumer's real-time
 # "verified" signal, it doesn't affect the job's actual pass/fail outcome.
+# Checked against a quote-preserving tokenization (see
+# _is_client_verification_command's keyword_check_tokens), not the
+# dequoted one, so a *quoted* occurrence like `echo 'if'; python
+# api_client.py` — flagged by automated review (round 7) — correctly
+# doesn't count; "if" there is a literal echo argument, not real control
+# flow, and quoting is the one signal available to tell the two apart
+# without a real shell parser. An *unquoted* occurrence still can't be
+# told apart this way (`echo done && python api_client.py` still under-
+# detects, same as before this round) — accepted, not fixed: this is the
+# same bias as everywhere else in this method, a missed real-time signal
+# rather than a fabricated one, and unlike quoting there's no token-level
+# signal left to lean on short of actually parsing shell grammar.
 _SHELL_CONTROL_FLOW_KEYWORDS = {
     "if", "then", "elif", "else", "fi",
     "for", "while", "until", "do", "done",
@@ -139,9 +151,29 @@ def _tokenize_command(command: str) -> list[str]:
     return list(lexer)
 
 
-def _unwrap_shell_c_flag(tokens: list[str]) -> list[str]:
-    """`["bash", "-c", "<cmd>", ...rest]` -> re-tokenized `<cmd>` + rest,
-    unchanged otherwise.
+def _tokenize_command_raw(command: str) -> list[str]:
+    """Same token boundaries as _tokenize_command (confirmed live: the two
+    always agree on token count/positions for the same input — punctuation_
+    chars mode decides *where* to split independent of posix quote removal)
+    but with posix=False, so quote characters survive in each token's text
+    instead of being stripped (`'if'` stays `"'if'"`, not bare `if`). Used
+    only to tell a bare shell keyword from the same word appearing quoted as
+    a literal argument — see _SHELL_CONTROL_FLOW_KEYWORDS's own comment and
+    _is_client_verification_command's keyword scan for why that distinction
+    matters. Never call this instead of _tokenize_command for anything that
+    needs the actual dequoted argument text (the run-command match itself,
+    _unwrap_shell_c_flag's inner-command content) — it's for this one
+    quoted-vs-bare check alone.
+    """
+    lexer = shlex.shlex(command, posix=False, punctuation_chars=True)
+    lexer.whitespace_split = True
+    return list(lexer)
+
+
+def _unwrap_shell_c_flag(tokens: list[str], raw_tokens: list[str]) -> tuple[list[str], list[str]]:
+    """`(["bash", "-c", "<cmd>", ...rest], <raw-mode equivalent>)` ->
+    re-tokenized `<cmd>` + rest, both tokenizations in lockstep so they stay
+    index-aligned afterward too — unchanged (both) otherwise.
 
     shlex.split necessarily collapses the whole quoted inner command into
     one token (`bash -c 'python api_client.py'` -> `["bash", "-c", "python
@@ -152,13 +184,21 @@ def _unwrap_shell_c_flag(tokens: list[str]) -> list[str]:
     command only (not `cd X && bash -c ...`) — only the bare case has
     actually been reported; generalizing further trades simplicity for a
     case that hasn't come up.
+
+    Re-tokenizes `tokens[2]` (the already-dequoted posix inner command
+    text) in *both* modes to get the inner command's own raw-mode
+    equivalent — not `raw_tokens[2]`, which is still wrapped in the outer
+    quote marks `bash -c` itself used and would tokenize as one opaque
+    quoted blob instead of the inner command's real structure.
     """
     if len(tokens) >= 3 and tokens[0] in _SHELL_WRAPPERS and tokens[1] in _SHELL_WRAPPER_FLAGS:
         try:
-            return _tokenize_command(tokens[2]) + tokens[3:]
+            inner = _tokenize_command(tokens[2])
+            inner_raw = _tokenize_command_raw(tokens[2])
         except ValueError:
-            return tokens
-    return tokens
+            return tokens, raw_tokens
+        return inner + tokens[3:], inner_raw + raw_tokens[3:]
+    return tokens, raw_tokens
 
 
 class BaseEngineer(ABC):
@@ -793,7 +833,12 @@ class BaseEngineer(ABC):
         `_SHELL_CONTROL_FLOW_KEYWORDS`'s own comment. Every boundary check
         above assumes a flat command list; a match sitting inside a
         conditional/loop/function body breaks that assumption regardless of
-        which boundary token happens to precede it.
+        which boundary token happens to precede it. That check runs against
+        a quote-preserving tokenization, not the dequoted one used
+        everywhere else in this method, specifically so a *quoted*
+        occurrence of one of those words (`echo 'if'; python api_client.py`
+        — "if" there is a literal argument, not real syntax) doesn't cause
+        a false rejection — see `_tokenize_command_raw`'s own docstring.
 
         An unparseable command (unbalanced quotes) is treated as a
         non-match rather than raising, same posture as every other
@@ -805,7 +850,9 @@ class BaseEngineer(ABC):
         if not isinstance(command, str):
             return False
         try:
-            command_tokens = _unwrap_shell_c_flag(_tokenize_command(command))
+            command_tokens, keyword_check_tokens = _unwrap_shell_c_flag(
+                _tokenize_command(command), _tokenize_command_raw(command)
+            )
             run_tokens = _tokenize_command(self._get_run_command())
         except ValueError:
             return False
@@ -824,7 +871,22 @@ class BaseEngineer(ABC):
             # can't retroactively un-run something that already executed,
             # and rejecting on those too would falsely reject common, safe
             # commands that just happen to use one of these words normally.
-            if any(t in _SHELL_CONTROL_FLOW_KEYWORDS for t in command_tokens[:i]):
+            #
+            # Checked against keyword_check_tokens (raw/quote-preserving),
+            # not command_tokens (posix/dequoted) — flagged by automated
+            # review (round 7): `echo 'if'; python api_client.py` never
+            # actually involves any control flow, "if" here is just a
+            # literal argument to echo, but posix-mode tokenizing strips
+            # the quotes and leaves a bare "if" indistinguishable from a
+            # real keyword. A quoted occurrence stays quoted in raw mode
+            # (`"'if'"`, not `"if"`), so it correctly never equals a bare
+            # entry in _SHELL_CONTROL_FLOW_KEYWORDS. Multi-word quoted
+            # phrases ("Checking if this works") don't even need this —
+            # quoting already collapses them into one token that can never
+            # equal a single keyword either way; this only matters for a
+            # standalone quoted-or-bare word that happens to exactly match
+            # one of these keywords.
+            if any(t in _SHELL_CONTROL_FLOW_KEYWORDS for t in keyword_check_tokens[:i]):
                 continue
             # Walk back over any stacked modifier prefixes (`sudo time
             # python api_client.py` skips both) to find the token that

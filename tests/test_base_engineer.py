@@ -753,20 +753,91 @@ class TestBaseEngineerHelpers:
             is False
         )
 
+    def test_is_client_verification_command_matches_past_a_quoted_keyword_word(self, tmp_path):
+        """A quoted argument that happens to exactly equal a control-flow
+        keyword — `echo 'if'; python api_client.py` — isn't real control
+        flow; "if" here is just a literal string echo prints, not shell
+        syntax. Flagged by automated review (round 7) as a false-negative
+        regression from the round-6 fix, which scanned the dequoted token
+        stream and so couldn't tell this apart from genuine `if` syntax.
+        Fixed by scanning a quote-preserving tokenization instead (a
+        quoted occurrence stays quoted, `"'if'"`, and never equal-matches
+        the bare keyword)."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert (
+            eng._is_client_verification_command(
+                "Bash", {"command": "echo 'if'; python api_client.py"}
+            )
+            is True
+        )
+
+    def test_is_client_verification_command_matches_past_a_multiword_quoted_phrase(self, tmp_path):
+        """A more realistic version of the quoted-keyword case above — an
+        agent-style status message that happens to contain a control-flow
+        word as part of an ordinary sentence. This one never actually
+        needed the round-7 fix (quoting collapses the whole phrase into
+        one token that can't equal a single bare keyword either way), but
+        it's the shape that motivated checking how narrow the round-7 gap
+        really was before fixing it — pinned here so that stays true."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert (
+            eng._is_client_verification_command(
+                "Bash", {"command": 'echo "Checking if this works"; python api_client.py'}
+            )
+            is True
+        )
+
+    def test_is_client_verification_command_still_rejects_unquoted_keyword_before_match(self, tmp_path):
+        """The round-7 fix is specifically about *quoted* keyword words —
+        an unquoted control-flow keyword before the match must still be
+        rejected exactly as before (the whole point of the round-6 fix)."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert (
+            eng._is_client_verification_command(
+                "Bash", {"command": "if false;then;python api_client.py;fi"}
+            )
+            is False
+        )
+
+    def test_is_client_verification_command_quote_check_survives_bash_c_unwrap(self, tmp_path):
+        """The quote-vs-bare distinction must keep working after
+        _unwrap_shell_c_flag re-tokenizes the inner `bash -c '...'` command
+        — both the dequoted and quote-preserving token lists have to be
+        rebuilt from that same inner text, not left pointing at the outer
+        wrapper's own (differently-shaped) tokens."""
+        eng = self._make_engineer(tmp_path, output_language="python")
+        assert (
+            eng._is_client_verification_command(
+                "Bash", {"command": "bash -c \"echo 'if'; python api_client.py\""}
+            )
+            is True
+        )
+        assert (
+            eng._is_client_verification_command(
+                "Bash", {"command": "bash -c 'if false;then;python api_client.py;fi'"}
+            )
+            is False
+        )
+
     def test_is_client_verification_command_control_flow_keyword_after_match_is_harmless(self, tmp_path):
         """The scope of the control-flow-keyword check matters: a keyword
         *after* a genuine match can't retroactively un-run something that
         already executed, so it must not cause a false rejection either —
-        `echo done` here is just a plain, harmless trailing command that
-        happens to contain the literal word a for/while/until loop also
-        uses to close its body. Regression case: an earlier, broader
-        version of this fix (rejecting on a keyword appearing *anywhere* in
-        the whole command) briefly broke this exact scenario, caught by
-        the existing and-boundary-chained-with-more-and test below."""
+        `echo for` here is just a plain, harmless trailing command that
+        happens to print the same literal word a for-loop uses to open its
+        header. Regression case: an earlier, broader version of this fix
+        (rejecting on a keyword appearing *anywhere* in the whole command,
+        not just before the match) briefly broke this exact shape —
+        deliberately a *different* trailing word than the existing and-
+        boundary-chained-with-more-and test's `echo done` below, flagged by
+        automated review (round 7) as an accidental byte-for-byte
+        duplicate of that test; this one exists specifically to guard the
+        keyword-scoping behavior, that one to guard "&&"-chaining safety in
+        general, and they should be free to diverge independently."""
         eng = self._make_engineer(tmp_path, output_language="python")
         assert (
             eng._is_client_verification_command(
-                "Bash", {"command": "cd /tmp && python api_client.py && echo done"}
+                "Bash", {"command": "cd /tmp && python api_client.py && echo for"}
             )
             is True
         )
