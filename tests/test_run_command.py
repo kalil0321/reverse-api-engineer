@@ -662,7 +662,11 @@ class TestRunCommandOutputMessages:
 
         with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")):
             result = cli_runner.invoke(main, ["run", "def789ghi012"])
-        assert "scripts/def789ghi012" in result.output
+        # Rich soft-wraps at 80 columns when stdout is not a TTY, so a long tmp_path
+        # (CI runners, some usernames) gets split across lines; join before matching.
+        # str(Path) also keeps the assertion valid with Windows separators.
+        expected = str(tmp_path / "scripts" / "def789ghi012")
+        assert expected in result.output.replace("\n", "")
 
     def test_shows_run_id_in_output(self, cli_runner, mock_cli_env):
         from reverse_api.cli import main
