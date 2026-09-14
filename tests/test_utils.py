@@ -407,14 +407,14 @@ class TestGenerateFolderName:
     def test_opencode_calls_opencode_async(self):
         """OpenCode SDK calls _generate_folder_name_opencode_async."""
         with patch("reverse_api.utils.asyncio.get_running_loop", side_effect=RuntimeError):
-            with patch("reverse_api.utils.asyncio.run", return_value="opencode_result") as mock_run:
+            with patch("reverse_api.utils.asyncio.run", return_value="opencode_result"):
                 result = generate_folder_name("test prompt", sdk="opencode")
                 assert result == "opencode_result"
 
     def test_claude_calls_claude_async(self):
         """Claude SDK calls _generate_folder_name_async."""
         with patch("reverse_api.utils.asyncio.get_running_loop", side_effect=RuntimeError):
-            with patch("reverse_api.utils.asyncio.run", return_value="claude_result") as mock_run:
+            with patch("reverse_api.utils.asyncio.run", return_value="claude_result"):
                 result = generate_folder_name("test prompt", sdk="claude")
                 assert result == "claude_result"
 
@@ -428,7 +428,7 @@ class TestGenerateFolderName:
     def test_with_session_id(self):
         """OpenCode with session_id passes it through."""
         with patch("reverse_api.utils.asyncio.get_running_loop", side_effect=RuntimeError):
-            with patch("reverse_api.utils.asyncio.run", return_value="test_result") as mock_run:
+            with patch("reverse_api.utils.asyncio.run", return_value="test_result"):
                 result = generate_folder_name("test prompt", sdk="opencode", session_id="sess123")
                 assert result == "test_result"
 
@@ -439,8 +439,9 @@ class TestGenerateFolderNameAsync:
     @pytest.mark.asyncio
     async def test_async_with_sdk_response(self):
         """Async function returns cleaned folder name from SDK."""
-        from reverse_api.utils import _generate_folder_name_async
         from claude_agent_sdk import AssistantMessage, TextBlock
+
+        from reverse_api.utils import _generate_folder_name_async
 
         mock_text = MagicMock(spec=TextBlock)
         mock_text.text = "  Apple_Jobs_API  "
@@ -487,8 +488,9 @@ class TestGenerateFolderNameAsync:
     @pytest.mark.asyncio
     async def test_async_cleans_special_chars(self):
         """Async function cleans special characters from response."""
-        from reverse_api.utils import _generate_folder_name_async
         from claude_agent_sdk import AssistantMessage, TextBlock
+
+        from reverse_api.utils import _generate_folder_name_async
 
         mock_text = MagicMock(spec=TextBlock)
         mock_text.text = "my-cool/api (v2)"
@@ -537,12 +539,9 @@ class TestGenerateFolderNameOpencodeAsync:
         """Creates a new session when session_id is None."""
         from reverse_api.utils import _generate_folder_name_opencode_async
 
-        mock_health = AsyncMock()
         mock_session_create = MagicMock()
         mock_session_create.raise_for_status = MagicMock()
         mock_session_create.json.return_value = {"id": "new_sess_123"}
-
-        mock_message_post = AsyncMock()
 
         mock_messages_response = MagicMock()
         mock_messages_response.status_code = 200
@@ -552,8 +551,6 @@ class TestGenerateFolderNameOpencodeAsync:
                 "parts": [{"type": "text", "text": "apple_jobs_api"}],
             }
         ]
-
-        call_idx = [0]
 
         async def mock_get(path, **kwargs):
             if path == "/global/health":

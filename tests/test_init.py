@@ -1,7 +1,6 @@
 """Tests for __init__.py - Package initialization."""
 
 from importlib.metadata import PackageNotFoundError
-from unittest.mock import patch
 
 from reverse_api import __version__
 

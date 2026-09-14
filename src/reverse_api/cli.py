@@ -501,7 +501,10 @@ def _build_dry_run_payload(
         checks.append({
             "name": "chrome-mcp:auto-connect",
             "status": "warn",
-            "message": "chrome-mcp without --headless requires Chrome 146+ with auto-connect enabled at chrome://inspect/#remote-debugging — this is not auto-checkable",
+            "message": (
+                "chrome-mcp without --headless requires Chrome 146+ with auto-connect enabled "
+                "at chrome://inspect/#remote-debugging — this is not auto-checkable"
+            ),
         })
 
     # 7. agent-browser CLI: read-only validation (no npm install during dry-run).
@@ -751,7 +754,7 @@ AGENT_TASK_SUGGESTIONS = [
 ]
 
 
-def prompt_interactive_options(
+def prompt_interactive_options(  # noqa: C901 — long questionary flow; split when it is next touched
     prompt: str | None = None,
     url: str | None = None,
     reverse_engineer: bool | None = None,
@@ -964,7 +967,7 @@ def prompt_interactive_options(
             if url is None:  # questionary returns None on Ctrl+C
                 raise click.Abort()
         except KeyboardInterrupt:
-            raise click.Abort()
+            raise click.Abort() from None
 
     # Use settings defaults for the rest
     if reverse_engineer is None:
@@ -1159,7 +1162,7 @@ def handle_settings(mode_color=THEME_PRIMARY):
         pass
 
 
-def _handle_settings_action(mode_color=THEME_PRIMARY) -> bool:
+def _handle_settings_action(mode_color=THEME_PRIMARY) -> bool:  # noqa: C901 — one branch per settings menu entry; split when next touched
     """Display and manage settings with improved layout and descriptions."""
     from rich.table import Table
 
@@ -1709,12 +1712,18 @@ Exit codes:
 @click.option(
     "--headless",
     is_flag=True,
-    help="Launch the MCP-controlled browser in headless mode (required on machines without an X server). For chrome-mcp this drops --autoConnect since auto-connect requires a headed Chrome instance.",
+    help=(
+        "Launch the MCP-controlled browser in headless mode (required on machines without an X server). "
+        "For chrome-mcp this drops --autoConnect since auto-connect requires a headed Chrome instance."
+    ),
 )
 @click.option(
     "--dry-run",
     is_flag=True,
-    help="Validate prompt/url/config/env without launching the browser. Emits a manifest of what would run + check results. Implies --json. Exits 0 if all checks pass, 1 if any error.",
+    help=(
+        "Validate prompt/url/config/env without launching the browser. Emits a manifest of what would run + check results. "
+        "Implies --json. Exits 0 if all checks pass, 1 if any error."
+    ),
 )
 def agent(prompt, url, model, output_dir, no_interactive, as_json, json_stream, headless, dry_run):
     """Run autonomous agent browser session.

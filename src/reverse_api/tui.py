@@ -14,10 +14,8 @@ from .theme import (
     BRAND_WORDMARK,
     MODE_COLORS,
     THEME_DIM,
-    THEME_ERROR,
     THEME_PRIMARY,
     THEME_SECONDARY,
-    THEME_SUCCESS,
 )
 
 ERROR_CTA = "If an unexpected error occurred, please create an issue at https://github.com/kalil0321/reverse-api-engineer/issues/new"

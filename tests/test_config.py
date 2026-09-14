@@ -1,9 +1,6 @@
 """Tests for config.py - ConfigManager."""
 
 import json
-from pathlib import Path
-
-import pytest
 
 from reverse_api.config import DEFAULT_CONFIG, ConfigManager
 

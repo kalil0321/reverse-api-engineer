@@ -1,14 +1,10 @@
 """Tests for tui.py, collector_ui.py, opencode_ui.py - UI modules."""
 
 from io import StringIO
-from unittest.mock import patch
 
-import pytest
 from rich.console import Console
 
 from reverse_api.tui import (
-    THEME_DIM,
-    THEME_PRIMARY,
     TOOL_COLORS,
     TOOL_ICONS,
     ClaudeUI,

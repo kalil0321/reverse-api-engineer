@@ -5,8 +5,6 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from reverse_api.base_engineer import REPORT_CLIENT_VERIFIED_INSTRUCTION, BaseEngineer
 
 

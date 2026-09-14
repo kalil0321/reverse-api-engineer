@@ -1,11 +1,7 @@
 """Tests for sync.py - File synchronization."""
 
-import shutil
 import time
-from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from reverse_api.sync import (
     FileSyncWatcher,

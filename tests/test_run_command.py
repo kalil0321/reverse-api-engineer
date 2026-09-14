@@ -1,7 +1,5 @@
 """Tests for the `run` command and its supporting functions (resolve_run, discover_scripts)."""
 
-import json
-import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -11,7 +9,6 @@ from click.testing import CliRunner
 
 from reverse_api.session import SessionManager
 from reverse_api.utils import discover_scripts, resolve_run
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -420,7 +417,7 @@ class TestRunCommandLs:
     def test_ls_does_not_execute(self, cli_runner, mock_cli_env):
         from reverse_api.cli import main
         with patch("subprocess.run") as mock_sub:
-            result = cli_runner.invoke(main, ["run", "abc123def456", "--ls"])
+            cli_runner.invoke(main, ["run", "abc123def456", "--ls"])
         mock_sub.assert_not_called()
 
 
@@ -430,7 +427,7 @@ class TestRunCommandFileFlag:
     def test_file_flag_selects_script(self, cli_runner, mock_cli_env):
         from reverse_api.cli import main
         with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")) as mock_sub:
-            result = cli_runner.invoke(main, ["run", "abc123def456", "--file", "example_usage.py"])
+            cli_runner.invoke(main, ["run", "abc123def456", "--file", "example_usage.py"])
         assert mock_sub.called
         call_args = mock_sub.call_args[0][0]
         assert "example_usage.py" in str(call_args[1])
@@ -455,7 +452,7 @@ class TestRunCommandExecution:
     def test_single_script_auto_selected(self, cli_runner, mock_cli_env):
         from reverse_api.cli import main
         with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")) as mock_sub:
-            result = cli_runner.invoke(main, ["run", "def789ghi012"])
+            cli_runner.invoke(main, ["run", "def789ghi012"])
         assert mock_sub.called
         call_args = mock_sub.call_args[0][0]
         assert "api_client.py" in str(call_args[1])
@@ -463,7 +460,7 @@ class TestRunCommandExecution:
     def test_args_passthrough(self, cli_runner, mock_cli_env):
         from reverse_api.cli import main
         with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")) as mock_sub:
-            result = cli_runner.invoke(main, ["run", "def789ghi012", "--", "--org", "acme", "--limit", "10"])
+            cli_runner.invoke(main, ["run", "def789ghi012", "--", "--org", "acme", "--limit", "10"])
         call_args = mock_sub.call_args[0][0]
         assert "--org" in call_args
         assert "acme" in call_args
@@ -490,7 +487,7 @@ class TestRunCommandExecution:
             with patch("questionary.select") as mock_select:
                 mock_select.return_value.ask.return_value = script_path
                 with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")):
-                    result = cli_runner.invoke(main, ["run", "abc123def456"])
+                    cli_runner.invoke(main, ["run", "abc123def456"])
                 mock_select.assert_called_once()
 
     def test_multiple_scripts_user_cancels_picker(self, cli_runner, mock_cli_env):
@@ -530,7 +527,7 @@ class TestRunCommandSharedVenv:
         from reverse_api.cli import main
         ok = MagicMock(returncode=0, stdout="", stderr="")
         with patch("subprocess.run", return_value=ok) as mock_sub:
-            result = cli_runner.invoke(main, ["run", "def789ghi012"])
+            cli_runner.invoke(main, ["run", "def789ghi012"])
 
         # Should have: venv create, pip install requests, script run = 3 calls
         assert mock_sub.call_count == 3
@@ -554,7 +551,7 @@ class TestRunCommandSharedVenv:
 
         ok = MagicMock(returncode=0, stdout="", stderr="")
         with patch("subprocess.run", return_value=ok) as mock_sub:
-            result = cli_runner.invoke(main, ["run", "def789ghi012"])
+            cli_runner.invoke(main, ["run", "def789ghi012"])
 
         # Only the script execution call — no venv create, no pip install
         assert mock_sub.call_count == 1
@@ -574,7 +571,7 @@ class TestRunCommandSharedVenv:
 
         ok = MagicMock(returncode=0, stdout="", stderr="")
         with patch("subprocess.run", return_value=ok) as mock_sub:
-            result = cli_runner.invoke(main, ["run", "def789ghi012"])
+            cli_runner.invoke(main, ["run", "def789ghi012"])
 
         # pip install -r requirements.txt + script run = 2 calls
         assert mock_sub.call_count == 2
@@ -593,7 +590,7 @@ class TestRunCommandSharedVenv:
 
         ok = MagicMock(returncode=0, stdout="", stderr="")
         with patch("subprocess.run", return_value=ok) as mock_sub:
-            result = cli_runner.invoke(main, ["run", "def789ghi012"])
+            cli_runner.invoke(main, ["run", "def789ghi012"])
 
         script_call = mock_sub.call_args_list[-1][0][0]
         assert ".venv" in str(script_call[0])
