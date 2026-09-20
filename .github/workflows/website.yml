@@ -90,7 +90,7 @@ jobs:
           else:
               raise RuntimeError('Static website server did not start')
           PYREADY
-          python tests/scroll_e2e.py http://127.0.0.1:8765 out
+          python tests/scroll_e2e.py http://127.0.0.1:8765 out /tmp
 
       - name: Show browser server diagnostics on failure
         if: failure()
