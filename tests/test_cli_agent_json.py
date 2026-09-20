@@ -625,9 +625,11 @@ def test_provider_interrupt_output_modes(tmp_path, monkeypatch, sdk, output_flag
         assert history[0]["paths"]["script_path"]
 
 
+@pytest.mark.parametrize("debug", [False, True])
 @pytest.mark.parametrize("error_type", [Exception, TimeoutError])
 @pytest.mark.parametrize("output_flag", [None, "--json", "--json-stream", "--no-interactive"])
-def test_empty_provider_exception_is_failure(tmp_path, error_type, output_flag):
+def test_empty_provider_exception_is_failure(tmp_path, monkeypatch, error_type, output_flag, debug):
+    monkeypatch.setenv("RAE_DEBUG", "1" if debug else "0")
     from reverse_api.config import ConfigManager
 
     config = ConfigManager(tmp_path / "config.json")
@@ -650,7 +652,10 @@ def test_empty_provider_exception_is_failure(tmp_path, error_type, output_flag):
         assert payload["error"] == error_type.__name__
     else:
         assert result.stderr.count(f"error: {error_type.__name__}") == 1
-        assert "Traceback" not in result.stderr
+    assert ("Traceback (most recent call last):" in result.stderr) is debug
+    assert "Traceback" not in result.stdout
+    if debug:
+        assert "run_auto_capture" in result.stderr
 
 
 @pytest.mark.parametrize("output_flag", ["--json", "--json-stream", "--no-interactive"])
