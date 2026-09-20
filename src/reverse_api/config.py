@@ -37,12 +37,12 @@ DEFAULT_CONFIG = {
 class ConfigManager:
     """Handles user settings and persistence."""
 
-    def __init__(self, config_path: Path):
+    def __init__(self, config_path: Path) -> None:
         self.config_path = config_path
         self.config = DEFAULT_CONFIG.copy()
         self.load()
 
-    def load(self):
+    def load(self) -> None:
         """Load configuration from disk."""
         if self.config_path.exists():
             try:
@@ -65,7 +65,7 @@ class ConfigManager:
                 # Fallback to defaults if file is corrupted
                 pass
 
-    def save(self):
+    def save(self) -> None:
         """Save configuration to disk."""
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.config_path, "w") as f:
@@ -75,12 +75,12 @@ class ConfigManager:
         """Get a configuration value."""
         return self.config.get(key, default)
 
-    def set(self, key: str, value: Any):
+    def set(self, key: str, value: Any) -> None:
         """Set a configuration value and save."""
         self.config[key] = value
         self.save()
 
-    def update(self, settings: dict[str, Any]):
+    def update(self, settings: dict[str, Any]) -> None:
         """Update multiple settings and save."""
         self.config.update(settings)
         self.save()

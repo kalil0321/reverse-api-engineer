@@ -5,9 +5,15 @@ Providers **auto** and **chrome-mcp** attach a browser MCP server to the SDK. Pr
 when missing, validated with ``--help``) instead of attaching browser MCP here.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from copilot.types import PostToolUseHookInput, PostToolUseHookOutput, PreToolUseHookInput, PreToolUseHookOutput
 
 import httpx2 as httpx
 from claude_agent_sdk import (
@@ -16,6 +22,7 @@ from claude_agent_sdk import (
     PermissionResultAllow,
     ToolPermissionContext,
 )
+from claude_agent_sdk.types import McpStdioServerConfig
 
 from .agent_browser import (
     agent_browser_prompt_fields,
@@ -45,6 +52,20 @@ def _agent_browser_prompt_context(engineer: Any) -> tuple[str, bool]:
     return run_id, headless
 
 
+class AutoPromptEngineer(Protocol):
+    agent_provider: str
+    mcp_run_id: str
+    headless: bool
+    prompt: str
+    scripts_dir: Path
+    har_path: Path
+
+    def _get_language_name(self) -> str: ...
+    def _get_codegen_instructions(self) -> str: ...
+    def _get_client_filename(self) -> str: ...
+    def _get_auto_output_files(self, language_name: str, client_filename: str) -> str: ...
+
+
 class ClaudeAutoEngineer(ClaudeEngineer):
     """Auto mode using Claude SDK: LLM-led browsing plus reverse-engineering codegen."""
 
@@ -55,8 +76,8 @@ class ClaudeAutoEngineer(ClaudeEngineer):
         model: str,
         output_dir: str | None = None,
         agent_provider: str = "auto",
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         """Initialize Claude-backed agent engineer (HAR path derives from ``run_id``)."""
         # `headless` is auto-engineer specific: for MCP providers it configures the MCP
         # server's browser launch; for `agent-browser` it only adjusts prompt wording.
@@ -76,7 +97,7 @@ class ClaudeAutoEngineer(ClaudeEngineer):
         self.agent_provider = agent_provider
         self.headless = headless
 
-    def _build_auto_prompts(self) -> tuple[str, str]:
+    def _build_auto_prompts(self: AutoPromptEngineer) -> tuple[str, str]:
         """Build (system_prompt, user_message) for auto mode.
 
         The system prompt contains the agent role, codegen instructions, and output
@@ -149,7 +170,7 @@ class ClaudeAutoEngineer(ClaudeEngineer):
         # Auto-approve all other tools
         return PermissionResultAllow(updated_input=input_data)
 
-    def _get_mcp_config(self) -> tuple[str, dict]:
+    def _get_mcp_config(self) -> tuple[str, McpStdioServerConfig]:
         """Return ``(server_name, mcp_config)`` for Playwright or Chrome MCP providers.
 
         Not applicable to ``agent-browser`` (calling this raises). Auto-connect Chrome
@@ -316,11 +337,13 @@ class ClaudeAutoEngineer(ClaudeEngineer):
                 self.ui.console.print("\n[dim]Make sure Claude Code CLI is installed: npm install -g @anthropic-ai/claude-code[/dim]")
             return None
 
+        return None
+
 
 class OpenCodeAutoEngineer(OpenCodeEngineer):
     """Agent mode via OpenCode: registers a browser MCP server when the provider uses MCP."""
 
-    def __init__(self, run_id: str, prompt: str, output_dir: str | None = None, agent_provider: str = "auto", **kwargs):
+    def __init__(self, run_id: str, prompt: str, output_dir: str | None = None, agent_provider: str = "auto", **kwargs: Any) -> None:
         """Initialize OpenCode-backed agent engineer."""
         headless = kwargs.pop("headless", False)
         har_dir = get_har_dir(run_id, output_dir)
@@ -335,7 +358,7 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
         )
         self.mcp_run_id = run_id
         self.agent_provider = agent_provider
-        self.mcp_name = None
+        self.mcp_name: str | None = None
         self.headless = headless
 
     def _get_active_prompts(self) -> tuple[str, str]:
@@ -572,7 +595,7 @@ class CopilotAutoEngineer:
         output_dir: str | None = None,
         agent_provider: str = "auto",
         **kwargs: Any,
-    ):
+    ) -> None:
         from .copilot_engineer import CopilotEngineer
 
         headless = kwargs.pop("headless", False)
@@ -699,14 +722,14 @@ class CopilotAutoEngineer:
                     },
                 }
 
-            async def on_pre_tool_use(input: dict, _invocation: dict) -> dict:
+            async def on_pre_tool_use(input: PreToolUseHookInput, _invocation: dict[str, str]) -> PreToolUseHookOutput:
                 tool_name = input.get("toolName", "unknown")
                 tool_args = input.get("toolArgs") or {}
                 eng.ui.tool_start(tool_name, tool_args)
                 eng.message_store.save_tool_start(tool_name, tool_args)
                 return {"permissionDecision": "allow", "modifiedArgs": tool_args}
 
-            async def on_post_tool_use(input: dict, invocation: dict) -> dict:
+            async def on_post_tool_use(input: PostToolUseHookInput, invocation: dict[str, str]) -> PostToolUseHookOutput:
                 tool_name = input.get("toolName", "unknown")
                 is_error = invocation.get("resultType") == "error" if isinstance(invocation, dict) else False
                 output = invocation.get("result") if isinstance(invocation, dict) else None

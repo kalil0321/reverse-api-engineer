@@ -97,7 +97,7 @@ def _ensure_cursor_bridge_deps() -> str | None:
 class CursorStreamUI(ClaudeUI):
     """Routes `.thinking()` into the Cursor buffer so nothing prints token-sized `..` lines."""
 
-    def __init__(self, engineer: CursorEngineer, **kwargs: Any):
+    def __init__(self, engineer: CursorEngineer, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._eng = engineer
 
@@ -110,6 +110,8 @@ class CursorStreamUI(ClaudeUI):
 class CursorEngineer(BaseEngineer):
     """Reverse engineering using Cursor's TypeScript agent SDK (Node subprocess)."""
 
+    ui: ClaudeUI
+
     def __init__(
         self,
         run_id: str,
@@ -120,7 +122,7 @@ class CursorEngineer(BaseEngineer):
         cursor_web_search: bool = True,
         cursor_setting_sources: list[str] | None = None,
         **kwargs: Any,
-    ):
+    ) -> None:
         cm = cursor_model or model or "composer-2.5"
         super().__init__(run_id=run_id, har_path=har_path, prompt=prompt, model=cm, **kwargs)
         self.cursor_model = cm
@@ -393,10 +395,6 @@ class CursorEngineer(BaseEngineer):
                 except asyncio.CancelledError:
                     pass
 
-        if ret is None:
-            err_t = stderr_acc.decode("utf-8", errors="replace").strip()
-            ret = {"error": err_t or "cursor bridge produced no result"}
-
         if ret.get("ok"):
             code = proc.returncode
             if code not in (None, 0):
@@ -486,7 +484,7 @@ class CursorAutoEngineer(CursorEngineer):
         output_dir: str | None = None,
         agent_provider: str = "auto",
         **kwargs: Any,
-    ):
+    ) -> None:
         headless = kwargs.pop("headless", False)
         from .utils import get_har_dir
 

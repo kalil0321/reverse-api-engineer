@@ -61,7 +61,7 @@ TOOL_COLORS = {
 class ClaudeUI:
     """Interactive terminal UI for Claude SDK operations."""
 
-    def __init__(self, verbose: bool = True):
+    def __init__(self, verbose: bool = True) -> None:
         self.console = Console()
         self.verbose = verbose
         self._tool_count = 0
@@ -385,7 +385,7 @@ def print_session_header(
     console.print()
 
 
-def display_banner(console: Console, sdk: str | None = None, model: str | None = None):
+def display_banner(console: Console, sdk: str | None = None, model: str | None = None) -> None:
     """Display minimalist startup banner with * rae branding."""
     # Redirected Windows streams may use a legacy encoding such as cp1252.
     divider = "--" if console.options.ascii_only else "━━"
@@ -404,7 +404,7 @@ def display_banner(console: Console, sdk: str | None = None, model: str | None =
     console.print()
 
 
-def display_footer(console: Console):
+def display_footer(console: Console) -> None:
     """Display minimalist footer."""
     from datetime import datetime
 
