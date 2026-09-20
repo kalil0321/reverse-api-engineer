@@ -3,8 +3,11 @@
 import subprocess
 import sys
 import textwrap
+from pathlib import Path
 
 import pytest
+
+import reverse_api
 
 
 @pytest.mark.parametrize(
@@ -14,6 +17,7 @@ import pytest
 def test_cli_starts_without_legacy_http_clients(tmp_path, option, expected):
     # A fresh interpreter prevents earlier test imports from hiding the failure.
     # Block legacy clients even if another development tool installed them.
+    package_root = Path(reverse_api.__file__).resolve().parent.parent
     script = textwrap.dedent(
         """
         import importlib
@@ -21,6 +25,10 @@ def test_cli_starts_without_legacy_http_clients(tmp_path, option, expected):
         import sys
         from pathlib import Path
         from unittest.mock import patch
+
+        # -I ignores PYTHONPATH: explicitly use the package pytest imported,
+        # including when the parent is testing an uninstalled checkout.
+        sys.path.insert(0, sys.argv[3])
 
         class BlockLegacyHttpClients(importlib.abc.MetaPathFinder):
             def find_spec(self, fullname, path=None, target=None):
@@ -32,7 +40,8 @@ def test_cli_starts_without_legacy_http_clients(tmp_path, option, expected):
 
         sys.meta_path.insert(0, BlockLegacyHttpClients())
 
-        with patch('reverse_api.utils.get_app_dir', return_value=Path(sys.argv[1])):
+        utils = importlib.import_module('reverse_api.utils')
+        with patch.object(utils, 'get_app_dir', return_value=Path(sys.argv[1])):
             for module in (
                 'reverse_api.auto_engineer',
                 'reverse_api.ollama_runtime',
@@ -47,7 +56,7 @@ def test_cli_starts_without_legacy_http_clients(tmp_path, option, expected):
         """
     )
     result = subprocess.run(
-        [sys.executable, "-I", "-c", script, str(tmp_path), option],
+        [sys.executable, "-I", "-c", script, str(tmp_path), option, str(package_root)],
         cwd=tmp_path,
         capture_output=True,
         text=True,
