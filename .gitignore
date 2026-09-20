@@ -81,7 +81,7 @@ cython_debug/
 har/
 scripts/*
 !scripts/clean_build.sh
-!scripts/ci/
+!scripts/validation/
 scripts_built/
 src/reverse_api/scripts/
 .reverse-api/
