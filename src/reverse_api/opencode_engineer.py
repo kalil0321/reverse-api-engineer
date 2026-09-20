@@ -34,7 +34,7 @@ from .opencode_ui import OpenCodeUI
 DEBUG = os.environ.get("OPENCODE_DEBUG", "0") == "1"
 
 
-def debug_log(msg: str):
+def debug_log(msg: str) -> None:
     """Print debug message if DEBUG mode is enabled."""
     if DEBUG:
         ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
@@ -122,7 +122,7 @@ class OpenCodeEngineer(BaseEngineer):
         "haiku": "claude-haiku-4-5",
     }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         # Pop OpenCode-specific kwargs before passing to parent class
         self.opencode_provider = kwargs.pop("opencode_provider", DEFAULT_OPENCODE_PROVIDER)
         self.opencode_model = kwargs.pop("opencode_model", DEFAULT_OPENCODE_MODEL)
@@ -320,7 +320,7 @@ class OpenCodeEngineer(BaseEngineer):
             self.message_store.save_error(error_msg)
             return None
 
-    async def _stream_events(self, client: httpx.AsyncClient):  # noqa: C901 — SSE event dispatch loop; split when next touched
+    async def _stream_events(self, client: httpx.AsyncClient) -> None:  # noqa: C901 — SSE event dispatch loop; split when next touched
         """Stream events from OpenCode and update UI."""
         seen_parts: set = set()  # Track part IDs to avoid duplicates
         import time
@@ -599,7 +599,7 @@ class OpenCodeEngineer(BaseEngineer):
             return False
         return True
 
-    async def _check_session_error(self, client: httpx.AsyncClient):
+    async def _check_session_error(self, client: httpx.AsyncClient) -> None:
         """Check session for errors when we get suspiciously fast idle."""
         try:
             # Get the session details to check for errors
@@ -651,7 +651,7 @@ class OpenCodeEngineer(BaseEngineer):
         except Exception as e:
             debug_log(f"Error checking session: {e}")
 
-    async def _handle_part_update(self, properties: dict, seen_parts: set):
+    async def _handle_part_update(self, properties: dict, seen_parts: set) -> None:
         """Handle message.part.updated events."""
         part = properties.get("part", {})
         delta = properties.get("delta")  # Incremental text update

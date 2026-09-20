@@ -14,7 +14,7 @@ from .tui import ERROR_CTA, print_session_header
 class OpenCodeUI:
     """Terminal UI for OpenCode with live streaming support."""
 
-    def __init__(self, console: Console | None = None, verbose: bool = True):
+    def __init__(self, console: Console | None = None, verbose: bool = True) -> None:
         self.console = console or Console()
         self.verbose = verbose
         self._live: Live | None = None
@@ -226,7 +226,7 @@ class OpenCodeUI:
                 display_text += "..."
             self.console.print(f"  .. {display_text}", style=THEME_DIM)
 
-    def success(self, script_path: str, local_path: str = None) -> None:
+    def success(self, script_path: str, local_path: str | None = None) -> None:
         """Display success message."""
         self.console.print()
         self.console.print(" [dim]decoding complete[/dim]")
