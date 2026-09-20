@@ -44,6 +44,8 @@ No more manually opening DevTools, copying cURL commands, and gluing together a 
 uv tool install reverse-api-engineer   # or: pip install reverse-api-engineer
 ```
 
+The secured cryptography dependency no longer supports Intel macOS or 32-bit Windows. Use Linux (including on Intel hardware), Apple Silicon macOS, or 64-bit Windows. Installing on the retired platforms may attempt an unsupported source build requiring Rust and OpenSSL development tools; this is not a supported installation path. Do not downgrade cryptography to restore old wheels. See the [upstream platform changes](https://cryptography.io/en/latest/changelog/#v49-0-0).
+
 Agent mode (the default) captures through `npx`-launched browser tooling —
 browser MCP servers (Playwright or Chrome DevTools) or the Vercel `agent-browser`
 CLI — and needs no extra Python packages. **Manual mode** drives a local
