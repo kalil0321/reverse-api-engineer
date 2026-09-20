@@ -611,8 +611,9 @@ class CursorAutoEngineer(CursorEngineer):
             # the partial result for the CLI, including SIGINT via Runner.
             exc.partial_result = last_result  # type: ignore[attr-defined]
             raise
-        except KeyboardInterrupt:
+        except KeyboardInterrupt as exc:
             if not self.interactive:
+                exc.partial_result = last_result  # type: ignore[attr-defined]
                 raise
             self.ui.console.print("\n  [dim]run aborted[/dim]")
             return {**(last_result or {}), "error": "interrupted"}

@@ -650,3 +650,33 @@ def test_empty_provider_exception_is_failure(tmp_path, error_type, output_flag):
         assert payload["error"] == error_type.__name__
     else:
         assert f"error: {error_type.__name__}" in result.stderr
+
+
+@pytest.mark.parametrize("output_flag", ["--json", "--json-stream", "--no-interactive"])
+def test_direct_interrupt_after_claude_result_keeps_partial_run(tmp_path, output_flag):
+    from unittest.mock import AsyncMock
+
+    from reverse_api.config import ConfigManager
+
+    config = ConfigManager(tmp_path / "config.json")
+    config.config.update({"sdk": "claude", "agent_provider": "chrome-mcp", "real_time_sync": False})
+    with (
+        patch("reverse_api.cli.config_manager", config),
+        patch("reverse_api.cli.session_manager", SessionManager(tmp_path / "history.json")),
+        patch("reverse_api.auto_engineer.ClaudeSDKClient") as client,
+        patch("reverse_api.auto_engineer.ClaudeAutoEngineer._process_streaming_response",
+              new=AsyncMock(return_value={"script_path": "completed.py", "usage": {"input_tokens": 7}})),
+    ):
+        client.return_value.__aenter__ = AsyncMock(return_value=client.return_value)
+        client.return_value.query = AsyncMock()
+        client.return_value.__aexit__ = AsyncMock(side_effect=KeyboardInterrupt)
+        result = CliRunner().invoke(main, ["agent", "-p", "direct interruption", "--headless", "-o", str(tmp_path), output_flag])
+    assert result.exit_code == 1, result.output
+    assert result.output.count("run aborted") == 1
+    history = json.loads((tmp_path / "history.json").read_text())
+    assert history[0]["paths"]["script_path"] == "completed.py"
+    assert history[0]["usage"]["input_tokens"] == 7
+    if output_flag in ("--json", "--json-stream"):
+        payload = json.loads(result.stdout.strip().splitlines()[-1])
+        assert payload["error"] == "interrupted"
+        assert payload["script_path"] == "completed.py"

@@ -2192,7 +2192,11 @@ def run_auto_capture(
             result = asyncio.run(engineer.analyze_and_generate())
             interrupted = isinstance(result, dict) and result.get("error") == "interrupted"
         except KeyboardInterrupt as exc:
-            result = getattr(exc.__context__, "partial_result", None)
+            result = getattr(exc, "partial_result", None)
+            # Python 3.11+ Runner translates SIGINT cancellation to
+            # KeyboardInterrupt, with the tagged CancelledError as context.
+            if result is None and isinstance(exc.__context__, asyncio.CancelledError):
+                result = getattr(exc.__context__, "partial_result", None)
             interrupted = True
             console.print("\n  [dim]run aborted[/dim]")
         except asyncio.CancelledError as exc:
