@@ -193,8 +193,18 @@ class ClaudeEngineer(BaseEngineer):
                             output = getattr(block, "output", None)
 
                         tool_name = last_tool_name or "Tool"
-                        self.ui.tool_result(tool_name, is_error, str(output) if output is not None else None)
-                        self.message_store.save_tool_result(tool_name, is_error, str(output) if output else None)
+                        output_text: str | None
+                        if isinstance(output, list):
+                            output_text = "\n".join(
+                                str(item["text"])
+                                if isinstance(item, dict) and item.get("type") == "text" and "text" in item
+                                else str(item)
+                                for item in output
+                            )
+                        else:
+                            output_text = str(output) if output is not None else None
+                        self.ui.tool_result(tool_name, is_error, output_text)
+                        self.message_store.save_tool_result(tool_name, is_error, output_text)
                         # The real-time "client_executed" --json-stream event
                         # (once inferred here from Bash tool-call text) now
                         # comes from the report_client_verified tool itself —

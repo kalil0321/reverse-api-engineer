@@ -388,8 +388,10 @@ class BaseEngineer(ABC):
     def _get_opt_field(opt: Any, field: str) -> str:
         """Get a field from an option, supporting both dict and object access."""
         if isinstance(opt, dict):
-            return str(opt.get(field, ""))
-        return str(getattr(opt, field, ""))
+            value = opt.get(field, "")
+        else:
+            value = getattr(opt, field, "")
+        return "" if value is None else str(value)
 
     def _get_output_extension(self) -> str:
         """Return file extension based on output language."""

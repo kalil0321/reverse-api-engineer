@@ -574,8 +574,16 @@ class TestClaudeEngineerAnalyzeAndGenerate:
             assert result is None
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("tool_content", ["file content", [{"type": "text", "text": "file content"}]])
-    async def test_assistant_message_with_tools(self, tmp_path, tool_content):
+    @pytest.mark.parametrize("tool_content,expected", [
+        ("file content", "file content"),
+        ([{"type": "text", "text": "file content"}], "file content"),
+        ([{"type": "text", "text": "first"}, {"type": "text", "text": "second"}], "first\nsecond"),
+        ("", ""),
+        ([], ""),
+        (0, "0"),
+        (None, None),
+    ])
+    async def test_assistant_message_with_tools(self, tmp_path, tool_content, expected):
         """AssistantMessage with tool blocks processes correctly."""
         eng = self._make_engineer(tmp_path)
 
@@ -615,7 +623,8 @@ class TestClaudeEngineerAnalyzeAndGenerate:
             ) as render_result:
                 result = await eng.analyze_and_generate()
                 assert result is not None
-                render_result.assert_called_once_with("Read", False, str(tool_content))
+                render_result.assert_called_once_with("Read", False, expected)
+                eng.message_store.save_tool_result.assert_called_once_with("Read", False, expected)
 
     @pytest.mark.asyncio
     async def test_exception_handling(self, tmp_path):

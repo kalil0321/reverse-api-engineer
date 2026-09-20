@@ -127,12 +127,12 @@ def default_model_for_configured_sdk(sdk: str | None = None) -> str:
     """Return the configured default model id for the given SDK (or current config SDK)."""
     s = (sdk or config_manager.get("sdk", "claude") or "claude").lower()
     if s == "opencode":
-        return str(config_manager.get("opencode_model", DEFAULT_OPENCODE_MODEL))
+        return str(config_manager.get("opencode_model") or DEFAULT_OPENCODE_MODEL)
     if s == "copilot":
-        return str(config_manager.get("copilot_model", "gpt-5"))
+        return str(config_manager.get("copilot_model") or "gpt-5")
     if s == "cursor":
-        return str(config_manager.get("cursor_model", "composer-2.5"))
-    return str(config_manager.get("claude_code_model", "claude-sonnet-4-6"))
+        return str(config_manager.get("cursor_model") or "composer-2.5")
+    return str(config_manager.get("claude_code_model") or "claude-sonnet-4-6")
 
 
 async def _load_opencode_catalog_for_settings() -> dict:
@@ -1790,7 +1790,7 @@ def agent(
                 misuse = {"event": "result", **misuse}
             click.echo(json.dumps(misuse))
         else:
-            click.echo("error: --prompt is required when --no-interactive is set", err = True)
+            click.echo("error: --prompt is required when --no-interactive is set", err=True)
         sys.exit(2)
 
     # Either flag must suppress the post-generation follow-up prompt that would
@@ -1861,7 +1861,7 @@ def collector(prompt: str | None, model: str | None, output_dir: str | None) -> 
     """Run AI-powered data collection."""
     if prompt is None:
         if not sys.stdin.isatty():
-            click.echo("error: --prompt is required when stdin is not a TTY", err = True)
+            click.echo("error: --prompt is required when stdin is not a TTY", err=True)
             sys.exit(2)
         options = prompt_interactive_options(
             prompt=None,
@@ -2368,8 +2368,8 @@ def engineer(
             else:
                 click.echo(json.dumps(misuse))
         else:
-            click.echo("Usage: reverse-api-engineer engineer [OPTIONS] RUN_ID", err = True)
-            click.echo("\nError: Missing argument 'RUN_ID'.", err = True)
+            click.echo("Usage: reverse-api-engineer engineer [OPTIONS] RUN_ID", err=True)
+            click.echo("\nError: Missing argument 'RUN_ID'.", err=True)
         sys.exit(2)
 
     # --fresh treats --prompt as a full replacement of the original goal;
