@@ -1766,7 +1766,7 @@ def agent(prompt, url, model, output_dir, no_interactive, as_json, json_stream, 
     interactive = not no_interactive
 
     if not machine_output:
-        run_agent_capture(
+        result = run_agent_capture(
             prompt=prompt,
             url=url,
             model=model,
@@ -1774,6 +1774,8 @@ def agent(prompt, url, model, output_dir, no_interactive, as_json, json_stream, 
             interactive=interactive,
             headless=headless,
         )
+        if isinstance(result, dict) and result.get("error"):
+            sys.exit(1)
         return
 
     from .json_stream import make_json_stream_sink
@@ -2203,7 +2205,13 @@ def run_auto_capture(
             "mode": mode_label,
             "script_path": (result or {}).get("script_path"),
             "usage": (result or {}).get("usage", {}),
-            **({"error": "interrupted"} if interrupted else {}),
+            **(
+                {"error": "interrupted"}
+                if interrupted
+                else {"error": "Agent analysis produced no result. Check the provider error above."}
+                if result is None
+                else {}
+            ),
         }
 
     except Exception as e:

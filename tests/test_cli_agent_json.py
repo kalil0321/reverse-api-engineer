@@ -514,3 +514,29 @@ class TestAgentJsonStdoutPurity:
         assert "noisy" not in stdout
         # The noise landed on stderr instead
         assert "noisy" in result.stderr
+
+
+@pytest.mark.parametrize("output_flag", ["--json", "--json-stream", "--no-interactive"])
+def test_provider_failure_is_not_reported_as_success(tmp_path, output_flag):
+    """Exercise the real capture wrapper, where a failed SDK returns None."""
+    from unittest.mock import AsyncMock
+
+    from reverse_api.config import ConfigManager
+
+    config = ConfigManager(tmp_path / "config.json")
+    config.config.update({"sdk": "claude", "agent_provider": "chrome-mcp", "real_time_sync": False})
+    engine = MagicMock()
+    engine.analyze_and_generate = AsyncMock(return_value=None)
+    with (
+        patch("reverse_api.cli.config_manager", config),
+        patch("reverse_api.cli.session_manager", SessionManager(tmp_path / "history.json")),
+        patch("reverse_api.auto_engineer.ClaudeAutoEngineer", return_value=engine),
+    ):
+        result = CliRunner().invoke(main, ["agent", "-p", "test provider failure", "--headless", "-o", str(tmp_path), output_flag])
+    assert result.exit_code == 1, result.output
+    if output_flag != "--no-interactive":
+        payload = json.loads(result.stdout.strip().splitlines()[-1])
+        assert payload["status"] == "error"
+        assert payload["error_kind"] == "engine_failure"
+        assert payload["script_path"] is None
+    engine.stop_sync.assert_called_once()
