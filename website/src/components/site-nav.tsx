@@ -13,61 +13,63 @@ function GithubIcon({ className }: { className?: string }) {
 
 export function SiteNav() {
   return (
-    <header
-      className="sticky top-0 z-50 backdrop-blur-xl backdrop-saturate-150"
-      style={{ backgroundColor: 'color-mix(in oklch, var(--color-cream) 58%, transparent)' }}
-    >
-      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-10">
-        <Link href="/" className="flex items-baseline gap-1.5 group">
-          <span
-            className="font-display select-none leading-none inline-block italic transition-transform group-hover:rotate-12"
-            style={{
-              fontSize: 22,
-              color: 'var(--color-fd-primary)',
-              fontVariationSettings: "'opsz' 144, 'SOFT' 100, 'WONK' 1",
-            }}
-            aria-hidden="true"
-          >
-            *
-          </span>
-          <span
-            className="font-display text-2xl tracking-[-0.04em] italic text-ink"
-            style={{ fontVariationSettings: "'opsz' 144, 'SOFT' 100, 'WONK' 1" }}
-          >
-            rae
-          </span>
-          <span className="sr-only">reverse-api-engineer</span>
-        </Link>
-        <nav className="flex items-center gap-1 md:gap-6">
-          <Link
-            href="/docs"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-ink-soft hover:text-ink transition-colors"
-            aria-label="Docs"
-          >
-            <BookOpenIcon className="size-4" />
-            <span className="hidden sm:inline">Docs</span>
+    <div className="h-14 shrink-0">
+      <header
+        className="fixed inset-x-0 top-0 z-50 backdrop-blur-xl backdrop-saturate-150"
+        style={{ backgroundColor: 'color-mix(in oklch, var(--color-cream) 58%, transparent)' }}
+      >
+        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-10">
+          <Link href="/" className="flex items-baseline gap-1.5 group">
+            <span
+              className="font-display select-none leading-none inline-block italic transition-transform group-hover:rotate-12"
+              style={{
+                fontSize: 22,
+                color: 'var(--color-fd-primary)',
+                fontVariationSettings: "'opsz' 144, 'SOFT' 100, 'WONK' 1",
+              }}
+              aria-hidden="true"
+            >
+              *
+            </span>
+            <span
+              className="font-display text-2xl tracking-[-0.04em] italic text-ink"
+              style={{ fontVariationSettings: "'opsz' 144, 'SOFT' 100, 'WONK' 1" }}
+            >
+              rae
+            </span>
+            <span className="sr-only">reverse-api-engineer</span>
           </Link>
-          <Link
-            href={pypiUrl}
-            target="_blank"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-ink-soft hover:text-ink transition-colors"
-            aria-label="PyPI"
-          >
-            <PackageIcon className="size-4" />
-            <span className="hidden sm:inline">PyPI</span>
-          </Link>
-          <Link
-            href={githubUrl}
-            target="_blank"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-ink-soft hover:text-ink transition-colors"
-            aria-label="GitHub"
-          >
-            <GithubIcon className="size-4" />
-            <span className="hidden sm:inline">GitHub</span>
-          </Link>
-          <ThemeToggle />
-        </nav>
-      </div>
-    </header>
+          <nav className="flex items-center gap-1 md:gap-6">
+            <Link
+              href="/docs"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-ink-soft hover:text-ink transition-colors"
+              aria-label="Docs"
+            >
+              <BookOpenIcon className="size-4" />
+              <span className="hidden sm:inline">Docs</span>
+            </Link>
+            <Link
+              href={pypiUrl}
+              target="_blank"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-ink-soft hover:text-ink transition-colors"
+              aria-label="PyPI"
+            >
+              <PackageIcon className="size-4" />
+              <span className="hidden sm:inline">PyPI</span>
+            </Link>
+            <Link
+              href={githubUrl}
+              target="_blank"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-ink-soft hover:text-ink transition-colors"
+              aria-label="GitHub"
+            >
+              <GithubIcon className="size-4" />
+              <span className="hidden sm:inline">GitHub</span>
+            </Link>
+            <ThemeToggle />
+          </nav>
+        </div>
+      </header>
+    </div>
   );
 }
