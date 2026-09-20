@@ -604,6 +604,14 @@ class CursorAutoEngineer(CursorEngineer):
                     return last_result
                 turn_prompt = fu
                 self.message_store.save_prompt(turn_prompt)
-        except KeyboardInterrupt:
+        except asyncio.CancelledError as exc:
+            # Keep cancellation semantics for asyncio callers while retaining
+            # the partial result for the CLI, including SIGINT via Runner.
+            exc.partial_result = last_result  # type: ignore[attr-defined]
+            raise
+        except KeyboardInterrupt as exc:
+            if not self.interactive:
+                exc.partial_result = last_result  # type: ignore[attr-defined]
+                raise
             self.ui.console.print("\n  [dim]run aborted[/dim]")
-            return last_result
+            return {**(last_result or {}), "error": "interrupted"}
