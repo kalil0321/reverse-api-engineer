@@ -7,7 +7,7 @@
   - Is exported explicitly via `Export-ModuleMember -Function <Name>` at the bottom of the file. Do not use wildcard export (`Export-ModuleMember -Function *`)
 - HTTP calls use `Invoke-RestMethod` (or `Invoke-WebRequest` only when raw headers/status codes are needed). Never shell out to `curl.exe` or `curl`
 - Session/cookie handling: use `-SessionVariable`/`-WebSession` with `[Microsoft.PowerShell.Commands.WebRequestSession]`, not manual cookie header construction, unless the API requires a cookie value that PowerShell's cookie jar can't express
-- Error handling: every network call wrapped in a `try`/`catch` block with `-ErrorAction Stop` on the call itself. Catch blocks should surface `$_.Exception.Message` and, where the failure is an HTTP error, the response body if retrievable, not swallow the error silently
+- Error handling: every network call wrapped in a `try`/`catch` block with `-ErrorAction Stop` on the call itself. Catch blocks should surface `$_.Exception.Message` and, where the failure is an HTTP error, the response body if retrievable, then rethrow with `throw`; never swallow the error or only call `Write-Error` and continue
 - Use `[PSCustomObject]` for structured return values, not raw hashtables, so downstream `ConvertTo-Json` and property access behave predictably
 - Prefer `ConvertTo-Json`/`ConvertFrom-Json` (built-in) over any third-party JSON handling
 - No `Write-Host` for data output — use `Write-Output`/return values. `Write-Verbose`/`Write-Error` are fine for diagnostics
@@ -26,9 +26,14 @@
 
 Save the module to: `{scripts_dir}/{client_filename}`
 Save documentation to: `{scripts_dir}/README.md`
+The example uses fixed demonstration arguments. CLI argument overrides are not supported; document how to edit the example or import the module and call its functions directly.
+
 Save the example script to: `{scripts_dir}/Example.ps1`, which does:
 ```powershell
-Import-Module "$PSScriptRoot\{client_filename}" -Force
-# example invocation(s) of the exported function(s)
+$ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot '{client_filename}') -Force -ErrorAction Stop
+# Invoke the exported function(s), using valid demonstration arguments.
+# Serialize returned data with ConvertTo-Json -Depth 20.
+# Let terminating errors propagate so pwsh exits nonzero on failure.
 ```
 Do not generate a `.psd1` module manifest.

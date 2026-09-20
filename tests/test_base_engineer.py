@@ -460,7 +460,7 @@ class TestBaseEngineerHelpers:
         agent's cwd is scripts_dir.parent.parent (see analyze_and_generate),
         and api_client.psm1 isn't directly runnable, only importable."""
         eng = self._make_engineer(tmp_path, output_language="powershell")
-        expected_example = shlex.quote(str(eng.scripts_dir.resolve() / "Example.ps1"))
+        expected_example = eng._quote_path(str(eng.scripts_dir.resolve() / "Example.ps1"))
         assert eng._get_run_command() == f"pwsh -NoProfile -File {expected_example}"
 
     def test_get_run_command_powershell_quotes_metacharacters(self, tmp_path):
@@ -468,8 +468,8 @@ class TestBaseEngineerHelpers:
         back to the literal path, not be left open to $()/backtick
         expansion — what the naive f'"{path}"' approach got wrong."""
         eng = self._make_engineer(tmp_path, output_language="powershell")
-        eng.scripts_dir = Path("/tmp/weird$(rm -rf ~) dir")
-        tokens = shlex.split(eng._get_run_command())
+        eng.scripts_dir = tmp_path / "weird$(marker) dir"
+        tokens = _split_run_command(eng._get_run_command())
         assert tokens[:3] == ["pwsh", "-NoProfile", "-File"]
         assert tokens[3] == str(eng.scripts_dir.resolve() / "Example.ps1")
 
@@ -481,7 +481,7 @@ class TestBaseEngineerHelpers:
         location."""
         eng = self._make_engineer(tmp_path, output_language="powershell")
         eng.scripts_dir = Path("relative_output/scripts/run123")
-        tokens = shlex.split(eng._get_run_command())
+        tokens = _split_run_command(eng._get_run_command())
         example_arg = tokens[3]
         assert Path(example_arg).is_absolute()
         assert example_arg == str(eng.scripts_dir.resolve() / "Example.ps1")

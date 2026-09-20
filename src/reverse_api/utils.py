@@ -831,12 +831,18 @@ def build_script_commands(script: Path, script_args: tuple[str, ...] = ()) -> tu
         compile_cmd += ["-lcurl", "-o", str(binary)]
         return [compile_cmd, [str(binary), *script_args]], "cc"
     if suffix == ".psm1":
-        # A .psm1 is a module, not a runnable entry point — like Java/C#'s
-        # pom.xml/csproj, the actual command targets a fixed companion file
-        # (Example.ps1) that Imports the module and calls its exported
-        # functions, not the script argument itself.
+        # The generated example is bound to api_client.psm1, not an arbitrary module.
+        if script.name != "api_client.psm1":
+            raise ValueError("PowerShell execution only supports api_client.psm1 with its companion Example.ps1")
+        if script_args:
+            raise ValueError(
+                "script arguments are not supported for PowerShell clients: "
+                "edit Example.ps1 or import api_client.psm1 and call its exported functions directly"
+            )
         example = d / "Example.ps1"
-        return [["pwsh", "-NoProfile", "-File", str(example), *script_args]], "pwsh"
+        if not example.is_file():
+            raise ValueError(f"cannot run {script.name}: companion Example.ps1 is missing")
+        return [["pwsh", "-NoProfile", "-File", str(example)]], "pwsh"
     raise ValueError(f"unsupported script type: {script.name}")
 
 

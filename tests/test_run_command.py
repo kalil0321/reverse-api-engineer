@@ -817,9 +817,10 @@ class TestBuildScriptCommands:
     def test_powershell(self, tmp_path):
         from reverse_api.utils import build_script_commands
         script = tmp_path / "api_client.psm1"
-        steps, tool = build_script_commands(script, ("--flag",))
+        (tmp_path / "Example.ps1").write_text("", encoding="utf-8")
+        steps, tool = build_script_commands(script)
         example = str(tmp_path / "Example.ps1")
-        assert steps == [["pwsh", "-NoProfile", "-File", example, "--flag"]]
+        assert steps == [["pwsh", "-NoProfile", "-File", example]]
         assert tool == "pwsh"
 
     def test_unsupported_extension_raises(self, tmp_path):
