@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- Refresh vulnerable website transitive dependencies, including js-yaml, nanoid, undici, brace-expansion and Miniflare's Sharp dependency, with patched lockfile versions and overrides.
 - Upgrade the website to Next.js 16.3.3 and its Sharp image-processing dependency to 0.35.4 to address known vulnerabilities.
 
 ### Added
