@@ -1,0 +1,81 @@
+name: Deploy website
+
+on:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'website/**'
+      - '.github/workflows/website.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: website-${{ github.ref }}
+  # Finish production deployments; replace outdated previews on the same branch.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  deploy:
+    name: Build and deploy
+    if: github.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      deployments: write
+    defaults:
+      run:
+        working-directory: website
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      WRANGLER_SEND_METRICS: 'false'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.17.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: website/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build static site
+        run: pnpm build
+
+      - name: Deploy to Cloudflare Pages
+        id: deploy
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          workingDirectory: website
+          # Wrangler reads the checked-out branch: main is production,
+          # every other branch gets a preview in the same Pages project.
+          command: pages deploy out --project-name=reverse-api-engineer
+
+      - name: Add deployment links to summary
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-url }}
+          BRANCH_URL: ${{ steps.deploy.outputs.pages-deployment-alias-url }}
+        run: |
+          printf '### Website deployment\n\n' >> "$GITHUB_STEP_SUMMARY"
+          printf '[Open deployment](%s)\n' "$DEPLOYMENT_URL" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$BRANCH_URL" ]; then
+            printf '\n[Open branch preview](%s)\n' "$BRANCH_URL" >> "$GITHUB_STEP_SUMMARY"
+          fi
