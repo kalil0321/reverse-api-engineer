@@ -2186,12 +2186,17 @@ def run_auto_capture(
         engineer.start_sync()
 
         interrupted = False
+        cancelled = False
         try:
             result = asyncio.run(engineer.analyze_and_generate())
             interrupted = isinstance(result, dict) and result.get("error") == "interrupted"
-        except (KeyboardInterrupt, asyncio.CancelledError):
-            result = None
+        except KeyboardInterrupt as exc:
+            result = getattr(exc.__context__, "partial_result", None)
             interrupted = True
+            console.print("\n  [dim]run aborted[/dim]")
+        except asyncio.CancelledError as exc:
+            result = getattr(exc, "partial_result", None)
+            cancelled = True
         finally:
             # Always stop sync when done
             engineer.stop_sync()
@@ -2212,6 +2217,8 @@ def run_auto_capture(
             **(
                 {"error": "interrupted"}
                 if interrupted
+                else {"error": "Agent analysis cancelled."}
+                if cancelled
                 else {"error": "Agent analysis produced no result."}
                 if result is None
                 else {}

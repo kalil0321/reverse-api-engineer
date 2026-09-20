@@ -595,7 +595,15 @@ def test_provider_interrupt_output_modes(tmp_path, monkeypatch, sdk, output_flag
         if output_flag:
             args.append(output_flag)
         result = CliRunner().invoke(main, args)
-    if output_flag is None:
+    if interrupt_type is asyncio.CancelledError:
+        assert result.exit_code == 1, result.output
+        if output_flag in ("--json", "--json-stream"):
+            payload = json.loads(result.stdout.strip().splitlines()[-1])
+            assert payload["status"] == "error"
+            assert payload["error"] == "Agent analysis cancelled."
+        else:
+            assert "Agent analysis cancelled." in result.stderr
+    elif output_flag is None:
         assert result.exit_code == 0, result.output
         assert "run aborted" in result.output
         assert "produced no result" not in result.output
