@@ -7,7 +7,7 @@ from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 
-from .theme import MODE_COLORS, THEME_DIM, THEME_PRIMARY, THEME_SUCCESS
+from .theme import THEME_DIM, THEME_PRIMARY
 from .tui import ERROR_CTA, print_session_header
 
 

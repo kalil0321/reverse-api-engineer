@@ -67,7 +67,7 @@ class TestCollectorRun:
     @pytest.mark.asyncio
     async def test_run_success(self, tmp_path):
         """Run executes agent loop and finalizes."""
-        with patch("reverse_api.collector.MessageStore") as mock_ms:
+        with patch("reverse_api.collector.MessageStore"):
             with patch("reverse_api.collector.CollectorUI") as mock_ui_cls:
                 mock_ui = MagicMock()
                 mock_ui_cls.return_value = mock_ui
@@ -144,7 +144,7 @@ class TestCollectorAgentLoop:
     @pytest.mark.asyncio
     async def test_agent_loop_exception(self, tmp_path):
         """Agent loop handles SDK exception."""
-        with patch("reverse_api.collector.MessageStore") as mock_ms:
+        with patch("reverse_api.collector.MessageStore"):
             with patch("reverse_api.collector.CollectorUI") as mock_ui_cls:
                 mock_ui = MagicMock()
                 mock_ui_cls.return_value = mock_ui
@@ -169,7 +169,7 @@ class TestCollectorAgentLoop:
     @pytest.mark.asyncio
     async def test_agent_loop_result_error(self, tmp_path):
         """Agent loop handles ResultMessage with error."""
-        with patch("reverse_api.collector.MessageStore") as mock_ms:
+        with patch("reverse_api.collector.MessageStore"):
             with patch("reverse_api.collector.CollectorUI") as mock_ui_cls:
                 mock_ui = MagicMock()
                 mock_ui_cls.return_value = mock_ui
@@ -208,7 +208,7 @@ class TestCollectorAgentLoop:
     @pytest.mark.asyncio
     async def test_agent_loop_result_success(self, tmp_path):
         """Agent loop handles ResultMessage with success."""
-        with patch("reverse_api.collector.MessageStore") as mock_ms:
+        with patch("reverse_api.collector.MessageStore"):
             with patch("reverse_api.collector.CollectorUI") as mock_ui_cls:
                 mock_ui = MagicMock()
                 mock_ui_cls.return_value = mock_ui
@@ -246,7 +246,7 @@ class TestCollectorAgentLoop:
     @pytest.mark.asyncio
     async def test_agent_loop_assistant_message_with_tools(self, tmp_path):
         """Agent loop processes AssistantMessage with ToolUseBlock, ToolResultBlock, TextBlock."""
-        with patch("reverse_api.collector.MessageStore") as mock_ms:
+        with patch("reverse_api.collector.MessageStore"):
             with patch("reverse_api.collector.CollectorUI") as mock_ui_cls:
                 mock_ui = MagicMock()
                 mock_ui_cls.return_value = mock_ui
@@ -311,7 +311,7 @@ class TestCollectorAgentLoop:
     @pytest.mark.asyncio
     async def test_agent_loop_write_items_tracking(self, tmp_path):
         """Agent loop tracks Write to items.jsonl."""
-        with patch("reverse_api.collector.MessageStore") as mock_ms:
+        with patch("reverse_api.collector.MessageStore"):
             with patch("reverse_api.collector.CollectorUI") as mock_ui_cls:
                 mock_ui = MagicMock()
                 mock_ui_cls.return_value = mock_ui
@@ -362,7 +362,7 @@ class TestCollectorAgentLoop:
     @pytest.mark.asyncio
     async def test_agent_loop_usage_tracking(self, tmp_path):
         """Agent loop accumulates usage metadata."""
-        with patch("reverse_api.collector.MessageStore") as mock_ms:
+        with patch("reverse_api.collector.MessageStore"):
             with patch("reverse_api.collector.CollectorUI") as mock_ui_cls:
                 mock_ui = MagicMock()
                 mock_ui_cls.return_value = mock_ui
@@ -412,7 +412,7 @@ class TestCollectorAgentLoop:
     @pytest.mark.asyncio
     async def test_agent_loop_no_result_returns_success(self, tmp_path):
         """Agent loop returns success when no ResultMessage (line 186)."""
-        with patch("reverse_api.collector.MessageStore") as mock_ms:
+        with patch("reverse_api.collector.MessageStore"):
             with patch("reverse_api.collector.CollectorUI") as mock_ui_cls:
                 mock_ui = MagicMock()
                 mock_ui_cls.return_value = mock_ui
@@ -594,7 +594,7 @@ class TestCollectorFinalizeCollection:
     def test_finalize_no_items(self, tmp_path):
         """Finalize with no items returns error."""
         with patch("reverse_api.collector.MessageStore"):
-            with patch("reverse_api.collector.CollectorUI") as mock_ui:
+            with patch("reverse_api.collector.CollectorUI"):
                 collector = Collector(
                     run_id="test123",
                     prompt="test",
@@ -623,7 +623,7 @@ class TestCollectorFinalizeCollection:
 
     def test_finalize_with_items(self, tmp_path):
         """Finalize with items creates all output files."""
-        with patch("reverse_api.collector.MessageStore") as mock_ms:
+        with patch("reverse_api.collector.MessageStore"):
             with patch("reverse_api.collector.CollectorUI") as mock_ui_cls:
                 mock_ui = MagicMock()
                 mock_ui_cls.return_value = mock_ui
@@ -653,7 +653,7 @@ class TestCollectorFinalizeCollection:
 
     def test_finalize_with_usage(self, tmp_path):
         """Finalize calculates cost from usage."""
-        with patch("reverse_api.collector.MessageStore") as mock_ms:
+        with patch("reverse_api.collector.MessageStore"):
             with patch("reverse_api.collector.CollectorUI") as mock_ui_cls:
                 mock_ui = MagicMock()
                 mock_ui_cls.return_value = mock_ui
@@ -673,7 +673,7 @@ class TestCollectorFinalizeCollection:
                 with open(tmp_path / "items.jsonl", "w") as f:
                     f.write(json.dumps({"name": "test"}) + "\n")
 
-                result = collector._finalize_collection()
+                collector._finalize_collection()
                 assert "estimated_cost_usd" in collector.usage_metadata
 
     def test_finalize_with_cache_usage(self, tmp_path):
@@ -699,7 +699,7 @@ class TestCollectorFinalizeCollection:
                 with open(tmp_path / "items.jsonl", "w") as f:
                     f.write(json.dumps({"name": "test"}) + "\n")
 
-                result = collector._finalize_collection()
+                collector._finalize_collection()
                 assert collector.usage_metadata["estimated_cost_usd"] > 0
 
     def test_finalize_skips_invalid_json_lines(self, tmp_path):

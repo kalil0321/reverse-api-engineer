@@ -2,11 +2,9 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from reverse_api.pricing import (
-    MODEL_PRICING,
     _LITELLM_MODEL_MAP,
+    MODEL_PRICING,
     _get_pricing_from_litellm,
     calculate_cost,
     get_model_pricing,
@@ -184,7 +182,7 @@ class TestLitellmModelMap:
 
     def test_map_values_are_lists(self):
         """Each map entry is a list of alternative names."""
-        for key, value in _LITELLM_MODEL_MAP.items():
+        for value in _LITELLM_MODEL_MAP.values():
             assert isinstance(value, list)
             assert len(value) >= 1
 

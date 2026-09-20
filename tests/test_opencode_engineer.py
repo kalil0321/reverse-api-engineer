@@ -9,7 +9,6 @@ import httpx2 as httpx
 import pytest
 
 from reverse_api.opencode_engineer import (
-    DEBUG,
     OpenCodeEngineer,
     debug_log,
     format_error,
@@ -748,7 +747,8 @@ class TestOpenCodeEngineerStreamEvents:
         eng = self._make_engineer(tmp_path)
 
         lines = [
-            'data: {"type":"session.error","properties":{"sessionID":"session_abc","error":{"name":"ProviderAuthError","data":{"providerID":"anthropic","message":"Invalid API key"}}}}',
+            'data: {"type":"session.error","properties":{"sessionID":"session_abc",'
+            '"error":{"name":"ProviderAuthError","data":{"providerID":"anthropic","message":"Invalid API key"}}}}',
         ]
 
         mock_response = AsyncMock()
@@ -777,7 +777,8 @@ class TestOpenCodeEngineerStreamEvents:
         eng = self._make_engineer(tmp_path)
 
         lines = [
-            'data: {"type":"session.error","properties":{"sessionID":"session_abc","error":{"name":"APIError","data":{"message":"Rate limited","statusCode":429}}}}',
+            'data: {"type":"session.error","properties":{"sessionID":"session_abc",'
+            '"error":{"name":"APIError","data":{"message":"Rate limited","statusCode":429}}}}',
         ]
 
         mock_response = AsyncMock()
@@ -1004,8 +1005,6 @@ class TestOpenCodeEngineerStreamEvents:
         eng = self._make_engineer(tmp_path)
 
         # Patch json.loads to raise JSONDecodeError with buffer size in message
-        original_loads = json.loads
-
         def mock_loads(s, *args, **kwargs):
             raise json.JSONDecodeError("exceeded maximum buffer size 1048576", s, 0)
 
