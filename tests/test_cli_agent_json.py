@@ -561,6 +561,7 @@ def test_provider_interrupt_output_modes(tmp_path, monkeypatch, sdk, output_flag
     config = ConfigManager(tmp_path / "config.json")
     config.config.update({"sdk": sdk, "agent_provider": "chrome-mcp", "real_time_sync": False})
     monkeypatch.setenv("CURSOR_API_KEY", "test-only")
+    SessionManager(tmp_path / "history.json").add_run("older-run", "previous prompt")
     with ExitStack() as stack:
         stack.enter_context(patch("reverse_api.cli.config_manager", config))
         stack.enter_context(patch("reverse_api.cli.session_manager", SessionManager(tmp_path / "history.json")))
@@ -610,4 +611,4 @@ def test_provider_interrupt_output_modes(tmp_path, monkeypatch, sdk, output_flag
 
     if after_result:
         history = json.loads((tmp_path / "history.json").read_text())
-        assert history[-1]["paths"]["script_path"]
+        assert history[0]["paths"]["script_path"]
