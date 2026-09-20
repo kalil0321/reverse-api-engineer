@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -16,15 +18,56 @@ from .tui import ClaudeUI
 
 _BRIDGE_DIR = Path(__file__).resolve().parent / "cursor_bridge"
 _BRIDGE_SCRIPT = _BRIDGE_DIR / "run.mjs"
+_BRIDGE_LOCKFILE = _BRIDGE_DIR / "package-lock.json"
 _SDK_MARKER = _BRIDGE_DIR / "node_modules" / "@cursor" / "sdk"
+_BRIDGE_INSTALL_STAMP = _BRIDGE_DIR / "node_modules" / ".rae-package-lock.sha256"
+_MIN_CURSOR_NODE_VERSION = (22, 13, 0)
+
+
+def _bridge_lock_digest() -> str:
+    return hashlib.sha256(_BRIDGE_LOCKFILE.read_bytes()).hexdigest()
+
+
+def _cursor_node_version_error() -> str | None:
+    node = shutil.which("node")
+    if not node:
+        return "node not found in PATH (Cursor SDK requires Node.js 22.13+)"
+    try:
+        result = subprocess.run(
+            [node, "--version"],
+            check=True,
+            timeout=10,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        return f"failed to check Node.js version (Cursor SDK requires Node.js 22.13+): {e}"
+    raw_version = result.stdout.strip()
+    match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?", raw_version)
+    if not match:
+        return f"could not parse Node.js version {raw_version!r} (Cursor SDK requires Node.js 22.13+)"
+    version = tuple(int(part) for part in match.groups())
+    if version < _MIN_CURSOR_NODE_VERSION:
+        return f"Cursor SDK requires Node.js 22.13+; found Node.js {raw_version.lstrip('v')}"
+    return None
 
 
 def _ensure_cursor_bridge_deps() -> str | None:
     """Install npm dependencies for the bridge if missing. Returns error message or None."""
     if not _BRIDGE_SCRIPT.is_file():
         return "cursor bridge script missing (package incomplete)"
+    if node_error := _cursor_node_version_error():
+        return node_error
+    try:
+        lock_digest = _bridge_lock_digest()
+    except OSError as e:
+        return f"cursor bridge package-lock.json unavailable: {e}"
     if _SDK_MARKER.is_dir():
-        return None
+        try:
+            if _BRIDGE_INSTALL_STAMP.read_text().strip() == lock_digest:
+                return None
+        except OSError:
+            pass
     npm = shutil.which("npm")
     if not npm:
         return "npm not found in PATH (required to install @cursor/sdk for sdk=cursor)"
@@ -44,6 +87,10 @@ def _ensure_cursor_bridge_deps() -> str | None:
         return f"npm install in cursor_bridge failed: {e}"
     if not _SDK_MARKER.is_dir():
         return "@cursor/sdk did not install under cursor_bridge/node_modules"
+    try:
+        _BRIDGE_INSTALL_STAMP.write_text(f"{_bridge_lock_digest()}\n")
+    except OSError as e:
+        return f"failed to record cursor bridge dependency state: {e}"
     return None
 
 
@@ -365,7 +412,7 @@ class CursorEngineer(BaseEngineer):
         if dep_err:
             self.ui.error(dep_err)
             self.message_store.save_error(dep_err)
-            self.ui.console.print("\n[dim]Set CURSOR_API_KEY and ensure Node.js 18+ and npm are installed.[/dim]")
+            self.ui.console.print("\n[dim]Set CURSOR_API_KEY and ensure Node.js 22.13+ and npm are installed.[/dim]")
             return None
 
         if not os.environ.get("CURSOR_API_KEY"):

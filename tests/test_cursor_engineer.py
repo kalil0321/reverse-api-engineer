@@ -1,5 +1,6 @@
 """Tests for Cursor SDK bridge integration (mocked, no real API calls)."""
 
+import hashlib
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -99,6 +100,117 @@ def test_ensure_bridge_missing_script(tmp_path: Path, monkeypatch: pytest.Monkey
     monkeypatch.setattr(ce, "_BRIDGE_SCRIPT", tmp_path / "nonexistent.mjs")
     err = _ensure_cursor_bridge_deps()
     assert err is not None
+
+
+def _mock_bridge_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    import reverse_api.cursor_engineer as ce
+
+    bridge = tmp_path / "cursor_bridge"
+    marker = bridge / "node_modules" / "@cursor" / "sdk"
+    stamp = bridge / "node_modules" / ".rae-package-lock.sha256"
+    marker.mkdir(parents=True)
+    (bridge / "run.mjs").write_text("")
+    (bridge / "package-lock.json").write_text('{"lockfileVersion":3}\n')
+    monkeypatch.setattr(ce, "_BRIDGE_DIR", bridge)
+    monkeypatch.setattr(ce, "_BRIDGE_SCRIPT", bridge / "run.mjs")
+    monkeypatch.setattr(ce, "_BRIDGE_LOCKFILE", bridge / "package-lock.json")
+    monkeypatch.setattr(ce, "_SDK_MARKER", marker)
+    monkeypatch.setattr(ce, "_BRIDGE_INSTALL_STAMP", stamp)
+    monkeypatch.setattr(ce, "_cursor_node_version_error", lambda: None)
+    return bridge, stamp
+
+
+@pytest.mark.parametrize("version", ["v22.13.0", "v23.0.0", "v25.8.2"])
+def test_cursor_node_version_accepts_supported_versions(
+    version: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import reverse_api.cursor_engineer as ce
+
+    monkeypatch.setattr(ce.shutil, "which", lambda _: "/usr/bin/node")
+    with patch.object(ce.subprocess, "run", return_value=MagicMock(stdout=f"{version}\n")):
+        assert ce._cursor_node_version_error() is None
+
+
+@pytest.mark.parametrize("version", ["v18.17.0", "v22.12.9"])
+def test_cursor_node_version_rejects_unsupported_versions(
+    version: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import reverse_api.cursor_engineer as ce
+
+    monkeypatch.setattr(ce.shutil, "which", lambda _: "/usr/bin/node")
+    with patch.object(ce.subprocess, "run", return_value=MagicMock(stdout=f"{version}\n")):
+        error = ce._cursor_node_version_error()
+
+    assert error is not None
+    assert "requires Node.js 22.13+" in error
+    assert version.lstrip("v") in error
+
+
+def test_cursor_node_version_reports_missing_node(monkeypatch: pytest.MonkeyPatch) -> None:
+    import reverse_api.cursor_engineer as ce
+
+    monkeypatch.setattr(ce.shutil, "which", lambda _: None)
+    assert ce._cursor_node_version_error() == (
+        "node not found in PATH (Cursor SDK requires Node.js 22.13+)"
+    )
+
+
+def test_ensure_bridge_rejects_unsupported_node_before_current_fast_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import reverse_api.cursor_engineer as ce
+
+    bridge, stamp = _mock_bridge_paths(tmp_path, monkeypatch)
+    digest = hashlib.sha256((bridge / "package-lock.json").read_bytes()).hexdigest()
+    stamp.write_text(f"{digest}\n")
+    monkeypatch.setattr(
+        ce,
+        "_cursor_node_version_error",
+        lambda: "Cursor SDK requires Node.js 22.13+; found Node.js 22.12.9",
+    )
+
+    with patch.object(ce.subprocess, "run") as run:
+        error = _ensure_cursor_bridge_deps()
+
+    assert error == "Cursor SDK requires Node.js 22.13+; found Node.js 22.12.9"
+    run.assert_not_called()
+
+
+def test_ensure_bridge_skips_install_when_lock_stamp_matches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bridge, stamp = _mock_bridge_paths(tmp_path, monkeypatch)
+    digest = hashlib.sha256((bridge / "package-lock.json").read_bytes()).hexdigest()
+    stamp.write_text(f"{digest}\n")
+
+    with patch("reverse_api.cursor_engineer.subprocess.run") as run:
+        assert _ensure_cursor_bridge_deps() is None
+
+    run.assert_not_called()
+
+
+@pytest.mark.parametrize("stamp_value", [None, "stale\n"], ids=["missing", "stale"])
+def test_ensure_bridge_reinstalls_when_lock_stamp_is_not_current(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stamp_value: str | None
+) -> None:
+    bridge, stamp = _mock_bridge_paths(tmp_path, monkeypatch)
+    if stamp_value is not None:
+        stamp.write_text(stamp_value)
+    monkeypatch.setattr("reverse_api.cursor_engineer.shutil.which", lambda _: "/usr/bin/npm")
+
+    with patch("reverse_api.cursor_engineer.subprocess.run") as run:
+        assert _ensure_cursor_bridge_deps() is None
+
+    run.assert_called_once_with(
+        ["/usr/bin/npm", "install", "--no-fund", "--no-audit"],
+        cwd=str(bridge),
+        check=True,
+        timeout=600,
+        capture_output=True,
+        text=True,
+    )
+    expected = hashlib.sha256((bridge / "package-lock.json").read_bytes()).hexdigest()
+    assert stamp.read_text().strip() == expected
 
 
 def test_cursor_stream_buffers_merge_assistant(tmp_path: Path) -> None:
