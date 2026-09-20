@@ -7,24 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Compatibility
-- The secured cryptography dependency no longer supports Intel macOS or 32-bit Windows. Use Linux (including on Intel hardware), Apple Silicon macOS, or 64-bit Windows. Installing on the retired platforms may attempt an unsupported source build requiring Rust and OpenSSL development tools; this is not a supported installation path. Do not downgrade cryptography to restore old wheels. See the [upstream platform changes](https://cryptography.io/en/latest/changelog/#v49-0-0).
-- Click now requires version 8.3.3 or newer to fix [PYSEC-2026-2132](https://osv.dev/vulnerability/PYSEC-2026-2132). LiteLLM releases that pin `click==8.1.8` (including 1.83.7) cannot share an environment with this release. Use RAE's built-in pricing, run such LiteLLM releases in a separate environment, or select a LiteLLM release whose requirements allow the patched Click version. Optional LiteLLM pricing detection remains available only when its dependencies are compatible; do not downgrade Click to enable it.
+### Security
+- Refresh vulnerable website transitive dependencies, including js-yaml, nanoid, undici, brace-expansion and Miniflare's Sharp dependency, with patched lockfile versions and overrides.
+- Upgrade the website to Next.js 16.3.3 and its Sharp image-processing dependency to 0.35.4 to address known vulnerabilities.
 
 ### Added
 - **PowerShell 7+ output**: generate an `api_client.psm1` module and `Example.ps1`, with CLI execution through `pwsh` on Windows, macOS, and Linux.
 - **Live client validation**: an opt-in local test captures a fixture API, generates a Python or PowerShell client with a verified free OpenCode model, and checks fresh API data on replay. The manual `live_windows` CI option validates both languages using preinstalled Chrome and cached Python/npm dependencies, without downloading Chromium. Regular CI requires real PowerShell execution and CLI startup checks across all three operating systems.
 
 ### Fixed
-- Report agent provider runs that produce no result as failures: JSON/NDJSON emits an error result, and plain output prints the error to stderr; all exit with code 1. Preserve Claude/Cursor Ctrl+C as `interrupted` in non-interactive mode. Interactive Ctrl+C keeps exit code 0 and any completed partial result, including when the signal cancels an asyncio task. Programmatic cancellations propagate to asyncio callers and produce a CLI failure with exit code 1, while preserving partial results.
-- Raise security minimums to Click >=8.3.3, aiohttp >=3.14.3, cryptography >=50.0.0, AnyIO >=4.14.2, PyJWT >=2.13.0, python-multipart >=0.0.31, Starlette >=1.3.1, HTTPX2 >=2.12.0 (which requires the patched HTTPCore2), and Markdownify >=0.14.1 / SoupSieve >=2.9.0 (collector extra). Export these floors in package metadata so upgrades cannot retain vulnerable versions that only the repository lockfile excluded.
+- Keep the website header pinned to the viewport during rapid scrolling on the homepage and documentation pages, while preserving the content offset. Add browser regression coverage to the website deployment workflow.
 - **PowerShell execution validation**: reject unsupported module names, missing `Example.ps1`, and script arguments that the example cannot forward, rather than silently running a different command. Generation instructions require portable module imports and terminating errors so failed API calls produce a nonzero exit status.
 - Refresh the locked Claude Agent SDK and MCP dependencies so the development environment also uses MCP 2.x and `httpx2`, without the legacy `httpx`, `httpx-sse`, and `httpcore` packages. Add subprocess smoke tests for CLI startup with legacy HTTP client imports blocked.
 - Restore the strict typing fixes from #125 and make the `mypy` CI job blocking. The original PR landed on an intermediate branch after its promotion PR had already merged, so the changes had not reached main.
+- Raise security minimums to Click >=8.3.3, aiohttp >=3.14.3, cryptography >=50.0.0, AnyIO >=4.14.2, PyJWT >=2.13.0, python-multipart >=0.0.31, Starlette >=1.3.1, HTTPX2 >=2.12.0 (which requires the patched HTTPCore2), and Markdownify >=0.14.1 / SoupSieve >=2.9.0 (collector extra). Export these floors in package metadata so upgrades cannot retain vulnerable versions that only the repository lockfile excluded.
+- Report agent provider runs that produce no result as failures: JSON/NDJSON emits an error result, and plain output prints the error to stderr; all exit with code 1. Preserve Claude/Cursor Ctrl+C as `interrupted` in non-interactive mode. Interactive Ctrl+C keeps exit code 0 and any completed partial result, including when the signal cancels an asyncio task. Programmatic cancellations propagate to asyncio callers and produce a CLI failure with exit code 1, while preserving partial results.
 
-### Security
-- Refresh vulnerable website transitive dependencies, including js-yaml, nanoid, undici, brace-expansion and Miniflare's Sharp dependency, with patched lockfile versions and overrides.
-- Upgrade the website to Next.js 16.3.3 and its Sharp image-processing dependency to 0.35.4 to address known vulnerabilities.
+### Compatibility
+- The secured cryptography dependency no longer supports Intel macOS or 32-bit Windows. Use Linux (including on Intel hardware), Apple Silicon macOS, or 64-bit Windows. Installing on the retired platforms may attempt an unsupported source build requiring Rust and OpenSSL development tools; this is not a supported installation path. Do not downgrade cryptography to restore old wheels. See the [upstream platform changes](https://cryptography.io/en/latest/changelog/#v49-0-0).
+- Click now requires version 8.3.3 or newer to fix [PYSEC-2026-2132](https://osv.dev/vulnerability/PYSEC-2026-2132). LiteLLM releases that pin `click==8.1.8` (including 1.83.7) cannot share an environment with this release. Use RAE's built-in pricing, run such LiteLLM releases in a separate environment, or select a LiteLLM release whose requirements allow the patched Click version. Optional LiteLLM pricing detection remains available only when its dependencies are compatible; do not downgrade Click to enable it.
 
 ## [0.13.1] - 2026-08-30
 
