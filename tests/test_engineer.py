@@ -578,6 +578,8 @@ class TestClaudeEngineerAnalyzeAndGenerate:
         ("file content", "file content"),
         ([{"type": "text", "text": "file content"}], "file content"),
         ([{"type": "text", "text": "first"}, {"type": "text", "text": "second"}], "first\nsecond"),
+        ([{"type": "text", "text": None}], "{'type': 'text', 'text': None}"),
+        ([{"type": "text"}], "{'type': 'text'}"),
         ("", ""),
         ([], ""),
         (0, "0"),

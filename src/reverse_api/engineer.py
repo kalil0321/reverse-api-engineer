@@ -197,7 +197,7 @@ class ClaudeEngineer(BaseEngineer):
                         if isinstance(output, list):
                             output_text = "\n".join(
                                 str(item["text"])
-                                if isinstance(item, dict) and item.get("type") == "text" and "text" in item
+                                if isinstance(item, dict) and item.get("type") == "text" and isinstance(item.get("text"), str)
                                 else str(item)
                                 for item in output
                             )
