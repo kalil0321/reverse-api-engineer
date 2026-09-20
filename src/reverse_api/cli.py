@@ -1775,10 +1775,10 @@ def agent(prompt, url, model, output_dir, no_interactive, as_json, json_stream, 
             interactive=interactive,
             headless=headless,
         )
-        if isinstance(result, dict) and result.get("error"):
+        if isinstance(result, dict) and "error" in result:
             if interactive and result["error"] == "interrupted":
                 return
-            click.echo(f"error: {result['error']}", err=True)
+            click.echo(f"error: {result['error'] or 'Agent analysis failed.'}", err=True)
             sys.exit(1)
         return
 
@@ -2227,7 +2227,7 @@ def run_auto_capture(
         }
 
     except Exception as e:
-        console.print(f" [red]auto mode error: {escape(str(e))}[/red]")
+        console.print(f" [red]auto mode error: {escape(str(e) or type(e).__name__)}[/red]")
         console.print(f" [dim]{ERROR_CTA}[/dim]")
         import traceback
 
@@ -2237,7 +2237,7 @@ def run_auto_capture(
             "mode": mode_label,
             "script_path": None,
             "usage": {},
-            "error": str(e),
+            "error": str(e) or type(e).__name__,
         }
 
 

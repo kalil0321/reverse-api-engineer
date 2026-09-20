@@ -284,9 +284,9 @@ class ClaudeAutoEngineer(ClaudeEngineer):
             exc.partial_result = last_result  # type: ignore[attr-defined]
             raise
         except KeyboardInterrupt:
-            self.ui.console.print("\n  [dim]run aborted[/dim]")
             if not self.interactive:
                 raise
+            self.ui.console.print("\n  [dim]run aborted[/dim]")
             return {**(last_result or {}), "error": "interrupted"}
 
         except Exception as e:

@@ -617,6 +617,36 @@ def test_provider_interrupt_output_modes(tmp_path, monkeypatch, sdk, output_flag
             assert payload["error_kind"] == "interrupted"
             assert payload["error"] == "interrupted"
 
+    if interrupt_type is KeyboardInterrupt:
+        assert result.output.count("run aborted") == 1
+
     if after_result:
         history = json.loads((tmp_path / "history.json").read_text())
         assert history[0]["paths"]["script_path"]
+
+
+@pytest.mark.parametrize("error_type", [Exception, TimeoutError])
+@pytest.mark.parametrize("output_flag", [None, "--json", "--json-stream", "--no-interactive"])
+def test_empty_provider_exception_is_failure(tmp_path, error_type, output_flag):
+    from reverse_api.config import ConfigManager
+
+    config = ConfigManager(tmp_path / "config.json")
+    config.config.update({"sdk": "claude", "agent_provider": "chrome-mcp", "real_time_sync": False})
+    engine = MagicMock()
+    engine.start_sync.side_effect = error_type()
+    with (
+        patch("reverse_api.cli.config_manager", config),
+        patch("reverse_api.cli.session_manager", SessionManager(tmp_path / "history.json")),
+        patch("reverse_api.auto_engineer.ClaudeAutoEngineer", return_value=engine),
+    ):
+        args = ["agent", "-p", "test empty failure", "--headless", "-o", str(tmp_path)]
+        if output_flag:
+            args.append(output_flag)
+        result = CliRunner().invoke(main, args)
+    assert result.exit_code == 1, result.output
+    if output_flag in ("--json", "--json-stream"):
+        payload = json.loads(result.stdout.strip().splitlines()[-1])
+        assert payload["status"] == "error"
+        assert payload["error"] == error_type.__name__
+    else:
+        assert f"error: {error_type.__name__}" in result.stderr
