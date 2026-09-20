@@ -54,11 +54,11 @@ dependencies = [
     "aiohttp>=3.14.3",
     "pygments>=2.20.0",
     "cryptography>=50.0.0",
-    "httpx2>=2.5.0",
+    "httpx2>=2.12.0",
     # Security floors must reach pip/uv consumers, which do not use uv.lock.
     "anyio>=4.14.2",
     "PyJWT>=2.13.0",
-    "python-multipart>=0.0.30",
+    "python-multipart>=0.0.31",
     "starlette>=1.3.1",
 ]
 
@@ -71,7 +71,7 @@ manual = [
     "playwright-stealth>=1.0.0",
 ]
 collector = [
-    "markdownify>=0.12.0",
+    "markdownify>=0.14.1",
     "beautifulsoup4>=4.12.0",
     "soupsieve>=2.9.0",
 ]

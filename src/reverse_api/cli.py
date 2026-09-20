@@ -1272,6 +1272,7 @@ def _handle_settings_action(mode_color=THEME_PRIMARY) -> bool:  # noqa: C901 —
             Choice(title="php", value="php"),
             Choice(title="ruby", value="ruby"),
             Choice(title="c", value="c"),
+            Choice(title="powershell", value="powershell"),
             Choice(title="back", value="back"),
         ]
         lang = questionary.select(
