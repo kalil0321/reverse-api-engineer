@@ -12,6 +12,7 @@ from typing import Any
 import questionary
 
 from .messages import MessageStore
+from .opencode_ui import OpenCodeUI
 from .session import SessionManager
 from .sync import FileSyncWatcher, get_available_directory
 from .tui import THEME_PRIMARY, THEME_SECONDARY, ClaudeUI
@@ -87,7 +88,7 @@ class BaseEngineer(ABC):
         output_language: str = "python",
         output_mode: str = "client",
         interactive: bool = True,
-    ):
+    ) -> None:
         self.run_id = run_id
         self.har_path = har_path
         self.prompt = prompt
@@ -101,7 +102,7 @@ class BaseEngineer(ABC):
         else:
             self.scripts_dir = get_scripts_dir(run_id, output_dir)
 
-        self.ui = ClaudeUI(verbose=verbose)
+        self.ui: ClaudeUI | OpenCodeUI = ClaudeUI(verbose=verbose)
         self.usage_metadata: dict[str, Any] = {}
         self.message_store = MessageStore(run_id, output_dir)
         self.enable_sync = enable_sync
@@ -147,7 +148,7 @@ class BaseEngineer(ABC):
         if line.startswith("      at ") or "| " in line[:20]:
             return
 
-    def start_sync(self):
+    def start_sync(self) -> None:
         """Start real-time file sync if enabled."""
         if not self.enable_sync:
             return
@@ -167,10 +168,10 @@ class BaseEngineer(ABC):
         self.local_scripts_dir = local_dir
 
         # Create sync watcher
-        def on_sync(message):
+        def on_sync(message: str) -> None:
             self.ui.sync_flash(message)
 
-        def on_error(message):
+        def on_error(message: str) -> None:
             self.ui.sync_error(message)
 
         self.sync_watcher = FileSyncWatcher(
@@ -183,7 +184,7 @@ class BaseEngineer(ABC):
         self.sync_watcher.start()
         self.ui.sync_started(str(local_dir))
 
-    def stop_sync(self):
+    def stop_sync(self) -> None:
         """Stop real-time file sync."""
         if self.sync_watcher:
             try:
@@ -193,7 +194,7 @@ class BaseEngineer(ABC):
             finally:
                 self.sync_watcher = None
 
-    def flush_sync(self):
+    def flush_sync(self) -> None:
         """Flush pending sync events and ensure all files are synced locally."""
         if self.sync_watcher:
             self.sync_watcher.flush()
@@ -387,8 +388,10 @@ class BaseEngineer(ABC):
     def _get_opt_field(opt: Any, field: str) -> str:
         """Get a field from an option, supporting both dict and object access."""
         if isinstance(opt, dict):
-            return opt.get(field, "")
-        return getattr(opt, field, "")
+            value = opt.get(field, "")
+        else:
+            value = getattr(opt, field, "")
+        return "" if value is None else str(value)
 
     def _get_output_extension(self) -> str:
         """Return file extension based on output language."""
@@ -505,7 +508,7 @@ class BaseEngineer(ABC):
         return f"api_client{self._get_output_extension()}"
 
     @staticmethod
-    def _quote_path(path) -> str:
+    def _quote_path(path: str | Path) -> str:
         """Shell-quote a path for the platform's default shell.
 
         shlex.quote is POSIX-only: cmd.exe/PowerShell pass its single quotes

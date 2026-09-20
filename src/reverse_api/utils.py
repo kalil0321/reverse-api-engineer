@@ -1,5 +1,7 @@
 """Utility functions for run ID generation and path management."""
 
+from __future__ import annotations
+
 import asyncio
 import os
 import platform
@@ -7,6 +9,10 @@ import re
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from .session import SessionManager
 
 import httpx2 as httpx
 
@@ -102,7 +108,7 @@ def check_for_updates() -> str | None:
     return None
 
 
-def generate_folder_name(prompt: str, sdk: str = None, session_id: str = None) -> str:
+def generate_folder_name(prompt: str, sdk: str | None = None, session_id: str | None = None) -> str:
     """Generate a clean folder name from a prompt.
 
     Uses Claude Agent SDK (for Claude SDK) or OpenCode API (for OpenCode SDK)
@@ -195,7 +201,7 @@ async def _generate_folder_name_async(prompt: str) -> str:
     return name if name else _slugify(prompt)
 
 
-async def _generate_folder_name_opencode_async(prompt: str, session_id: str = None) -> str:
+async def _generate_folder_name_opencode_async(prompt: str, session_id: str | None = None) -> str:
     """Async helper to generate folder name using OpenCode API with event streaming.
 
     Args:
@@ -246,7 +252,7 @@ async def _generate_folder_name_opencode_async(prompt: str, session_id: str = No
         try:
             event_complete = asyncio.Event()
 
-            async def stream_events():
+            async def stream_events() -> None:
                 """Stream events and wait for session.idle."""
                 try:
                     async with client.stream("GET", "/event", timeout=None) as response:
@@ -643,7 +649,7 @@ def get_visible_save_path(domain: str, base_dir: Path | str, suffix: int = 0) ->
     return path
 
 
-def resolve_run(identifier: str, session_manager, *, interactive: bool = True) -> dict:
+def resolve_run(identifier: str, session_manager: SessionManager, *, interactive: bool = True) -> dict:
     """Resolve a run by exact ID or fuzzy prompt/folder name match.
 
     Args:
@@ -708,7 +714,7 @@ def resolve_run(identifier: str, session_manager, *, interactive: bool = True) -
     if selected is None:
         raise click.Abort()
 
-    return selected
+    return cast(dict[str, Any], selected)
 
 
 def discover_scripts(run_id: str, output_dir: str | None = None, run_metadata: dict | None = None) -> list[Path]:
@@ -852,7 +858,7 @@ def extract_domain_from_har(har_path: Path) -> str | None:
             return None
 
         # Get domain from first entry's URL
-        first_url = entries[0].get("request", {}).get("url", "")
+        first_url: str = entries[0].get("request", {}).get("url", "")
         if first_url:
             from urllib.parse import urlparse
 

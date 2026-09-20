@@ -39,7 +39,7 @@ class Collector:
         prompt: str,
         model: str,
         output_dir: str | None = None,
-    ):
+    ) -> None:
         """Initialize collector.
 
         Args:

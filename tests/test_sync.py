@@ -1,7 +1,10 @@
 """Tests for sync.py - File synchronization."""
 
+import os
 import time
 from unittest.mock import MagicMock, patch
+
+from watchdog.events import FileCreatedEvent, FileDeletedEvent, FileModifiedEvent
 
 from reverse_api.sync import (
     FileSyncWatcher,
@@ -119,6 +122,31 @@ class TestSyncHandler:
         event.src_path = str(tmp_path / "file.py")
         handler.on_deleted(event)
         assert handler.pending_events[str(tmp_path / "file.py")]["is_delete"] is True
+
+    def test_byte_paths_sync_and_delete_files(self, tmp_path):
+        """Watchdog can supply bytes; preserve non-ASCII paths through all events."""
+        source = tmp_path / "source"
+        dest = tmp_path / "dest"
+        source.mkdir()
+        dest.mkdir()
+        src_file = source / "café.py"
+        src_file.write_text("initial")
+        path_bytes = os.fsencode(src_file)
+        handler = SyncHandler(source, dest, debounce_ms=0)
+
+        handler.on_created(FileCreatedEvent(path_bytes))
+        handler.process_pending()
+        assert (dest / src_file.name).read_text() == "initial"
+
+        src_file.write_text("updated")
+        handler.on_modified(FileModifiedEvent(path_bytes))
+        handler.process_pending()
+        assert (dest / src_file.name).read_text() == "updated"
+
+        src_file.unlink()
+        handler.on_deleted(FileDeletedEvent(path_bytes))
+        handler.process_pending()
+        assert not (dest / src_file.name).exists()
 
     def test_process_pending_syncs_files(self, tmp_path):
         """process_pending syncs ready files."""
