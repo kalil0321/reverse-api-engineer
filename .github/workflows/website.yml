@@ -57,6 +57,35 @@ jobs:
       - name: Build static site
         run: pnpm build
 
+      - name: Set up Python for browser regression
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install browser test dependencies
+        run: |
+          python -m pip install 'playwright==1.58.0'
+          python -m playwright install --with-deps chromium firefox webkit
+
+      - name: Test header in real browsers
+        run: |
+          python -m http.server 8765 --bind 127.0.0.1 --directory out > /tmp/rae-website-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          python - <<'PYREADY'
+          import time
+          import urllib.request
+          for attempt in range(30):
+              try:
+                  urllib.request.urlopen('http://127.0.0.1:8765/docs/', timeout=1).close()
+                  break
+              except OSError:
+                  time.sleep(1)
+          else:
+              raise RuntimeError('Static website server did not start')
+          PYREADY
+          python tests/scroll_e2e.py http://127.0.0.1:8765 out
+
       - name: Deploy to Cloudflare Pages
         id: deploy
         uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
