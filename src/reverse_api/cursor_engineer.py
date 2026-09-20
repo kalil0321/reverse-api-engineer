@@ -606,7 +606,7 @@ class CursorAutoEngineer(CursorEngineer):
                     return last_result
                 turn_prompt = fu
                 self.message_store.save_prompt(turn_prompt)
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, asyncio.CancelledError):
             self.ui.console.print("\n  [dim]run aborted[/dim]")
             if not self.interactive:
                 raise

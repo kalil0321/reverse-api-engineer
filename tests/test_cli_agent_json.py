@@ -1,5 +1,6 @@
 """Tests for the agent-friendly CLI surface (--json, --no-interactive, payload shape)."""
 
+import asyncio
 import json
 from unittest.mock import MagicMock, patch
 
@@ -546,11 +547,12 @@ def test_provider_failure_is_not_reported_as_success(tmp_path, output_flag):
 
 
 @pytest.mark.parametrize("sdk", ["claude", "cursor"])
+@pytest.mark.parametrize("interrupt_type", [KeyboardInterrupt, asyncio.CancelledError])
 @pytest.mark.parametrize(
     "output_flag,after_result",
     [("--json", False), ("--json-stream", False), ("--no-interactive", False), (None, False), (None, True)],
 )
-def test_provider_interrupt_output_modes(tmp_path, monkeypatch, sdk, output_flag, after_result):
+def test_provider_interrupt_output_modes(tmp_path, monkeypatch, sdk, output_flag, after_result, interrupt_type):
     from contextlib import ExitStack
     from unittest.mock import AsyncMock
 
@@ -574,20 +576,20 @@ def test_provider_interrupt_output_modes(tmp_path, monkeypatch, sdk, output_flag
                 ))
                 stack.enter_context(patch(
                     "reverse_api.auto_engineer.ClaudeAutoEngineer._prompt_follow_up",
-                    new=AsyncMock(side_effect=KeyboardInterrupt),
+                    new=AsyncMock(side_effect=interrupt_type),
                 ))
             else:
-                client.return_value.__aenter__ = AsyncMock(side_effect=KeyboardInterrupt)
+                client.return_value.__aenter__ = AsyncMock(side_effect=interrupt_type)
         else:
             stack.enter_context(patch("reverse_api.cursor_engineer._ensure_cursor_bridge_deps", return_value=None))
             if after_result:
                 stack.enter_context(patch("reverse_api.cursor_engineer.CursorAutoEngineer._one_turn", new=AsyncMock(return_value={})))
                 stack.enter_context(patch(
                     "reverse_api.cursor_engineer.CursorAutoEngineer._prompt_follow_up",
-                    new=AsyncMock(side_effect=KeyboardInterrupt),
+                    new=AsyncMock(side_effect=interrupt_type),
                 ))
             else:
-                stack.enter_context(patch("reverse_api.cursor_engineer.CursorAutoEngineer._one_turn", new=AsyncMock(side_effect=KeyboardInterrupt)))
+                stack.enter_context(patch("reverse_api.cursor_engineer.CursorAutoEngineer._one_turn", new=AsyncMock(side_effect=interrupt_type)))
         args = ["agent", "-p", "test interruption", "--headless", "-o", str(tmp_path)]
         if output_flag:
             args.append(output_flag)
@@ -605,3 +607,7 @@ def test_provider_interrupt_output_modes(tmp_path, monkeypatch, sdk, output_flag
             assert payload["status"] == "error"
             assert payload["error_kind"] == "interrupted"
             assert payload["error"] == "interrupted"
+
+    if after_result:
+        history = json.loads((tmp_path / "history.json").read_text())
+        assert history[-1]["paths"]["script_path"]

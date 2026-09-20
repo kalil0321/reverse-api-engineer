@@ -278,7 +278,7 @@ class ClaudeAutoEngineer(ClaudeEngineer):
                         # follow-up loop instead of offering another turn.
                         return last_result
 
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, asyncio.CancelledError):
             self.ui.console.print("\n  [dim]run aborted[/dim]")
             if not self.interactive:
                 raise

@@ -2189,7 +2189,7 @@ def run_auto_capture(
         try:
             result = asyncio.run(engineer.analyze_and_generate())
             interrupted = isinstance(result, dict) and result.get("error") == "interrupted"
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, asyncio.CancelledError):
             result = None
             interrupted = True
         finally:
