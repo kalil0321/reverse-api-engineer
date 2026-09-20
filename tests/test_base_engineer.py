@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from reverse_api.base_engineer import REPORT_CLIENT_VERIFIED_INSTRUCTION, BaseEngineer
 
 
@@ -461,6 +463,18 @@ class TestBaseEngineerHelpers:
         for language in ("python", "javascript", "typescript", "go", "java", "csharp", "php", "ruby", "c"):
             eng = self._make_engineer(tmp_path, output_language=language, output_mode="client")
             assert REPORT_CLIENT_VERIFIED_INSTRUCTION not in eng._get_codegen_instructions(), language
+
+    @pytest.mark.parametrize("language", ["java", "csharp", "php", "ruby", "c"])
+    def test_run_command_preserves_posix_shell_quoting(self, tmp_path, monkeypatch, language):
+        """Token round-trips alone cannot detect unsafe double-quoted substitutions."""
+        eng = self._make_engineer(tmp_path, output_language=language)
+        eng.scripts_dir = tmp_path / "client $(printf injected) `printf injected`"
+        monkeypatch.setattr("reverse_api.base_engineer.sys.platform", "linux")
+        command = eng._get_run_command()
+        paths = [token for token in shlex.split(command) if str(tmp_path) in token]
+        assert paths
+        for path in paths:
+            assert shlex.quote(path) in command
 
     def test_quote_path_posix(self, monkeypatch):
         """POSIX platforms use shlex.quote (single quotes for spaces)."""
