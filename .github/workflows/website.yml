@@ -86,6 +86,13 @@ jobs:
           PYREADY
           python tests/scroll_e2e.py http://127.0.0.1:8765 out
 
+      - name: Show browser server diagnostics on failure
+        if: failure()
+        run: |
+          if [ -f /tmp/rae-website-server.log ]; then
+            cat /tmp/rae-website-server.log
+          fi
+
       - name: Deploy to Cloudflare Pages
         id: deploy
         uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
