@@ -10,7 +10,9 @@
  *
  * First-time setup:
  *   1. pnpm wrangler login
- *   2. (Optional) rename `pages_build_output_dir` project via the dashboard
+ *   2. Create the project if needed:
+ *      pnpm exec wrangler pages project create reverse-api-engineer --production-branch main
+ *   3. See README.md for the GitHub Actions secrets and production branch setup.
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",

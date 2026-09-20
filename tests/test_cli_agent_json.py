@@ -16,7 +16,6 @@ from reverse_api.cli import (
 )
 from reverse_api.session import SessionManager
 
-
 EXPECTED_PAYLOAD_KEYS = {
     "schema_version",
     "status",

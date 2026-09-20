@@ -2,8 +2,6 @@
 
 import json
 
-import pytest
-
 from reverse_api.session import SessionManager
 
 

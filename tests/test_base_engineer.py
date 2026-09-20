@@ -1,6 +1,8 @@
 """Tests for base_engineer.py - BaseEngineer abstract class."""
 
+import os
 import shlex
+import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -8,6 +10,17 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from reverse_api.base_engineer import REPORT_CLIENT_VERIFIED_INSTRUCTION, BaseEngineer
+
+
+def _split_run_command(command):
+    """Split generated commands without treating Windows backslashes as escapes.
+
+    These commands contain plain arguments or double-quoted Windows paths;
+    Windows filenames cannot contain literal double quotes.
+    """
+    if sys.platform == "win32":
+        return [token.strip('"') for token in shlex.split(command, posix=False)]
+    return shlex.split(command)
 
 
 class ConcreteEngineer(BaseEngineer):
@@ -121,7 +134,9 @@ class TestBaseEngineerInit:
         python_client.write_text("print('python')\n")
         typescript_client = scripts_dir / "api_client.ts"
         typescript_client.write_text("export {};\n")
-        typescript_client.touch()
+        # Back-to-back writes may have identical timestamps on Windows.
+        os.utime(python_client, (1_700_000_000, 1_700_000_000))
+        os.utime(typescript_client, (1_700_000_010, 1_700_000_010))
 
         with patch("reverse_api.base_engineer.get_scripts_dir", return_value=scripts_dir):
             with patch("reverse_api.base_engineer.MessageStore"):
@@ -269,8 +284,9 @@ class TestBaseEngineerHelpers:
         python/node/npx, Maven hard-fails with no upward search if invoked
         from a directory with no pom.xml."""
         eng = self._make_engineer(tmp_path, output_language="java")
-        expected_pom = shlex.quote(str(eng.scripts_dir.resolve() / "pom.xml"))
-        assert eng._get_run_command() == f"mvn -q -f {expected_pom} compile exec:exec"
+        assert _split_run_command(eng._get_run_command()) == [
+            "mvn", "-q", "-f", str(eng.scripts_dir.resolve() / "pom.xml"), "compile", "exec:exec",
+        ]
 
     def test_get_run_command_java_quotes_metacharacters(self, tmp_path):
         """A scripts_dir containing shell metacharacters must round-trip
@@ -278,7 +294,7 @@ class TestBaseEngineerHelpers:
         expansion — what the naive f'"{path}"' approach got wrong."""
         eng = self._make_engineer(tmp_path, output_language="java")
         eng.scripts_dir = Path("/tmp/weird$(rm -rf ~) dir")
-        tokens = shlex.split(eng._get_run_command())
+        tokens = _split_run_command(eng._get_run_command())
         assert tokens[:2] == ["mvn", "-q"]
         assert tokens[3] == str(eng.scripts_dir.resolve() / "pom.xml")
 
@@ -290,7 +306,7 @@ class TestBaseEngineerHelpers:
         location."""
         eng = self._make_engineer(tmp_path, output_language="java")
         eng.scripts_dir = Path("relative_output/scripts/run123")
-        tokens = shlex.split(eng._get_run_command())
+        tokens = _split_run_command(eng._get_run_command())
         pom_arg = tokens[3]
         assert Path(pom_arg).is_absolute()
         assert pom_arg == str(eng.scripts_dir.resolve() / "pom.xml")
@@ -300,8 +316,9 @@ class TestBaseEngineerHelpers:
         scripts_dir.parent.parent (see analyze_and_generate), and dotnet
         only looks for a project file in the current directory."""
         eng = self._make_engineer(tmp_path, output_language="csharp")
-        expected_csproj = shlex.quote(str(eng.scripts_dir.resolve() / "ApiClient.csproj"))
-        assert eng._get_run_command() == f"dotnet run --project {expected_csproj}"
+        assert _split_run_command(eng._get_run_command()) == [
+            "dotnet", "run", "--project", str(eng.scripts_dir.resolve() / "ApiClient.csproj"),
+        ]
 
     def test_get_run_command_csharp_quotes_metacharacters(self, tmp_path):
         """A scripts_dir containing shell metacharacters must round-trip
@@ -309,7 +326,7 @@ class TestBaseEngineerHelpers:
         expansion — what the naive f'"{path}"' approach got wrong."""
         eng = self._make_engineer(tmp_path, output_language="csharp")
         eng.scripts_dir = Path("/tmp/weird$(rm -rf ~) dir")
-        tokens = shlex.split(eng._get_run_command())
+        tokens = _split_run_command(eng._get_run_command())
         assert tokens[:2] == ["dotnet", "run"]
         assert tokens[3] == str(eng.scripts_dir.resolve() / "ApiClient.csproj")
 
@@ -321,7 +338,7 @@ class TestBaseEngineerHelpers:
         location."""
         eng = self._make_engineer(tmp_path, output_language="csharp")
         eng.scripts_dir = Path("relative_output/scripts/run123")
-        tokens = shlex.split(eng._get_run_command())
+        tokens = _split_run_command(eng._get_run_command())
         project_arg = tokens[3]
         assert Path(project_arg).is_absolute()
         assert project_arg == str(eng.scripts_dir.resolve() / "ApiClient.csproj")
@@ -332,8 +349,9 @@ class TestBaseEngineerHelpers:
         script lives, and shlex.quote() (not manual double-quoting) is what
         actually neutralizes shell metacharacters in an arbitrary output_dir."""
         eng = self._make_engineer(tmp_path, output_language="php")
-        expected_path = shlex.quote(str(eng.scripts_dir.resolve() / "api_client.php"))
-        assert eng._get_run_command() == f"php {expected_path}"
+        assert _split_run_command(eng._get_run_command()) == [
+            "php", str(eng.scripts_dir.resolve() / "api_client.php"),
+        ]
 
     def test_get_run_command_php_quotes_metacharacters(self, tmp_path):
         """A scripts_dir containing shell metacharacters must round-trip
@@ -344,7 +362,7 @@ class TestBaseEngineerHelpers:
         eng = self._make_engineer(tmp_path, output_language="php")
         eng.scripts_dir = Path("/tmp/weird$(rm -rf ~) dir")
         command = eng._get_run_command()
-        tokens = shlex.split(command)
+        tokens = _split_run_command(command)
         assert tokens[0] == "php"
         assert tokens[1] == str(eng.scripts_dir.resolve() / "api_client.php")
 
@@ -356,7 +374,7 @@ class TestBaseEngineerHelpers:
         location."""
         eng = self._make_engineer(tmp_path, output_language="php")
         eng.scripts_dir = Path("relative_output/scripts/run123")
-        tokens = shlex.split(eng._get_run_command())
+        tokens = _split_run_command(eng._get_run_command())
         script_arg = tokens[1]
         assert Path(script_arg).is_absolute()
         assert script_arg == str(eng.scripts_dir.resolve() / "api_client.php")
@@ -366,8 +384,9 @@ class TestBaseEngineerHelpers:
         parent.parent (see analyze_and_generate), not scripts_dir where the
         script lives."""
         eng = self._make_engineer(tmp_path, output_language="ruby")
-        expected_path = shlex.quote(str(eng.scripts_dir.resolve() / "api_client.rb"))
-        assert eng._get_run_command() == f"ruby {expected_path}"
+        assert _split_run_command(eng._get_run_command()) == [
+            "ruby", str(eng.scripts_dir.resolve() / "api_client.rb"),
+        ]
 
     def test_get_run_command_ruby_quotes_metacharacters(self, tmp_path):
         """A scripts_dir containing shell metacharacters must round-trip
@@ -375,7 +394,7 @@ class TestBaseEngineerHelpers:
         expansion — what the naive f'"{path}"' approach got wrong."""
         eng = self._make_engineer(tmp_path, output_language="ruby")
         eng.scripts_dir = Path("/tmp/weird$(rm -rf ~) dir")
-        tokens = shlex.split(eng._get_run_command())
+        tokens = _split_run_command(eng._get_run_command())
         assert tokens[0] == "ruby"
         assert tokens[1] == str(eng.scripts_dir.resolve() / "api_client.rb")
 
@@ -387,7 +406,7 @@ class TestBaseEngineerHelpers:
         location."""
         eng = self._make_engineer(tmp_path, output_language="ruby")
         eng.scripts_dir = Path("relative_output/scripts/run123")
-        tokens = shlex.split(eng._get_run_command())
+        tokens = _split_run_command(eng._get_run_command())
         script_arg = tokens[1]
         assert Path(script_arg).is_absolute()
         assert script_arg == str(eng.scripts_dir.resolve() / "api_client.rb")
@@ -399,11 +418,10 @@ class TestBaseEngineerHelpers:
         all actually live."""
         eng = self._make_engineer(tmp_path, output_language="c")
         resolved = eng.scripts_dir.resolve()
-        source = shlex.quote(str(resolved / "api_client.c"))
-        cjson = shlex.quote(str(resolved / "cJSON.c"))
-        binary = shlex.quote(str(resolved / "api_client"))
-        expected = f"cc {source} {cjson} -lcurl -o {binary} && {binary}"
-        assert eng._get_run_command() == expected
+        assert _split_run_command(eng._get_run_command()) == [
+            "cc", str(resolved / "api_client.c"), str(resolved / "cJSON.c"),
+            "-lcurl", "-o", str(resolved / "api_client"), "&&", str(resolved / "api_client"),
+        ]
 
     def test_get_run_command_c_quotes_metacharacters(self, tmp_path):
         """A scripts_dir containing shell metacharacters must round-trip
@@ -413,7 +431,7 @@ class TestBaseEngineerHelpers:
         eng = self._make_engineer(tmp_path, output_language="c")
         eng.scripts_dir = Path("/tmp/weird$(rm -rf ~) dir")
         resolved = eng.scripts_dir.resolve()
-        tokens = shlex.split(eng._get_run_command())
+        tokens = _split_run_command(eng._get_run_command())
         assert tokens[:2] == ["cc", str(resolved / "api_client.c")]
         assert tokens[2] == str(resolved / "cJSON.c")
         assert tokens[3:6] == ["-lcurl", "-o", str(resolved / "api_client")]
@@ -430,7 +448,7 @@ class TestBaseEngineerHelpers:
         eng = self._make_engineer(tmp_path, output_language="c")
         eng.scripts_dir = Path("relative_output/scripts/run123")
         resolved = eng.scripts_dir.resolve()
-        tokens = shlex.split(eng._get_run_command())
+        tokens = _split_run_command(eng._get_run_command())
         assert Path(tokens[1]).is_absolute()
         assert tokens[1] == str(resolved / "api_client.c")
         assert tokens[2] == str(resolved / "cJSON.c")
@@ -486,6 +504,18 @@ class TestBaseEngineerHelpers:
         for language in ("python", "javascript", "typescript", "go", "java", "csharp", "php", "ruby", "c", "powershell"):
             eng = self._make_engineer(tmp_path, output_language=language, output_mode="client")
             assert REPORT_CLIENT_VERIFIED_INSTRUCTION not in eng._get_codegen_instructions(), language
+
+    @pytest.mark.parametrize("language", ["java", "csharp", "php", "ruby", "c"])
+    def test_run_command_preserves_posix_shell_quoting(self, tmp_path, monkeypatch, language):
+        """Token round-trips alone cannot detect unsafe double-quoted substitutions."""
+        eng = self._make_engineer(tmp_path, output_language=language)
+        eng.scripts_dir = tmp_path / "client $(printf injected) `printf injected`"
+        monkeypatch.setattr("reverse_api.base_engineer.sys.platform", "linux")
+        command = eng._get_run_command()
+        paths = [token for token in shlex.split(command) if str(tmp_path) in token]
+        assert paths
+        for path in paths:
+            assert shlex.quote(path) in command
 
     def test_quote_path_posix(self, monkeypatch):
         """POSIX platforms use shlex.quote (single quotes for spaces)."""

@@ -1,14 +1,15 @@
 """Auto mode engineers: LLM-controlled browsing with real-time reverse engineering.
 
 Providers **auto** and **chrome-mcp** attach a browser MCP server to the SDK. Provider
-**agent-browser** shells the upstream Vercel ``agent-browser`` CLI (auto-install via npm when missing, validated with ``--help``) instead of attaching browser MCP here.
+**agent-browser** shells the upstream Vercel ``agent-browser`` CLI (auto-install via npm
+when missing, validated with ``--help``) instead of attaching browser MCP here.
 """
 
 import asyncio
 import logging
 from typing import Any
 
-import httpx
+import httpx2 as httpx
 from claude_agent_sdk import (
     ClaudeAgentOptions,
     ClaudeSDKClient,

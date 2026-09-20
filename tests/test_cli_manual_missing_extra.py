@@ -8,7 +8,7 @@ history that later "operate on the latest run" flows could target.
 
 import io
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import click
 import pytest

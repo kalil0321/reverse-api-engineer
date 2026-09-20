@@ -1,6 +1,5 @@
 """Tests for engineer.py - run_reverse_engineering dispatch."""
 
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -32,7 +31,7 @@ class TestRunReverseEngineering:
             mock_instance.stop_sync = MagicMock()
 
             with patch("reverse_api.engineer.asyncio.run", return_value={"test": True}):
-                result = run_reverse_engineering(
+                run_reverse_engineering(
                     run_id="test123",
                     har_path=har_path,
                     prompt="test prompt",
@@ -52,7 +51,7 @@ class TestRunReverseEngineering:
             mock_instance.stop_sync = MagicMock()
 
             with patch("reverse_api.engineer.asyncio.run", return_value={"test": True}):
-                result = run_reverse_engineering(
+                run_reverse_engineering(
                     run_id="test123",
                     har_path=har_path,
                     prompt="test prompt",
@@ -93,7 +92,7 @@ class TestRunReverseEngineering:
             mock_instance.stop_sync = MagicMock()
 
             with patch("reverse_api.engineer.asyncio.run", side_effect=Exception("fail")):
-                with pytest.raises(Exception):
+                with pytest.raises(Exception, match="fail"):
                     run_reverse_engineering(
                         run_id="test123",
                         har_path=har_path,

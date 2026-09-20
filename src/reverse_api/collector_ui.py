@@ -2,7 +2,7 @@
 
 from rich.console import Console
 
-from .theme import MODE_COLORS, THEME_DIM
+from .theme import MODE_COLORS
 from .tui import print_session_header
 
 COLLECTOR_COLOR = MODE_COLORS["collector"]
@@ -100,7 +100,7 @@ class CollectorUI:
         cost = usage.get("estimated_cost_usd", 0)
 
         if input_tokens > 0 or output_tokens > 0:
-            self.console.print(f" [dim]usage:[/dim]")
+            self.console.print(" [dim]usage:[/dim]")
             if input_tokens > 0:
                 self.console.print(f" [dim]  input: {input_tokens:,} tokens[/dim]")
             if output_tokens > 0:

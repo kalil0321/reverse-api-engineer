@@ -6,9 +6,11 @@ Covers:
 """
 
 import json
+import os
 import subprocess
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
 
 from reverse_api.cli import (
@@ -39,13 +41,16 @@ EXPECTED_ENGINEER_KEYS = {
 class TestTtyDetectionAtReplEntry:
     """Without a TTY and no subcommand, the REPL must NOT block on prompt_toolkit."""
 
-    def test_no_tty_no_subcommand_exits_2(self):
-        """End-to-end: invoke the installed binary with stdin redirected from /dev/null."""
+    @pytest.mark.parametrize("encoding", ["utf-8", "cp1252"])
+    def test_no_tty_no_subcommand_exits_2(self, encoding):
+        """A pipe is non-interactive on all OSes; Windows NUL can report isatty()."""
         result = subprocess.run(
             ["uv", "run", "reverse-api-engineer"],
-            stdin=subprocess.DEVNULL,
+            input="",
+            env={**os.environ, "PYTHONIOENCODING": encoding},
             capture_output=True,
             text=True,
+            encoding=encoding,
             timeout=10,
         )
         assert result.returncode == 2
@@ -418,20 +423,25 @@ class TestAgentDryRun:
         assert payload["error_kind"] == "misuse"
         assert any(c["name"] == "url" and c["status"] == "error" for c in payload["checks"])
 
-    def test_dry_run_unwritable_output_dir_is_config_invalid(self):
+    def test_dry_run_unwritable_output_dir_is_config_invalid(self, tmp_path):
         """Unwritable output_dir → error_kind=config_invalid, not misuse."""
         from reverse_api.cli import agent as agent_cmd
 
         runner = CliRunner()
-        with patch("reverse_api.cli.config_manager") as cm:
+        # /sys is not protected on Windows, and chmod is ineffective as root.
+        # Simulate a denied write at the actual filesystem boundary instead.
+        with patch("reverse_api.cli.config_manager") as cm, patch(
+            "pathlib.Path.write_text", side_effect=PermissionError("Access denied")
+        ) as write_probe:
             cm.get.side_effect = lambda key, default=None: {
                 "agent_provider": "auto",
                 "sdk": "claude",
-                "output_dir": "/sys/forbidden",
+                "output_dir": str(tmp_path),
             }.get(key, default)
             result = runner.invoke(
-                agent_cmd, ["--dry-run", "-p", "x", "--output-dir", "/sys/forbidden"]
+                agent_cmd, ["--dry-run", "-p", "x", "--output-dir", str(tmp_path)]
             )
+        write_probe.assert_called_once()
 
         assert result.exit_code == 1
         payload = json.loads(result.stdout.strip())

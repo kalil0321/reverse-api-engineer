@@ -1,12 +1,11 @@
 """Tests for auto_engineer.py - Auto mode engineers."""
 
+import asyncio
 from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import httpx
+import httpx2 as httpx
 import pytest
 from claude_agent_sdk import (
     AssistantMessage,
@@ -1275,8 +1274,6 @@ class TestOpenCodeAutoEngineerAnalyze:
         mock_client.delete = AsyncMock()
 
         # Patch the second httpx.AsyncClient (for message fetch) to fail
-        original_async_client = httpx.AsyncClient
-
         call_count = [0]
 
         with patch("reverse_api.auto_engineer.httpx.AsyncClient") as mock_async:

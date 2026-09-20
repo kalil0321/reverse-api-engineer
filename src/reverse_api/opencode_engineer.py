@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import httpx
+import httpx2 as httpx
 
 from .base_engineer import BaseEngineer
 from .config import DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_PROVIDER
@@ -70,7 +70,7 @@ def format_error(e: Exception) -> str:
                     import json
 
                     response_text = json.dumps(response_json, indent=2)[:1000]  # Limit to 1000 chars
-                    lines.append(f"\n[dim]Response Body:[/dim]")
+                    lines.append("\n[dim]Response Body:[/dim]")
                     # Split into lines and indent
                     for line in response_text.split("\n"):
                         lines.append(f"  [dim]{line}[/dim]")
@@ -78,23 +78,23 @@ def format_error(e: Exception) -> str:
                     # Fall back to text if not JSON
                     response_text = e.response.text[:500]
                     if response_text:
-                        lines.append(f"\n[dim]Response Body:[/dim]")
+                        lines.append("\n[dim]Response Body:[/dim]")
                         lines.append(f"  [dim]{response_text}[/dim]")
             except Exception:
                 pass
 
     elif isinstance(e, httpx.ConnectError):
-        lines.append(f"\n[dim]Unable to connect to OpenCode server[/dim]")
+        lines.append("\n[dim]Unable to connect to OpenCode server[/dim]")
         if error_msg and "Connection refused" not in error_msg:
             lines.append(f"  [dim]{error_msg}[/dim]")
 
     elif isinstance(e, httpx.ReadError):
-        lines.append(f"\n[dim]Connection was interrupted while reading response[/dim]")
+        lines.append("\n[dim]Connection was interrupted while reading response[/dim]")
         if error_msg:
             lines.append(f"  [dim]{error_msg}[/dim]")
 
     elif isinstance(e, httpx.TimeoutException):
-        lines.append(f"\n[dim]Request timed out[/dim]")
+        lines.append("\n[dim]Request timed out[/dim]")
         if error_msg:
             lines.append(f"  [dim]{error_msg}[/dim]")
 
@@ -103,7 +103,7 @@ def format_error(e: Exception) -> str:
         import traceback
 
         tb_str = "".join(traceback.format_exception(type(e), e, e.__traceback__))
-        lines.append(f"\n[dim]Traceback:[/dim]")
+        lines.append("\n[dim]Traceback:[/dim]")
         for line in tb_str.split("\n"):
             lines.append(f"  [dim]{line}[/dim]")
 
@@ -320,7 +320,7 @@ class OpenCodeEngineer(BaseEngineer):
             self.message_store.save_error(error_msg)
             return None
 
-    async def _stream_events(self, client: httpx.AsyncClient):
+    async def _stream_events(self, client: httpx.AsyncClient):  # noqa: C901 — SSE event dispatch loop; split when next touched
         """Stream events from OpenCode and update UI."""
         seen_parts: set = set()  # Track part IDs to avoid duplicates
         import time
@@ -664,7 +664,7 @@ class OpenCodeEngineer(BaseEngineer):
 
         # Only process parts for our session
         if part_session != self._session_id:
-            debug_log(f"Skipping part for other session")
+            debug_log("Skipping part for other session")
             return
 
         if part_type == "text":
