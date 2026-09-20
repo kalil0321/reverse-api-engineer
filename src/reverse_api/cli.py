@@ -2338,7 +2338,7 @@ Exit codes:
     help="Emit NDJSON progress events on stdout during the run, then a final {\"event\":\"result\",...} line. Implies --no-interactive.",
 )
 def engineer(
-    run_id: str,
+    run_id: str | None,
     prompt: str | None,
     fresh: bool,
     model: str | None,
@@ -2649,7 +2649,7 @@ JSON output (--json) is always a flat array (possibly empty []).
 @click.option("--mode", "-m", type=str, default=None, help="Filter by mode (auto/manual/agent/engineer/collector).")
 @click.option("--model", type=str, default=None, help="Filter by model name.")
 @click.option("--search", "-s", type=str, default=None, help="Case-insensitive substring match on prompt.")
-def list_runs(as_json: bool, full: bool, limit: int, mode: str | None, model: str | None, search: str | None) -> None:
+def list_runs(as_json: bool, full: bool, limit: int | None, mode: str | None, model: str | None, search: str | None) -> None:
     """List generated scripts and runs with optional filters."""
     from rich.table import Table
 
@@ -2738,7 +2738,7 @@ Exit codes (--json):
 )
 @click.argument("run_id", required=False)
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON object.")
-def show_run(run_id: str, as_json: bool) -> None:
+def show_run(run_id: str | None, as_json: bool) -> None:
     """Show detailed info for a specific run."""
     from rich.table import Table
     from rich.text import Text

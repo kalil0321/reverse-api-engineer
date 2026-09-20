@@ -15,9 +15,10 @@ from reverse_api import cli
     ("cursor", "cursor_model", "composer-2.5"),
 ])
 @pytest.mark.parametrize("saved", [None, "", "custom-model"])
-def test_default_model_handles_empty_settings(sdk, key, default, saved):
-    with patch.object(cli.config_manager, "get", side_effect=lambda name: {key: saved}.get(name)):
-        assert cli.default_model_for_configured_sdk(sdk) == (saved or default)
+@pytest.mark.parametrize("infer_sdk", [False, True])
+def test_default_model_handles_empty_settings(sdk, key, default, saved, infer_sdk):
+    with patch.object(cli.config_manager, "get", side_effect=lambda name, fallback=None: {"sdk": sdk, key: saved}.get(name, fallback)):
+        assert cli.default_model_for_configured_sdk(None if infer_sdk else sdk) == (saved or default)
 
 
 def test_settings_stays_open_until_back():
