@@ -387,13 +387,16 @@ def print_session_header(
 
 def display_banner(console: Console, sdk: str | None = None, model: str | None = None):
     """Display minimalist startup banner with * rae branding."""
+    # Redirected Windows streams may use a legacy encoding such as cp1252.
+    divider = "--" if console.options.ascii_only else "━━"
+    separator = "|" if console.options.ascii_only else "·"
     console.print()
     print_cli_logo(console)
-    console.print(f"  [bold {THEME_PRIMARY}]━━[/bold {THEME_PRIMARY}]")
+    console.print(f"  [bold {THEME_PRIMARY}]{divider}[/bold {THEME_PRIMARY}]")
     if sdk and model:
         console.print(
             f"  [{THEME_DIM}]sdk[/{THEME_DIM}] [{THEME_SECONDARY}]{sdk}[/{THEME_SECONDARY}]"
-            f" [{THEME_DIM}]·[/{THEME_DIM}] [{THEME_DIM}]model[/{THEME_DIM}]"
+            f" [{THEME_DIM}]{separator}[/{THEME_DIM}] [{THEME_DIM}]model[/{THEME_DIM}]"
             f" [{THEME_SECONDARY}]{model}[/{THEME_SECONDARY}]"
         )
     console.print()
