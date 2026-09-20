@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Keep the website header pinned to the viewport during rapid scrolling on the homepage and documentation pages, while preserving the content offset. Add browser regression coverage to the website deployment workflow.
 - **PowerShell execution validation**: reject unsupported module names, missing `Example.ps1`, and script arguments that the example cannot forward, rather than silently running a different command. Generation instructions require portable module imports and terminating errors so failed API calls produce a nonzero exit status.
 - Refresh the locked Claude Agent SDK and MCP dependencies so the development environment also uses MCP 2.x and `httpx2`, without the legacy `httpx`, `httpx-sse`, and `httpcore` packages. Add subprocess smoke tests for CLI startup with legacy HTTP client imports blocked.
+- Restore the strict typing fixes from #125 and make the `mypy` CI job blocking. The original PR landed on an intermediate branch after its promotion PR had already merged, so the changes had not reached main.
 
 ## [0.13.1] - 2026-08-30
 

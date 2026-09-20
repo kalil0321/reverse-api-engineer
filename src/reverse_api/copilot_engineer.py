@@ -12,6 +12,11 @@ _SESSION_TIMEOUT = 600
 class CopilotEngineer(BaseEngineer):
     """Uses GitHub Copilot SDK to analyze HAR files and generate API scripts."""
 
+    # Populated by CopilotAutoEngineer before building the shared agent prompt.
+    agent_provider: str
+    mcp_run_id: str
+    headless: bool
+
     def __init__(
         self,
         run_id: str,
@@ -19,7 +24,7 @@ class CopilotEngineer(BaseEngineer):
         prompt: str,
         copilot_model: str | None = None,
         **kwargs: Any,
-    ):
+    ) -> None:
         super().__init__(run_id=run_id, har_path=har_path, prompt=prompt, **kwargs)
         self.copilot_model = copilot_model or "gpt-5"
 
@@ -50,7 +55,7 @@ class CopilotEngineer(BaseEngineer):
         # Capture self for use in the tool handler
         engineer = self
 
-        @define_tool(description="Ask the user a clarifying question. Use when you need user input to proceed.")  # type: ignore[misc]
+        @define_tool(description="Ask the user a clarifying question. Use when you need user input to proceed.")
         async def ask_user_question(params: AskUserParams) -> str:
             # Convert pydantic models to dicts for the shared method
             question_dicts = [q.model_dump() for q in params.questions]

@@ -10,7 +10,7 @@ from .utils import get_messages_path
 class MessageStore:
     """Handles saving and loading messages for engineer runs."""
 
-    def __init__(self, run_id: str, output_dir: str | None = None):
+    def __init__(self, run_id: str, output_dir: str | None = None) -> None:
         self.run_id = run_id
         self.messages_path = get_messages_path(run_id, output_dir)
         self.messages_path.parent.mkdir(parents=True, exist_ok=True)
@@ -19,7 +19,7 @@ class MessageStore:
         """Get current timestamp in ISO format."""
         return datetime.now().isoformat()
 
-    def append(self, msg_type: str, content: Any, **kwargs) -> None:
+    def append(self, msg_type: str, content: Any, **kwargs: Any) -> None:
         """Append a message to the JSONL file."""
         message = {
             "timestamp": self._get_timestamp(),
