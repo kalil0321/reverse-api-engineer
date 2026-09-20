@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Upgrade the website to Next.js 16.3.3 and its Sharp image-processing dependency to 0.35.4 to address known vulnerabilities.
 
 ### Fixed
+- Keep the website header pinned to the viewport during rapid scrolling on the homepage and documentation pages, while preserving the content offset. Add browser regression coverage to the website deployment workflow.
 - Refresh the locked Claude Agent SDK and MCP dependencies so the development environment also uses MCP 2.x and `httpx2`, without the legacy `httpx`, `httpx-sse`, and `httpcore` packages. Add subprocess smoke tests for CLI startup with legacy HTTP client imports blocked.
 
 ## [0.13.1] - 2026-08-30
