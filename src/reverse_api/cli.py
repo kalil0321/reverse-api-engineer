@@ -1775,6 +1775,8 @@ def agent(prompt, url, model, output_dir, no_interactive, as_json, json_stream, 
             headless=headless,
         )
         if isinstance(result, dict) and result.get("error"):
+            if interactive and result["error"] == "interrupted":
+                return
             click.echo(f"error: {result['error']}", err=True)
             sys.exit(1)
         return
@@ -2186,6 +2188,7 @@ def run_auto_capture(
         interrupted = False
         try:
             result = asyncio.run(engineer.analyze_and_generate())
+            interrupted = isinstance(result, dict) and result.get("error") == "interrupted"
         except KeyboardInterrupt:
             result = None
             interrupted = True

@@ -282,7 +282,7 @@ class ClaudeAutoEngineer(ClaudeEngineer):
             self.ui.console.print("\n  [dim]run aborted[/dim]")
             if not self.interactive:
                 raise
-            return last_result
+            return {**(last_result or {}), "error": "interrupted"}
 
         except Exception as e:
             error_msg = str(e)

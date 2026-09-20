@@ -546,8 +546,11 @@ def test_provider_failure_is_not_reported_as_success(tmp_path, output_flag):
 
 
 @pytest.mark.parametrize("sdk", ["claude", "cursor"])
-@pytest.mark.parametrize("output_flag", ["--json", "--json-stream"])
-def test_provider_interrupt_reaches_machine_output(tmp_path, monkeypatch, sdk, output_flag):
+@pytest.mark.parametrize(
+    "output_flag,after_result",
+    [("--json", False), ("--json-stream", False), ("--no-interactive", False), (None, False), (None, True)],
+)
+def test_provider_interrupt_output_modes(tmp_path, monkeypatch, sdk, output_flag, after_result):
     from contextlib import ExitStack
     from unittest.mock import AsyncMock
 
@@ -561,14 +564,44 @@ def test_provider_interrupt_reaches_machine_output(tmp_path, monkeypatch, sdk, o
         stack.enter_context(patch("reverse_api.cli.session_manager", SessionManager(tmp_path / "history.json")))
         if sdk == "claude":
             client = stack.enter_context(patch("reverse_api.auto_engineer.ClaudeSDKClient"))
-            client.return_value.__aenter__ = AsyncMock(side_effect=KeyboardInterrupt)
             client.return_value.__aexit__ = AsyncMock(return_value=False)
+            if after_result:
+                client.return_value.__aenter__ = AsyncMock(return_value=client.return_value)
+                client.return_value.query = AsyncMock()
+                stack.enter_context(patch(
+                    "reverse_api.auto_engineer.ClaudeAutoEngineer._process_streaming_response",
+                    new=AsyncMock(return_value={"script_path": "partial.py", "usage": {}}),
+                ))
+                stack.enter_context(patch(
+                    "reverse_api.auto_engineer.ClaudeAutoEngineer._prompt_follow_up",
+                    new=AsyncMock(side_effect=KeyboardInterrupt),
+                ))
+            else:
+                client.return_value.__aenter__ = AsyncMock(side_effect=KeyboardInterrupt)
         else:
             stack.enter_context(patch("reverse_api.cursor_engineer._ensure_cursor_bridge_deps", return_value=None))
-            stack.enter_context(patch("reverse_api.cursor_engineer.CursorAutoEngineer._one_turn", new=AsyncMock(side_effect=KeyboardInterrupt)))
-        result = CliRunner().invoke(main, ["agent", "-p", "test interruption", "--headless", "-o", str(tmp_path), output_flag])
-    assert result.exit_code == 1, result.output
-    payload = json.loads(result.stdout.strip().splitlines()[-1])
-    assert payload["status"] == "error"
-    assert payload["error_kind"] == "interrupted"
-    assert payload["error"] == "interrupted"
+            if after_result:
+                stack.enter_context(patch("reverse_api.cursor_engineer.CursorAutoEngineer._one_turn", new=AsyncMock(return_value={})))
+                stack.enter_context(patch(
+                    "reverse_api.cursor_engineer.CursorAutoEngineer._prompt_follow_up",
+                    new=AsyncMock(side_effect=KeyboardInterrupt),
+                ))
+            else:
+                stack.enter_context(patch("reverse_api.cursor_engineer.CursorAutoEngineer._one_turn", new=AsyncMock(side_effect=KeyboardInterrupt)))
+        args = ["agent", "-p", "test interruption", "--headless", "-o", str(tmp_path)]
+        if output_flag:
+            args.append(output_flag)
+        result = CliRunner().invoke(main, args)
+    if output_flag is None:
+        assert result.exit_code == 0, result.output
+        assert "run aborted" in result.output
+        assert "produced no result" not in result.output
+    else:
+        assert result.exit_code == 1, result.output
+        if output_flag == "--no-interactive":
+            assert "error: interrupted" in result.stderr
+        else:
+            payload = json.loads(result.stdout.strip().splitlines()[-1])
+            assert payload["status"] == "error"
+            assert payload["error_kind"] == "interrupted"
+            assert payload["error"] == "interrupted"

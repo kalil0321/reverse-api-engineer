@@ -610,4 +610,4 @@ class CursorAutoEngineer(CursorEngineer):
             self.ui.console.print("\n  [dim]run aborted[/dim]")
             if not self.interactive:
                 raise
-            return last_result
+            return {**(last_result or {}), "error": "interrupted"}
