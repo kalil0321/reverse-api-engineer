@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Refresh vulnerable website transitive dependencies, including js-yaml, nanoid, undici, brace-expansion and Miniflare's Sharp dependency, with patched lockfile versions and overrides.
+- Upgrade the website to Next.js 16.3.3 and its Sharp image-processing dependency to 0.35.4 to address known vulnerabilities.
+
 ### Fixed
 - Refresh the locked Claude Agent SDK and MCP dependencies so the development environment also uses MCP 2.x and `httpx2`, without the legacy `httpx`, `httpx-sse`, and `httpcore` packages. Add subprocess smoke tests for CLI startup with legacy HTTP client imports blocked.
 
