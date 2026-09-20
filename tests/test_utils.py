@@ -527,7 +527,7 @@ class TestGenerateFolderNameOpencodeAsync:
 
         with patch("reverse_api.config.ConfigManager"):
             with patch("reverse_api.utils.get_config_path"):
-                with patch("httpx.AsyncClient") as mock_async:
+                with patch("httpx2.AsyncClient") as mock_async:
                     mock_async.return_value.__aenter__ = AsyncMock(return_value=mock_client)
                     mock_async.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -590,7 +590,7 @@ class TestGenerateFolderNameOpencodeAsync:
                 "opencode_model": "claude-opus-4-6",
             }.get(key, default)
             with patch("reverse_api.utils.get_config_path"):
-                with patch("httpx.AsyncClient") as mock_async:
+                with patch("httpx2.AsyncClient") as mock_async:
                     mock_async.return_value.__aenter__ = AsyncMock(return_value=mock_client)
                     mock_async.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -648,7 +648,7 @@ class TestGenerateFolderNameOpencodeAsync:
                 "opencode_model": "claude-opus-4-6",
             }.get(key, default)
             with patch("reverse_api.utils.get_config_path"):
-                with patch("httpx.AsyncClient") as mock_async:
+                with patch("httpx2.AsyncClient") as mock_async:
                     mock_async.return_value.__aenter__ = AsyncMock(return_value=mock_client)
                     mock_async.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -700,7 +700,7 @@ class TestGenerateFolderNameOpencodeAsync:
                 "opencode_model": "claude-opus-4-6",
             }.get(key, default)
             with patch("reverse_api.utils.get_config_path"):
-                with patch("httpx.AsyncClient") as mock_async:
+                with patch("httpx2.AsyncClient") as mock_async:
                     mock_async.return_value.__aenter__ = AsyncMock(return_value=mock_client)
                     mock_async.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -756,7 +756,7 @@ class TestGenerateFolderNameOpencodeAsync:
                 "opencode_model": "claude-opus-4-6",
             }.get(key, default)
             with patch("reverse_api.utils.get_config_path"):
-                with patch("httpx.AsyncClient") as mock_async:
+                with patch("httpx2.AsyncClient") as mock_async:
                     mock_async.return_value.__aenter__ = AsyncMock(return_value=mock_client)
                     mock_async.return_value.__aexit__ = AsyncMock(return_value=False)
 
