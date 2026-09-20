@@ -1,19 +1,24 @@
+from __future__ import annotations
+
 import asyncio
 import json
 import os
 import random
 import sys
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import IO, Any, Protocol, TextIO, TypedDict
 
 import click
 import questionary
 import setproctitle
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.completion import CompleteEvent, Completer, Completion
+from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import HTML
-from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 from prompt_toolkit.styles import Style as PtStyle
 from questionary import Choice
 from rich.console import Console
@@ -47,6 +52,16 @@ from .utils import (
     get_timestamp,
     resolve_run,
 )
+
+
+class CliEventEmitter(Protocol):
+    def __call__(self, event: str, **fields: Any) -> None: ...
+
+
+class PromptModeState(TypedDict):
+    mode: str
+    mode_index: int
+
 
 setproctitle.setproctitle("reverse-api-engineer")
 setproctitle.setthreadtitle("reverse-api-engineer")
@@ -112,12 +127,12 @@ def default_model_for_configured_sdk(sdk: str | None = None) -> str:
     """Return the configured default model id for the given SDK (or current config SDK)."""
     s = (sdk or config_manager.get("sdk", "claude") or "claude").lower()
     if s == "opencode":
-        return config_manager.get("opencode_model", DEFAULT_OPENCODE_MODEL)
+        return str(config_manager.get("opencode_model") or DEFAULT_OPENCODE_MODEL)
     if s == "copilot":
-        return config_manager.get("copilot_model", "gpt-5")
+        return str(config_manager.get("copilot_model") or "gpt-5")
     if s == "cursor":
-        return config_manager.get("cursor_model", "composer-2.5")
-    return config_manager.get("claude_code_model", "claude-sonnet-4-6")
+        return str(config_manager.get("cursor_model") or "composer-2.5")
+    return str(config_manager.get("claude_code_model") or "claude-sonnet-4-6")
 
 
 async def _load_opencode_catalog_for_settings() -> dict:
@@ -139,7 +154,7 @@ async def _load_opencode_catalog_for_settings() -> dict:
         return await get_opencode_model_catalog(client)
 
 
-def _select_opencode_pair_for_settings(mode_color=THEME_PRIMARY) -> tuple[str, str] | None:
+def _select_opencode_pair_for_settings(mode_color: str = THEME_PRIMARY) -> tuple[str, str] | None:
     """Select a valid tool-capable provider/model pair from the live OpenCode catalog."""
     from .opencode_runtime import opencode_model_is_free, opencode_model_is_selectable
 
@@ -158,7 +173,8 @@ def _select_opencode_pair_for_settings(mode_color=THEME_PRIMARY) -> tuple[str, s
         return None
 
     providers = [provider for provider in catalog.get("providers", []) if isinstance(provider, dict)]
-    defaults = catalog.get("default") if isinstance(catalog.get("default"), dict) else {}
+    raw_defaults = catalog.get("default")
+    defaults = raw_defaults if isinstance(raw_defaults, dict) else {}
     selectable = []
     for provider in providers:
         models = provider.get("models")
@@ -338,7 +354,7 @@ def _classify_error(error: str | BaseException | None, *, default: str = "unknow
 
 
 @contextmanager
-def _quiet_consoles_for_json():
+def _quiet_consoles_for_json() -> Iterator[TextIO]:
     """Reserve stdout for the final JSON payload; route Rich output to stderr.
 
     Yields the original stdout file object so the caller can write JSON to it
@@ -347,7 +363,7 @@ def _quiet_consoles_for_json():
     rather than the resolved file object.
     """
     real_stdout = sys.stdout
-    redirected_consoles: list[tuple[Console, object]] = []
+    redirected_consoles: list[tuple[Console, IO[str] | None]] = []
     sys.stdout = sys.stderr
     for mod_name, mod in list(sys.modules.items()):
         if not mod_name.startswith("reverse_api") or mod is None:
@@ -364,7 +380,12 @@ def _quiet_consoles_for_json():
             c._file = original_inner
 
 
-def _write_json_stdout(real_stdout, payload: dict, *, json_stream: bool) -> None:
+def _write_json_line(stream: TextIO, line: str) -> None:
+    stream.write(line + "\n")
+    stream.flush()
+
+
+def _write_json_stdout(real_stdout: TextIO, payload: dict, *, json_stream: bool) -> None:
     """Write final CLI JSON payload (single doc or NDJSON terminal event)."""
     out = {"event": "result", **payload} if json_stream else payload
     real_stdout.write(json.dumps(out) + "\n")
@@ -716,7 +737,7 @@ def _build_run_payload(
     }
 
 
-def _write_json_event(real_stdout, payload: dict) -> None:
+def _write_json_event(real_stdout: TextIO, payload: dict) -> None:
     real_stdout.write(json.dumps(payload) + "\n")
     real_stdout.flush()
 
@@ -780,7 +801,7 @@ def prompt_interactive_options(  # noqa: C901 — long questionary flow; split w
     class EnhancedCompleter(Completer):
         """Autocomplete for slash commands and run IDs."""
 
-        def get_completions(self, document, complete_event):
+        def get_completions(self, document: Document, complete_event: CompleteEvent) -> Iterable[Completion]:
             text = document.text_before_cursor
 
             # Slash command completion
@@ -811,7 +832,7 @@ def prompt_interactive_options(  # noqa: C901 — long questionary flow; split w
                             display_meta=self._get_run_meta(run_id),
                         )
 
-        def _get_run_ids(self):
+        def _get_run_ids(self) -> list[str]:
             """Get all run IDs from history (newest first)."""
             try:
                 history = session_manager.get_history(limit=50)
@@ -819,7 +840,7 @@ def prompt_interactive_options(  # noqa: C901 — long questionary flow; split w
             except Exception:
                 return []
 
-        def _get_run_meta(self, run_id):
+        def _get_run_meta(self, run_id: str) -> str:
             """Get metadata for a run ID (timestamp + prompt snippet)."""
             try:
                 run = session_manager.get_run(run_id)
@@ -834,13 +855,13 @@ def prompt_interactive_options(  # noqa: C901 — long questionary flow; split w
     command_completer = EnhancedCompleter()
 
     # Track mode state (mutable container for closure)
-    mode_state = {"mode": current_mode, "mode_index": MODES.index(current_mode)}
+    mode_state: PromptModeState = {"mode": current_mode, "mode_index": MODES.index(current_mode)}
 
     # Create key bindings for mode cycling and autocomplete
     kb = KeyBindings()
 
     @kb.add("s-tab")  # Shift+Tab
-    def cycle_mode(event):
+    def cycle_mode(event: KeyPressEvent) -> None:
         """Cycle to next mode."""
         mode_state["mode_index"] = (mode_state["mode_index"] + 1) % len(MODES)
         mode_state["mode"] = MODES[mode_state["mode_index"]]
@@ -848,7 +869,7 @@ def prompt_interactive_options(  # noqa: C901 — long questionary flow; split w
         event.app.invalidate()
 
     @kb.add("right")  # Right arrow
-    def accept_completion(event):
+    def accept_completion(event: KeyPressEvent) -> None:
         """Accept the current autocomplete suggestion with right arrow."""
         buff = event.app.current_buffer
         if buff.complete_state:
@@ -864,7 +885,7 @@ def prompt_interactive_options(  # noqa: C901 — long questionary flow; split w
             buff.cursor_right()
 
     @kb.add("c-r")  # Ctrl+R: random task suggestion (agent mode)
-    def random_suggestion(event):
+    def random_suggestion(event: KeyPressEvent) -> None:
         """Fill prompt with a random task suggestion for agent mode."""
         if mode_state["mode"] == "agent":
             suggestion = random.choice(AGENT_TASK_SUGGESTIONS)
@@ -872,7 +893,7 @@ def prompt_interactive_options(  # noqa: C901 — long questionary flow; split w
             buff.text = suggestion
             buff.cursor_position = len(suggestion)
 
-    def get_prompt():
+    def get_prompt() -> HTML:
         """Generate prompt with current mode indicator."""
         mode = mode_state["mode"]
         mode_color = MODE_COLORS.get(mode, THEME_PRIMARY)
@@ -887,7 +908,7 @@ def prompt_interactive_options(  # noqa: C901 — long questionary flow; split w
             }
         )
 
-        session = PromptSession(
+        session: PromptSession[str] = PromptSession(
             message=get_prompt,  # Dynamic prompt function
             completer=command_completer,
             auto_suggest=AutoSuggestFromHistory(),
@@ -998,7 +1019,7 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
     is_flag=True,
     help="Print the agent/engineer JSON schema_version this binary emits and exit.",
 )
-def main(ctx: click.Context, show_schema_version: bool):
+def main(ctx: click.Context, show_schema_version: bool) -> None:
     """reverse-api-engineer: reverse engineer apis.
 
     Run without a subcommand to start the interactive REPL; use agent, manual,
@@ -1030,7 +1051,7 @@ def main(ctx: click.Context, show_schema_version: bool):
         repl_loop()
 
 
-def repl_loop():
+def repl_loop() -> None:
     """Main interactive loop for the CLI."""
     from concurrent.futures import ThreadPoolExecutor
 
@@ -1156,13 +1177,13 @@ def repl_loop():
             console.print(f" [dim]{ERROR_CTA}[/dim]")
 
 
-def handle_settings(mode_color=THEME_PRIMARY):
+def handle_settings(mode_color: str = THEME_PRIMARY) -> None:
     """Keep the settings menu open until the user explicitly goes back."""
     while _handle_settings_action(mode_color):
         pass
 
 
-def _handle_settings_action(mode_color=THEME_PRIMARY) -> bool:  # noqa: C901 — one branch per settings menu entry; split when next touched
+def _handle_settings_action(mode_color: str = THEME_PRIMARY) -> bool:  # noqa: C901 — one branch per settings menu entry; split when next touched
     """Display and manage settings with improved layout and descriptions."""
     from rich.table import Table
 
@@ -1463,7 +1484,7 @@ def _handle_settings_action(mode_color=THEME_PRIMARY) -> bool:  # noqa: C901 —
     return True
 
 
-def handle_history(mode_color=THEME_PRIMARY):
+def handle_history(mode_color: str = THEME_PRIMARY) -> None:
     """Display history of runs."""
     history = session_manager.get_history(limit=15)
     if not history:
@@ -1496,8 +1517,9 @@ def handle_history(mode_color=THEME_PRIMARY):
     if not run_id or run_id == "back":
         return
 
-    run = session_manager.get_run(run_id)
-    if run:
+    selected_run = session_manager.get_run(run_id)
+    if selected_run:
+        run = selected_run
         from rich.table import Table
 
         # Create a formatted display of the run details
@@ -1532,7 +1554,7 @@ def handle_history(mode_color=THEME_PRIMARY):
         console.print(" [dim]> not found[/dim]")
 
 
-def handle_help(mode_color=THEME_PRIMARY):
+def handle_help(mode_color: str = THEME_PRIMARY) -> None:
     """Show enhanced help with command details and examples."""
     from rich.table import Table
 
@@ -1588,7 +1610,7 @@ def handle_help(mode_color=THEME_PRIMARY):
     console.print()
 
 
-def handle_messages(run_id: str, mode_color=THEME_PRIMARY):
+def handle_messages(run_id: str, mode_color: str = THEME_PRIMARY) -> None:
     """Display messages from a previous run."""
     from rich.table import Table
 
@@ -1726,7 +1748,17 @@ Exit codes:
         "Implies --json. Exits 0 if all checks pass, 1 if any error."
     ),
 )
-def agent(prompt, url, model, output_dir, no_interactive, as_json, json_stream, headless, dry_run):
+def agent(
+    prompt: str | None,
+    url: str | None,
+    model: str | None,
+    output_dir: str | None,
+    no_interactive: bool,
+    as_json: bool,
+    json_stream: bool,
+    headless: bool,
+    dry_run: bool,
+) -> None:
     """Run autonomous agent browser session.
 
     Agent mode runs an integrated capture + reverse-engineering pipeline.
@@ -1779,10 +1811,9 @@ def agent(prompt, url, model, output_dir, no_interactive, as_json, json_stream, 
 
     from .json_stream import make_json_stream_sink
 
-    payload: dict
     with _quiet_consoles_for_json() as real_stdout:
         sink = (
-            make_json_stream_sink(lambda line: (real_stdout.write(line + "\n"), real_stdout.flush()))
+            make_json_stream_sink(lambda line: _write_json_line(real_stdout, line))
             if json_stream
             else None
         )
@@ -1827,7 +1858,7 @@ Examples:
     default=None,
 )
 @click.option("--output-dir", "-o", default=None, help="Custom output directory for run metadata and messages.")
-def collector(prompt, model, output_dir):
+def collector(prompt: str | None, model: str | None, output_dir: str | None) -> None:
     """Run AI-powered data collection."""
     if prompt is None:
         if not sys.stdin.isatty():
@@ -1848,7 +1879,13 @@ def collector(prompt, model, output_dir):
         sys.exit(1)
 
 
-def run_manual_capture(prompt=None, url=None, reverse_engineer=True, model=None, output_dir=None):
+def run_manual_capture(
+    prompt: str | None = None,
+    url: str | None = None,
+    reverse_engineer: bool = True,
+    model: str | None = None,
+    output_dir: str | None = None,
+) -> None:
     """Shared logic for manual capture."""
     output_dir = output_dir or config_manager.get("output_dir")
 
@@ -1922,14 +1959,14 @@ def run_manual_capture(prompt=None, url=None, reverse_engineer=True, model=None,
 
 
 def run_agent_capture(
-    prompt=None,
-    url=None,
-    model=None,
-    output_dir=None,
-    interactive=True,
-    headless=False,
-    json_event_sink=None,
-):
+    prompt: str | None = None,
+    url: str | None = None,
+    model: str | None = None,
+    output_dir: str | None = None,
+    interactive: bool = True,
+    headless: bool = False,
+    json_event_sink: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any] | None:
     """Shared logic for agent capture mode."""
     output_dir = output_dir or config_manager.get("output_dir")
 
@@ -1941,7 +1978,7 @@ def run_agent_capture(
             model=model,
         )
         if "command" in options:
-            return
+            return None
         prompt = options["prompt"]
         url = options["url"]
         model = options["model"]
@@ -1959,9 +1996,8 @@ def run_agent_capture(
     )
 
 
-def run_collector(prompt=None, model=None, output_dir=None):
+def run_collector(prompt: str | None = None, model: str | None = None, output_dir: str | None = None) -> dict[str, Any] | None:
     """Run AI-powered data collection with Collector class."""
-    import asyncio
 
     from .collector import Collector
 
@@ -2014,15 +2050,15 @@ def run_collector(prompt=None, model=None, output_dir=None):
 
 
 def run_auto_capture(
-    prompt=None,
-    url=None,
-    model=None,
-    output_dir=None,
-    agent_provider="auto",
-    interactive=True,
-    headless=False,
-    json_event_sink=None,
-):
+    prompt: str | None = None,
+    url: str | None = None,
+    model: str | None = None,
+    output_dir: str | None = None,
+    agent_provider: str = "auto",
+    interactive: bool = True,
+    headless: bool = False,
+    json_event_sink: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any] | None:
     """Auto mode: LLM-driven browser automation + real-time reverse engineering."""
     output_dir = output_dir or config_manager.get("output_dir")
 
@@ -2034,7 +2070,7 @@ def run_auto_capture(
             model=model,
         )
         if "command" in options:
-            return
+            return None
         prompt = options["prompt"]
         url = options.get("url")
         model = options["model"]
@@ -2101,6 +2137,10 @@ def run_auto_capture(
 
     try:
         output_language = config_manager.get("output_language", "python")
+        from .auto_engineer import ClaudeAutoEngineer, CopilotAutoEngineer, OpenCodeAutoEngineer
+        from .cursor_engineer import CursorAutoEngineer
+
+        engineer: ClaudeAutoEngineer | CopilotAutoEngineer | OpenCodeAutoEngineer | CursorAutoEngineer
         if sdk == "opencode":
             from .auto_engineer import OpenCodeAutoEngineer
 
@@ -2297,7 +2337,16 @@ Exit codes:
     is_flag=True,
     help="Emit NDJSON progress events on stdout during the run, then a final {\"event\":\"result\",...} line. Implies --no-interactive.",
 )
-def engineer(run_id, prompt, fresh, model, output_dir, no_interactive, as_json, json_stream):
+def engineer(
+    run_id: str,
+    prompt: str | None,
+    fresh: bool,
+    model: str | None,
+    output_dir: str | None,
+    no_interactive: bool,
+    as_json: bool,
+    json_stream: bool,
+) -> None:
     """Run reverse engineering on a previous run."""
     # `run_id` is declared optional at the click level so that wrappers using
     # --json get a JSON misuse payload instead of Click's plain-text "missing
@@ -2348,10 +2397,9 @@ def engineer(run_id, prompt, fresh, model, output_dir, no_interactive, as_json, 
 
     from .json_stream import make_json_stream_sink
 
-    payload: dict
     with _quiet_consoles_for_json() as real_stdout:
         sink = (
-            make_json_stream_sink(lambda line: (real_stdout.write(line + "\n"), real_stdout.flush()))
+            make_json_stream_sink(lambda line: _write_json_line(real_stdout, line))
             if json_stream
             else None
         )
@@ -2382,17 +2430,17 @@ def engineer(run_id, prompt, fresh, model, output_dir, no_interactive, as_json, 
 
 
 def run_engineer(
-    run_id,
-    har_path=None,
-    prompt=None,
-    model=None,
-    output_dir=None,
-    additional_instructions=None,
-    is_fresh=False,
-    output_mode="client",
-    interactive=True,
-    json_event_sink=None,
-):
+    run_id: str,
+    har_path: Path | None = None,
+    prompt: str | None = None,
+    model: str | None = None,
+    output_dir: str | None = None,
+    additional_instructions: str | None = None,
+    is_fresh: bool = False,
+    output_mode: str = "client",
+    interactive: bool = True,
+    json_event_sink: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any] | None:
     """Shared logic for reverse engineering."""
     if not har_path or not prompt:
         # Load from history if possible
@@ -2601,7 +2649,7 @@ JSON output (--json) is always a flat array (possibly empty []).
 @click.option("--mode", "-m", type=str, default=None, help="Filter by mode (auto/manual/agent/engineer/collector).")
 @click.option("--model", type=str, default=None, help="Filter by model name.")
 @click.option("--search", "-s", type=str, default=None, help="Case-insensitive substring match on prompt.")
-def list_runs(as_json, full, limit, mode, model, search):
+def list_runs(as_json: bool, full: bool, limit: int, mode: str | None, model: str | None, search: str | None) -> None:
     """List generated scripts and runs with optional filters."""
     from rich.table import Table
 
@@ -2690,7 +2738,7 @@ Exit codes (--json):
 )
 @click.argument("run_id", required=False)
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON object.")
-def show_run(run_id, as_json):
+def show_run(run_id: str, as_json: bool) -> None:
     """Show detailed info for a specific run."""
     from rich.table import Table
     from rich.text import Text
@@ -2778,7 +2826,7 @@ def show_run(run_id, as_json):
         t.append("✓" if exists else "✗", style="green" if exists else "red")
         return t
 
-    rows: list[tuple[str, Text | str]] = [
+    rows: list[tuple[str, Text | str | None]] = [
         ("prompt", details["prompt"]),
         ("timestamp", details["timestamp"]),
         ("model", details["model"]),
@@ -2832,7 +2880,7 @@ def _extract_missing_module(stderr: str) -> str | None:
     return missing
 
 
-def _run_non_python_script(script, script_args) -> None:
+def _run_non_python_script(script: Path, script_args: tuple[str, ...]) -> None:
     """Run a non-Python generated client with its language's toolchain and exit."""
     import shutil
     import subprocess
@@ -2860,7 +2908,7 @@ def _run_script_machine_payload(
     file_name: str | None,
     list_scripts: bool,
     auto_install: bool,
-    emit_event,
+    emit_event: CliEventEmitter,
 ) -> dict:
     """Run or list generated scripts without prompts and with JSON-safe stdout."""
     import subprocess
@@ -2952,6 +3000,7 @@ def _run_script_machine_payload(
                 result = subprocess.run(cmd, cwd=str(script.parent), capture_output=True, text=True)
                 if result.returncode != 0:
                     break
+            assert result is not None, "build_script_commands returned no execution steps"
             return _build_run_payload(
                 identifier=identifier,
                 run_id=run_id,
@@ -2970,22 +3019,21 @@ def _run_script_machine_payload(
         venv_python = venv_dir / venv_bin / ("python.exe" if sys.platform == "win32" else "python")
         venv_pip = venv_dir / venv_bin / ("pip.exe" if sys.platform == "win32" else "pip")
 
-        subprocess_kwargs = {"capture_output": True, "text": True}
         if not venv_dir.exists():
             emit_event("venv_setup_started", run_id=run_id, path=str(venv_dir))
-            subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True, **subprocess_kwargs)
-            subprocess.run([str(venv_pip), "install", "-q", "requests"], check=True, **subprocess_kwargs)
+            subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True, capture_output=True, text=True)
+            subprocess.run([str(venv_pip), "install", "-q", "requests"], check=True, capture_output=True, text=True)
             emit_event("venv_setup_completed", run_id=run_id, path=str(venv_dir))
 
         requirements = script.parent / "requirements.txt"
         if requirements.exists():
             emit_event("requirements_install_started", run_id=run_id, path=str(requirements))
-            subprocess.run([str(venv_pip), "install", "-q", "-r", str(requirements)], check=True, **subprocess_kwargs)
+            subprocess.run([str(venv_pip), "install", "-q", "-r", str(requirements)], check=True, capture_output=True, text=True)
             emit_event("requirements_install_completed", run_id=run_id, path=str(requirements))
 
         cmd = [str(venv_python), str(script), *script_args]
         emit_event("process_started", run_id=run_id, script_path=str(script))
-        result = subprocess.run(cmd, **subprocess_kwargs)
+        result = subprocess.run(cmd, capture_output=True, text=True)
 
         stderr = result.stderr or ""
         if result.returncode != 0 and "ModuleNotFoundError: No module named" in stderr:
@@ -2994,10 +3042,10 @@ def _run_script_machine_payload(
                 emit_event("dependency_missing", run_id=run_id, package=missing)
                 if auto_install:
                     emit_event("dependency_install_started", run_id=run_id, package=missing)
-                    subprocess.run([str(venv_pip), "install", "-q", missing], check=True, **subprocess_kwargs)
+                    subprocess.run([str(venv_pip), "install", "-q", missing], check=True, capture_output=True, text=True)
                     emit_event("dependency_install_completed", run_id=run_id, package=missing)
                     emit_event("process_retried", run_id=run_id, script_path=str(script))
-                    result = subprocess.run(cmd, **subprocess_kwargs)
+                    result = subprocess.run(cmd, capture_output=True, text=True)
                 else:
                     return _build_run_payload(
                         identifier=identifier,
@@ -3104,7 +3152,17 @@ Exit codes:
     help='Emit NDJSON progress events on stdout, then a final {"event":"result",...} line. Implies --no-interactive.',
 )
 @click.pass_context
-def run_script(ctx, identifier, script_args, file_name, list_scripts, no_interactive, auto_install, as_json, json_stream):
+def run_script(
+    ctx: click.Context,
+    identifier: str,
+    script_args: tuple[str, ...],
+    file_name: str | None,
+    list_scripts: bool,
+    no_interactive: bool,
+    auto_install: bool,
+    as_json: bool,
+    json_stream: bool,
+) -> None:
     """Run a generated script from a previous run.
 
     IDENTIFIER is a run ID or search term to match against prompts.
@@ -3131,7 +3189,7 @@ def run_script(ctx, identifier, script_args, file_name, list_scripts, no_interac
     if machine_output:
         with _quiet_consoles_for_json() as real_stdout:
 
-            def emit_event(event: str, **fields) -> None:
+            def emit_event(event: str, **fields: Any) -> None:
                 if json_stream:
                     _write_json_event(real_stdout, {"event": event, **fields})
 
@@ -3259,8 +3317,8 @@ def run_script(ctx, identifier, script_args, file_name, list_scripts, no_interac
                 if install:
                     subprocess.run([str(venv_pip), "install", "-q", missing], check=True)
                     console.print(f"Installed [green]{missing}[/green]. Retrying...")
-                    result = subprocess.run(cmd)
-                    raise SystemExit(result.returncode)
+                    retry_result = subprocess.run(cmd)
+                    raise SystemExit(retry_result.returncode)
 
     raise SystemExit(result.returncode)
 

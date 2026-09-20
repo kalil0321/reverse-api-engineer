@@ -12,6 +12,7 @@ from claude_agent_sdk import (
     McpSdkServerConfig,
     PermissionResultAllow,
     ResultMessage,
+    SdkMcpTool,
     TextBlock,
     ToolPermissionContext,
     ToolResultBlock,
@@ -59,7 +60,7 @@ class ClaudeEngineer(BaseEngineer):
         # Auto-approve all other tools
         return PermissionResultAllow(updated_input=input_data)
 
-    def _build_verification_tool(self):
+    def _build_verification_tool(self) -> SdkMcpTool[dict[str, Any]]:
         """The report_client_verified SdkMcpTool itself (handler + schema),
         separate from _build_verification_mcp_server's server-wrapping step
         purely so tests can call `.handler(args)` directly — create_sdk_mcp_
@@ -187,13 +188,23 @@ class ClaudeEngineer(BaseEngineer):
                         if getattr(block, "content", None) is not None:
                             output = block.content
                         elif getattr(block, "result", None) is not None:
-                            output = block.result
+                            output = getattr(block, "result", None)
                         elif getattr(block, "output", None) is not None:
-                            output = block.output
+                            output = getattr(block, "output", None)
 
                         tool_name = last_tool_name or "Tool"
-                        self.ui.tool_result(tool_name, is_error, output)
-                        self.message_store.save_tool_result(tool_name, is_error, str(output) if output else None)
+                        output_text: str | None
+                        if isinstance(output, list):
+                            output_text = "\n".join(
+                                str(item["text"])
+                                if isinstance(item, dict) and item.get("type") == "text" and isinstance(item.get("text"), str)
+                                else str(item)
+                                for item in output
+                            )
+                        else:
+                            output_text = str(output) if output is not None else None
+                        self.ui.tool_result(tool_name, is_error, output_text)
+                        self.message_store.save_tool_result(tool_name, is_error, output_text)
                         # The real-time "client_executed" --json-stream event
                         # (once inferred here from Bash tool-call text) now
                         # comes from the report_client_verified tool itself —
@@ -323,6 +334,8 @@ class ClaudeEngineer(BaseEngineer):
             self.ui.console.print("\n[dim]Make sure Claude Code CLI is installed: npm install -g @anthropic-ai/claude-code[/dim]")
             return None
 
+        return None
+
 
 # Keep old class name for backwards compatibility
 APIReverseEngineer = ClaudeEngineer
@@ -365,6 +378,7 @@ def run_reverse_engineering(
         output_language: Target language - "python", "javascript", "typescript", "go", "java", "csharp", "php", "ruby", or "c"
         output_mode: Output mode - "client" for API client code, "docs" for OpenAPI specification
     """
+    engineer: BaseEngineer
     if sdk == "opencode":
         from .opencode_engineer import OpenCodeEngineer
 

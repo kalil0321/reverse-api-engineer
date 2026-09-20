@@ -4,6 +4,7 @@ import os
 import shlex
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -28,6 +29,11 @@ class ConcreteEngineer(BaseEngineer):
 
     async def analyze_and_generate(self) -> dict[str, Any] | None:
         return {"test": True}
+
+
+@pytest.mark.parametrize("option", [{"description": None}, SimpleNamespace(description=None)])
+def test_null_option_description_is_omitted(option):
+    assert BaseEngineer._get_opt_field(option, "description") == ""
 
 
 class TestBaseEngineerInit:

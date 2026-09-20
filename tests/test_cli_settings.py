@@ -3,8 +3,21 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx2 as httpx
+import pytest
 
 from reverse_api import cli
+
+
+@pytest.mark.parametrize("sdk,key,default", [
+    ("claude", "claude_code_model", "claude-sonnet-4-6"),
+    ("opencode", "opencode_model", cli.DEFAULT_OPENCODE_MODEL),
+    ("copilot", "copilot_model", "gpt-5"),
+    ("cursor", "cursor_model", "composer-2.5"),
+])
+@pytest.mark.parametrize("saved", [None, "", "custom-model"])
+def test_default_model_handles_empty_settings(sdk, key, default, saved):
+    with patch.object(cli.config_manager, "get", side_effect=lambda name: {key: saved}.get(name)):
+        assert cli.default_model_for_configured_sdk(sdk) == (saved or default)
 
 
 def test_settings_stays_open_until_back():
