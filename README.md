@@ -169,6 +169,12 @@ Pass `--no-interactive` (and/or `--json`) to skip prompts. With `--json`, stdout
 
 For `run`, the exit code is the underlying script's return code on success, `1` if no script was found, or non-zero if `--no-interactive` would have had to prompt.
 
+### Debugging agent failures
+
+Set the `RAE_DEBUG` environment variable to `1` to print the Python traceback
+for unexpected agent capture failures to stderr. Normal error messages remain
+concise by default, and `--json` / `--json-stream` stdout remains machine-readable.
+
 ## Output locations
 
 - `~/.reverse-api/runs/scripts/{run_id}/`: permanent storage

@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Live client validation**: an opt-in local test captures a fixture API, generates a Python or PowerShell client with a verified free OpenCode model, and checks fresh API data on replay. The manual `live_windows` CI option validates both languages using preinstalled Chrome and cached Python/npm dependencies, without downloading Chromium. Regular CI requires real PowerShell execution and CLI startup checks across all three operating systems.
 
 ### Fixed
+- Expose unexpected agent capture tracebacks through `RAE_DEBUG=1` on stderr, without adding diagnostics to JSON/NDJSON stdout.
 - Keep the website header pinned to the viewport during rapid scrolling on the homepage and documentation pages, while preserving the content offset. Add browser regression coverage to the website deployment workflow.
 - **PowerShell execution validation**: reject unsupported module names, missing `Example.ps1`, and script arguments that the example cannot forward, rather than silently running a different command. Generation instructions require portable module imports and terminating errors so failed API calls produce a nonzero exit status.
 - Refresh the locked Claude Agent SDK and MCP dependencies so the development environment also uses MCP 2.x and `httpx2`, without the legacy `httpx`, `httpx-sse`, and `httpcore` packages. Add subprocess smoke tests for CLI startup with legacy HTTP client imports blocked.

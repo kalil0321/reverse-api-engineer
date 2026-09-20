@@ -6,6 +6,7 @@ import logging
 import os
 import random
 import sys
+import traceback
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -1028,6 +1029,7 @@ def main(ctx: click.Context, show_schema_version: bool) -> None:
 
     Scripted flags are subcommand-specific: agent, engineer, and run support
     --json, --json-stream, and --no-interactive; list/show support --json.
+    Set RAE_DEBUG=1 to include unexpected agent failure tracebacks on stderr.
     See `<cmd> --help` for details. Wrappers that need to gate on the payload
     schema can call `reverse-api-engineer
     --json-schema-version`.
@@ -2276,7 +2278,10 @@ def run_auto_capture(
         message = str(e) or type(e).__name__
         click.echo(f"error: {message}", err=True)
         click.echo(ERROR_CTA, err=True)
-        logging.getLogger(__name__).debug("Auto mode failed", exc_info=True)
+        if os.environ.get("RAE_DEBUG") == "1":
+            traceback.print_exc(file=sys.stderr)
+        else:
+            logging.getLogger(__name__).debug("Auto mode failed", exc_info=True)
         return {
             "run_id": run_id,
             "mode": mode_label,
