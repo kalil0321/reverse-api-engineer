@@ -540,3 +540,32 @@ def test_provider_failure_is_not_reported_as_success(tmp_path, output_flag):
         assert payload["error_kind"] == "engine_failure"
         assert payload["script_path"] is None
     engine.stop_sync.assert_called_once()
+
+
+@pytest.mark.parametrize("sdk", ["claude", "cursor"])
+@pytest.mark.parametrize("output_flag", ["--json", "--json-stream"])
+def test_provider_interrupt_reaches_machine_output(tmp_path, monkeypatch, sdk, output_flag):
+    from contextlib import ExitStack
+    from unittest.mock import AsyncMock
+
+    from reverse_api.config import ConfigManager
+
+    config = ConfigManager(tmp_path / "config.json")
+    config.config.update({"sdk": sdk, "agent_provider": "chrome-mcp", "real_time_sync": False})
+    monkeypatch.setenv("CURSOR_API_KEY", "test-only")
+    with ExitStack() as stack:
+        stack.enter_context(patch("reverse_api.cli.config_manager", config))
+        stack.enter_context(patch("reverse_api.cli.session_manager", SessionManager(tmp_path / "history.json")))
+        if sdk == "claude":
+            client = stack.enter_context(patch("reverse_api.auto_engineer.ClaudeSDKClient"))
+            client.return_value.__aenter__ = AsyncMock(side_effect=KeyboardInterrupt)
+            client.return_value.__aexit__ = AsyncMock(return_value=False)
+        else:
+            stack.enter_context(patch("reverse_api.cursor_engineer._ensure_cursor_bridge_deps", return_value=None))
+            stack.enter_context(patch("reverse_api.cursor_engineer.CursorAutoEngineer._one_turn", new=AsyncMock(side_effect=KeyboardInterrupt)))
+        result = CliRunner().invoke(main, ["agent", "-p", "test interruption", "--headless", "-o", str(tmp_path), output_flag])
+    assert result.exit_code == 1, result.output
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    assert payload["status"] == "error"
+    assert payload["error_kind"] == "interrupted"
+    assert payload["error"] == "interrupted"

@@ -280,6 +280,8 @@ class ClaudeAutoEngineer(ClaudeEngineer):
 
         except KeyboardInterrupt:
             self.ui.console.print("\n  [dim]run aborted[/dim]")
+            if not self.interactive:
+                raise
             return last_result
 
         except Exception as e:

@@ -608,4 +608,6 @@ class CursorAutoEngineer(CursorEngineer):
                 self.message_store.save_prompt(turn_prompt)
         except KeyboardInterrupt:
             self.ui.console.print("\n  [dim]run aborted[/dim]")
+            if not self.interactive:
+                raise
             return last_result
