@@ -5,10 +5,23 @@ Install browsers first: uv run --extra manual playwright install chromium firefo
 """
 import json
 import sys
-from contextlib import closing
+from contextlib import closing, contextmanager
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+
+@contextmanager
+def capture_failure(context, engine, width):
+    try:
+        yield
+    except Exception:
+        if context.pages:
+            try:
+                context.pages[-1].screenshot(path=f'/tmp/rae-header-{engine}-{width}-failure.png')
+            except Exception as error:
+                print(f'Could not capture failure screenshot: {error}', file=sys.stderr)
+        raise
+
 
 base_url, export_dir = sys.argv[1:]
 docs_dir = Path(export_dir, 'docs')
@@ -21,7 +34,7 @@ with sync_playwright() as playwright:
     for engine in ['chromium', 'firefox', 'webkit']:
         with closing(getattr(playwright, engine).launch()) as browser:
             for width, height in [(1280, 800), (390, 844)]:
-                with closing(browser.new_context(viewport={'width': width, 'height': height})) as context:
+                with closing(browser.new_context(viewport={'width': width, 'height': height})) as context, capture_failure(context, engine, width):
                     page = context.new_page()
                     errors = []
                     page.on('pageerror', lambda error: errors.append(str(error)))
