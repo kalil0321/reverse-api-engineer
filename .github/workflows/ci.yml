@@ -34,15 +34,11 @@ jobs:
       - run: uv sync --all-extras --locked
       - run: uv run ruff check src tests
 
-  # mypy reports ~170 pre-existing errors across src/. Until those are fixed the
-  # job is informational only: it runs on every PR so regressions are visible
-  # in the logs, but it never blocks a merge. Remove `continue-on-error` once
-  # `uv run mypy src` is clean.
   typecheck:
     if: github.event_name != 'workflow_dispatch' || !inputs.live_windows
-    name: mypy (informational)
+    name: mypy
+    timeout-minutes: 15
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0

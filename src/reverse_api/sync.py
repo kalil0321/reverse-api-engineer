@@ -1,11 +1,13 @@
 """Real-time file synchronization with watchdog."""
 
+import os
 import shutil
 import time
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from threading import Event, Thread
+from typing import TypedDict
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
@@ -30,6 +32,11 @@ def get_available_directory(base_path: Path, base_name: str) -> Path:
     return base_path / folder_name
 
 
+class PendingSyncEvent(TypedDict):
+    time: float
+    is_delete: bool
+
+
 class SyncHandler(FileSystemEventHandler):
     """Handle file system events for syncing."""
 
@@ -40,14 +47,14 @@ class SyncHandler(FileSystemEventHandler):
         on_sync: Callable[[str], None] | None = None,
         on_error: Callable[[str], None] | None = None,
         debounce_ms: int = 500,
-    ):
+    ) -> None:
         self.source_dir = source_dir
         self.dest_dir = dest_dir
         self.on_sync = on_sync
         self.on_error = on_error
         self.debounce_ms = debounce_ms / 1000.0  # Convert to seconds
-        self.pending_events = {}
-        self.last_sync_time = 0
+        self.pending_events: dict[str, PendingSyncEvent] = {}
+        self.last_sync_time = 0.0
         self.file_count = 0
 
     def _is_ignored_file(self, file_path: str) -> bool:
@@ -63,29 +70,29 @@ class SyncHandler(FileSystemEventHandler):
         """Backward-compatible helper for temporary/ignored sync paths."""
         return self._is_ignored_file(file_path)
 
-    def on_created(self, event: FileSystemEvent):
+    def on_created(self, event: FileSystemEvent) -> None:
         """Handle file creation."""
-        if not event.is_directory and not self._is_ignored_file(event.src_path):
-            self._queue_sync(event.src_path)
+        if not event.is_directory and not self._is_ignored_file(os.fsdecode(event.src_path)):
+            self._queue_sync(os.fsdecode(event.src_path))
 
-    def on_modified(self, event: FileSystemEvent):
+    def on_modified(self, event: FileSystemEvent) -> None:
         """Handle file modification."""
-        if not event.is_directory and not self._is_ignored_file(event.src_path):
-            self._queue_sync(event.src_path)
+        if not event.is_directory and not self._is_ignored_file(os.fsdecode(event.src_path)):
+            self._queue_sync(os.fsdecode(event.src_path))
 
-    def on_deleted(self, event: FileSystemEvent):
+    def on_deleted(self, event: FileSystemEvent) -> None:
         """Handle file deletion."""
-        if not event.is_directory and not self._is_ignored_file(event.src_path):
-            self._queue_sync(event.src_path, is_delete=True)
+        if not event.is_directory and not self._is_ignored_file(os.fsdecode(event.src_path)):
+            self._queue_sync(os.fsdecode(event.src_path), is_delete=True)
 
-    def _queue_sync(self, file_path: str, is_delete: bool = False):
+    def _queue_sync(self, file_path: str, is_delete: bool = False) -> None:
         """Queue a file for syncing with debouncing."""
         self.pending_events[file_path] = {
             "time": time.time(),
             "is_delete": is_delete,
         }
 
-    def process_pending(self):
+    def process_pending(self) -> None:
         """Process pending sync events (debounced)."""
         current_time = time.time()
         to_sync = []
@@ -104,7 +111,7 @@ class SyncHandler(FileSystemEventHandler):
                 if self.on_error:
                     self.on_error(f"Error syncing {Path(file_path).name}: {str(e)}")
 
-    def _sync_file(self, source_path: str, is_delete: bool = False):
+    def _sync_file(self, source_path: str, is_delete: bool = False) -> None:
         """Sync a single file from source to destination."""
         source = Path(source_path)
         relative = source.relative_to(self.source_dir)
@@ -149,7 +156,7 @@ class FileSyncWatcher:
         on_sync: Callable[[str], None] | None = None,
         on_error: Callable[[str], None] | None = None,
         debounce_ms: int = 500,
-    ):
+    ) -> None:
         self.source_dir = source_dir
         self.dest_dir = dest_dir
         self.debounce_ms = debounce_ms
@@ -171,7 +178,7 @@ class FileSyncWatcher:
         self.stop_event = Event()
         self.process_thread: Thread | None = None
 
-    def start(self):
+    def start(self) -> None:
         """Start watching and syncing."""
         # Ensure destination exists
         self.dest_dir.mkdir(parents=True, exist_ok=True)
@@ -183,7 +190,7 @@ class FileSyncWatcher:
         self.process_thread = Thread(target=self._process_loop, daemon=True)
         self.process_thread.start()
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop watching and syncing."""
         self.stop_event.set()
 
@@ -201,18 +208,18 @@ class FileSyncWatcher:
         # Perform final sync of all existing files to ensure nothing is missed
         self._final_sync()
 
-    def flush(self):
+    def flush(self) -> None:
         """Flush pending events and perform a full sync without stopping the watcher."""
         self.handler.process_pending()
         self._final_sync()
 
-    def _process_loop(self):
+    def _process_loop(self) -> None:
         """Background loop to process pending sync events."""
         while not self.stop_event.is_set():
             self.handler.process_pending()
             time.sleep(0.1)  # Check every 100ms
 
-    def _final_sync(self):
+    def _final_sync(self) -> None:
         """Perform a final sync of all existing files in source directory."""
         if not self.source_dir.exists():
             return
@@ -277,7 +284,7 @@ def _should_skip_path(relative_path: Path) -> bool:
     return False
 
 
-def sync_directory_once(source_dir: Path, dest_dir: Path):
+def sync_directory_once(source_dir: Path, dest_dir: Path) -> Path:
     """
     Perform a one-time sync of a directory.
 

@@ -16,6 +16,8 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any
 
+from rich.console import Console
+
 from .utils import get_config_path
 
 _AGENT_BROWSER_TOOLS = frozenset(
@@ -54,7 +56,7 @@ def reset_agent_browser_setup_cache() -> None:
     _SHELL_INVOKER = None
 
 
-def print_agent_browser_setup_notices(console, setup: AgentBrowserSetup) -> None:
+def print_agent_browser_setup_notices(console: Console, setup: AgentBrowserSetup) -> None:
     """Emit install/fallback chatter before streaming."""
 
     for note in setup.notices:

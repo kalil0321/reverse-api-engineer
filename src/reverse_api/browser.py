@@ -5,9 +5,11 @@ import json
 import random
 import signal
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from types import FrameType
 
-from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
+from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 from playwright_stealth import Stealth
 from rich.console import Console
 from rich.status import Status
@@ -187,7 +189,7 @@ class ManualBrowser:
         prompt: str,
         output_dir: str | None = None,
         use_real_chrome: bool = True,  # New option to use real Chrome
-    ):
+    ) -> None:
         self.run_id = run_id
         self.prompt = prompt
         self.output_dir = output_dir
@@ -197,7 +199,7 @@ class ManualBrowser:
         self.har_path = self.har_dir / "recording.har"
         self.metadata_path = self.har_dir / "metadata.json"
 
-        self._playwright = None
+        self._playwright: Playwright | None = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
         self._start_time: str | None = None
@@ -216,7 +218,7 @@ class ManualBrowser:
         with open(self.metadata_path, "w") as f:
             json.dump(metadata, f, indent=2)
 
-    def _handle_signal(self, signum, frame) -> None:
+    def _handle_signal(self, signum: int, frame: FrameType | None) -> None:
         """Handle interrupt signals gracefully."""
         console.print("\n\n [dim]terminating capture...[/dim]")
         self.close()
@@ -244,11 +246,14 @@ class ManualBrowser:
         prompt) fail with "asyncio.run() cannot be called from a running event
         loop". Safe to call with partially-initialized state.
         """
-        for teardown in (
-            lambda: self._context and self._context.close(),
-            lambda: self._browser and not self._using_persistent and self._browser.close(),
-            lambda: self._playwright and self._playwright.stop(),
-        ):
+        teardowns: list[Callable[[], None]] = []
+        if self._context is not None:
+            teardowns.append(self._context.close)
+        if self._browser is not None and not self._using_persistent:
+            teardowns.append(self._browser.close)
+        if self._playwright is not None:
+            teardowns.append(self._playwright.stop)
+        for teardown in teardowns:
             try:
                 teardown()
             except Exception:
@@ -256,6 +261,11 @@ class ManualBrowser:
         self._context = None
         self._browser = None
         self._playwright = None
+
+    def _require_playwright(self) -> Playwright:
+        if self._playwright is None:
+            raise RuntimeError("Playwright has not been started")
+        return self._playwright
 
     def _start_with_real_chrome(self, start_url: str | None = None) -> Path:
         """Start using the real Chrome browser with user's profile."""
@@ -277,7 +287,7 @@ class ManualBrowser:
 
         try:
             # Use launch_persistent_context with channel="chrome" to use real Chrome binary
-            self._context = self._playwright.chromium.launch_persistent_context(
+            self._context = self._require_playwright().chromium.launch_persistent_context(
                 user_data_dir=str(temp_profile_dir),
                 channel="chrome",  # Use real Chrome binary
                 headless=False,
@@ -357,7 +367,7 @@ class ManualBrowser:
             "--use-mock-keychain",
         ]
 
-        self._browser = self._playwright.chromium.launch(
+        self._browser = self._require_playwright().chromium.launch(
             headless=False,
             args=chrome_args,
             ignore_default_args=["--enable-automation", "--no-sandbox"],

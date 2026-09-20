@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Raise security minimums to Click >=8.3.3, aiohttp >=3.14.3, cryptography >=50.0.0, AnyIO >=4.14.2, PyJWT >=2.13.0, python-multipart >=0.0.31, Starlette >=1.3.1, HTTPX2 >=2.12.0 (which requires the patched HTTPCore2), and Markdownify >=0.14.1 / SoupSieve >=2.9.0 (collector extra). Export these floors in package metadata so upgrades cannot retain vulnerable versions that only the repository lockfile excluded.
 - **PowerShell execution validation**: reject unsupported module names, missing `Example.ps1`, and script arguments that the example cannot forward, rather than silently running a different command. Generation instructions require portable module imports and terminating errors so failed API calls produce a nonzero exit status.
 - Refresh the locked Claude Agent SDK and MCP dependencies so the development environment also uses MCP 2.x and `httpx2`, without the legacy `httpx`, `httpx-sse`, and `httpcore` packages. Add subprocess smoke tests for CLI startup with legacy HTTP client imports blocked.
+- Restore the strict typing fixes from #125 and make the `mypy` CI job blocking. The original PR landed on an intermediate branch after its promotion PR had already merged, so the changes had not reached main.
+
+### Security
+- Refresh vulnerable website transitive dependencies, including js-yaml, nanoid, undici, brace-expansion and Miniflare's Sharp dependency, with patched lockfile versions and overrides.
+- Upgrade the website to Next.js 16.3.3 and its Sharp image-processing dependency to 0.35.4 to address known vulnerabilities.
 
 ## [0.13.1] - 2026-08-30
 

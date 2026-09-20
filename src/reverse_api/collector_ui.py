@@ -1,5 +1,7 @@
 """Terminal UI for collector mode with streaming progress updates."""
 
+from typing import Any
+
 from rich.console import Console
 
 from .theme import MODE_COLORS
@@ -11,12 +13,12 @@ COLLECTOR_COLOR = MODE_COLORS["collector"]
 class CollectorUI:
     """Terminal UI with real-time collection progress."""
 
-    def __init__(self, verbose: bool = True):
+    def __init__(self, verbose: bool = True) -> None:
         self.console = Console()
         self.verbose = verbose
         self._items_collected = 0
 
-    def header(self, run_id: str, prompt: str, model: str | None = None, **kwargs) -> None:
+    def header(self, run_id: str, prompt: str, model: str | None = None, **kwargs: Any) -> None:
         """Display the collector session header."""
         task = prompt[:80] + ("..." if len(prompt) > 80 else "")
         print_session_header(

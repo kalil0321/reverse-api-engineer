@@ -8,12 +8,12 @@ from typing import Any
 class SessionManager:
     """Handles history tracking and persistence of runs."""
 
-    def __init__(self, history_path: Path):
+    def __init__(self, history_path: Path) -> None:
         self.history_path = history_path
         self.history: list[dict[str, Any]] = []
         self.load()
 
-    def load(self):
+    def load(self) -> None:
         """Load history from disk."""
         if self.history_path.exists():
             try:
@@ -23,13 +23,13 @@ class SessionManager:
                 # Fallback to empty history if file is corrupted
                 self.history = []
 
-    def save(self):
+    def save(self) -> None:
         """Save history to disk."""
         self.history_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.history_path, "w") as f:
             json.dump(self.history, f, indent=4)
 
-    def add_run(self, run_id: str, prompt: str, **kwargs):
+    def add_run(self, run_id: str, prompt: str, **kwargs: Any) -> None:
         """Add a new run to history."""
         run_data = {
             "run_id": run_id,
@@ -48,7 +48,7 @@ class SessionManager:
         self.history.insert(0, run_data)  # Most recent first
         self.save()
 
-    def update_run(self, run_id: str, **kwargs):
+    def update_run(self, run_id: str, **kwargs: Any) -> None:
         """Update an existing run with more data (e.g., usage after engineer)."""
         for run in self.history:
             if run["run_id"] == run_id:
