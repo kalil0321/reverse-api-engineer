@@ -7,6 +7,7 @@ No model mock, production website, credentials, or paid-model fallback is used.
 
 import argparse
 import asyncio
+import codecs
 import hashlib
 import json
 import os
@@ -194,11 +195,21 @@ def main():
         generated_files = [script]
         if args.language == "powershell":
             generated_files.append(script.parent / "Example.ps1")
-        client_evidence = {
-            path.name: {"sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-                        "source": path.read_text(encoding="utf-8-sig")}
-            for path in generated_files
-        }
+        client_evidence = {}
+        for path in generated_files:
+            raw = path.read_bytes()
+            if raw.startswith((codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE)):
+                encoding = "utf-32"
+            elif raw.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+                encoding = "utf-16"
+            else:
+                encoding = "utf-8-sig"
+            source = raw.decode(encoding, errors="replace")
+            client_evidence[path.name] = {
+                "sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
+                "file_sha256": hashlib.sha256(raw).hexdigest(),
+                "source": source,
+            }
         report = {"status": "ok", "language": args.language, "model": f"opencode/{model}",
                   "package_version": version("reverse-api-engineer"), "script_path": str(script),
                   "har_entries": len(entries), "page_hits": server.page_hits, "api_hits": server.api_hits,
