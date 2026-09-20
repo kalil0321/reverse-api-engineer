@@ -8,9 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Compatibility
+- The secured cryptography dependency no longer supports Intel macOS or 32-bit Windows. Use Linux (including on Intel hardware), Apple Silicon macOS, or 64-bit Windows. Installing on the retired platforms may attempt an unsupported source build requiring Rust and OpenSSL development tools; this is not a supported installation path. Do not downgrade cryptography to restore old wheels. See the [upstream platform changes](https://cryptography.io/en/latest/changelog/#v49-0-0).
 - Click now requires version 8.3.3 or newer to fix [PYSEC-2026-2132](https://osv.dev/vulnerability/PYSEC-2026-2132). LiteLLM releases that pin `click==8.1.8` (including 1.83.7) cannot share an environment with this release. Use RAE's built-in pricing, run such LiteLLM releases in a separate environment, or select a LiteLLM release whose requirements allow the patched Click version. Optional LiteLLM pricing detection remains available only when its dependencies are compatible; do not downgrade Click to enable it.
 
 ### Fixed
+- Export patched minimum versions for AnyIO, PyJWT, python-multipart, Starlette, and the collector extra's SoupSieve dependency so package upgrades cannot retain vulnerable versions that only the repository lockfile excluded.
 - Refresh the locked Claude Agent SDK and MCP dependencies so the development environment also uses MCP 2.x and `httpx2`, without the legacy `httpx`, `httpx-sse`, and `httpcore` packages. Add subprocess smoke tests for CLI startup with legacy HTTP client imports blocked.
 
 ## [0.13.1] - 2026-08-30

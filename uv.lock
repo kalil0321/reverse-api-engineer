@@ -1616,15 +1616,20 @@ version = "0.13.1"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
+    { name = "anyio", version = "4.14.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
+    { name = "anyio", version = "4.15.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
     { name = "claude-agent-sdk" },
     { name = "click" },
     { name = "cryptography" },
     { name = "httpx2" },
     { name = "pygments" },
+    { name = "pyjwt" },
+    { name = "python-multipart" },
     { name = "questionary" },
     { name = "requests" },
     { name = "rich" },
     { name = "setproctitle" },
+    { name = "starlette" },
     { name = "watchdog" },
 ]
 
@@ -1632,6 +1637,7 @@ dependencies = [
 collector = [
     { name = "beautifulsoup4" },
     { name = "markdownify" },
+    { name = "soupsieve" },
 ]
 copilot = [
     { name = "github-copilot-sdk" },
@@ -1653,6 +1659,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.14.3" },
+    { name = "anyio", specifier = ">=4.14.2" },
     { name = "beautifulsoup4", marker = "extra == 'collector'", specifier = ">=4.12.0" },
     { name = "claude-agent-sdk", specifier = ">=0.1.48" },
     { name = "click", specifier = ">=8.3.3" },
@@ -1663,10 +1670,14 @@ requires-dist = [
     { name = "playwright", marker = "extra == 'manual'", specifier = ">=1.40.0" },
     { name = "playwright-stealth", marker = "extra == 'manual'", specifier = ">=1.0.0" },
     { name = "pygments", specifier = ">=2.20.0" },
+    { name = "pyjwt", specifier = ">=2.13.0" },
+    { name = "python-multipart", specifier = ">=0.0.30" },
     { name = "questionary", specifier = ">=2.0.0" },
     { name = "requests", specifier = ">=2.33.0" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "setproctitle", specifier = ">=1.3.0" },
+    { name = "soupsieve", marker = "extra == 'collector'", specifier = ">=2.9.0" },
+    { name = "starlette", specifier = ">=1.3.1" },
     { name = "watchdog", specifier = ">=3.0.0" },
 ]
 provides-extras = ["manual", "collector", "copilot"]
