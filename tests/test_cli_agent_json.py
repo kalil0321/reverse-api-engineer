@@ -539,6 +539,9 @@ def test_provider_failure_is_not_reported_as_success(tmp_path, output_flag):
         assert payload["status"] == "error"
         assert payload["error_kind"] == "engine_failure"
         assert payload["script_path"] is None
+        assert payload["error"] == "Agent analysis produced no result."
+    else:
+        assert "error: Agent analysis produced no result." in result.stderr
     engine.stop_sync.assert_called_once()
 
 

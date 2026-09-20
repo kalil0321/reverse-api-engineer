@@ -1775,6 +1775,7 @@ def agent(prompt, url, model, output_dir, no_interactive, as_json, json_stream, 
             headless=headless,
         )
         if isinstance(result, dict) and result.get("error"):
+            click.echo(f"error: {result['error']}", err=True)
             sys.exit(1)
         return
 
@@ -2208,7 +2209,7 @@ def run_auto_capture(
             **(
                 {"error": "interrupted"}
                 if interrupted
-                else {"error": "Agent analysis produced no result. Check the provider error above."}
+                else {"error": "Agent analysis produced no result."}
                 if result is None
                 else {}
             ),
