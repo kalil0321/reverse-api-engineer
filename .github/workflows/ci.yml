@@ -46,10 +46,13 @@ jobs:
 
   test:
     name: pytest (py${{ matrix.python-version }}, ${{ matrix.os }})
+    timeout-minutes: 15
     runs-on: ${{ matrix.os }}
     env:
       # Make the matrix interpreter explicit for every uv invocation.
       UV_PYTHON: ${{ matrix.python-version }}
+      # Exercise real PowerShell execution on every platform; do not silently skip.
+      RAE_REQUIRE_PWSH: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -63,4 +66,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
       # --locked: fail loudly if uv.lock is stale instead of silently re-resolving.
       - run: uv sync --all-extras --locked
+      - name: Verify PowerShell 7+
+        shell: pwsh
+        run: |
+          if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'PowerShell 7+ required' }
+      - run: uv run reverse-api-engineer --version
+      - run: uv run reverse-api-engineer --help
       - run: uv run pytest -q
