@@ -4,7 +4,7 @@ from io import StringIO
 
 from rich.console import Console
 
-from reverse_api.collector_ui import COLLECTOR_COLOR, CollectorUI
+from reverse_api.collector_ui import CollectorUI
 
 
 class TestCollectorUI:

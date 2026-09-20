@@ -4,6 +4,7 @@
   <a href="https://pypi.org/project/reverse-api-engineer/"><img src="https://img.shields.io/pypi/v/reverse-api-engineer?style=flat&color=e50d75&labelColor=1f1f1f" alt="PyPI"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11+-e50d75?style=flat&labelColor=1f1f1f" alt="Python"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-e50d75?style=flat&labelColor=1f1f1f" alt="License"></a>
+  <a href="https://github.com/kalil0321/reverse-api-engineer/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/kalil0321/reverse-api-engineer/ci.yml?branch=main&style=flat&labelColor=1f1f1f&label=CI" alt="CI"></a>
   <br>
 
 [![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)

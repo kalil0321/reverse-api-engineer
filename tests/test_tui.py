@@ -1,14 +1,11 @@
 """Tests for tui.py, collector_ui.py, opencode_ui.py - UI modules."""
 
-from io import StringIO
-from unittest.mock import patch
+from io import BytesIO, StringIO, TextIOWrapper
 
 import pytest
 from rich.console import Console
 
 from reverse_api.tui import (
-    THEME_DIM,
-    THEME_PRIMARY,
     TOOL_COLORS,
     TOOL_ICONS,
     ClaudeUI,
@@ -355,6 +352,19 @@ class TestDisplayBanner:
         output = console.file.getvalue()
         assert "rae" in output
         assert "Turn websites into APIs" in output
+
+    @pytest.mark.parametrize("encoding", ["ascii", "cp1252", "utf-8"])
+    def test_banner_with_encoded_output(self, encoding):
+        """Redirected output must render even with Windows' legacy encoding."""
+        buffer = BytesIO()
+        with TextIOWrapper(buffer, encoding=encoding) as stream:
+            console = Console(file=stream, no_color=True)
+            display_banner(console, sdk="claude", model="claude-sonnet-4-6")
+            stream.flush()
+            output = buffer.getvalue().decode(encoding)
+        assert "rae" in output
+        assert "claude-sonnet-4-6" in output
+        assert ("━━" if encoding == "utf-8" else "--") in output
 
     def test_banner_with_sdk_and_model(self):
         """Banner with SDK and model info."""
