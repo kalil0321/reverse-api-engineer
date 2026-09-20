@@ -29,5 +29,12 @@ choose a location; an existing directory is rejected. The local fixture server
 stops when the test ends, so retained clients need a new matching server before
 they can be replayed again.
 
-This check does not run in GitHub Actions. Regular CI keeps the deterministic
-unit, CLI startup and real PowerShell execution checks across all three OSes.
+To run on Windows in GitHub Actions, open **CI → Run workflow** and enable
+**live_windows**. This starts one Windows job, running PowerShell then Python,
+with preinstalled Chrome. It does not download browsers or install Windows media
+components. Python and npm dependencies are cached; the first run can be slower.
+The result for each language is included in the run summary. This uses the same
+free-model checks and fresh-response validation as the local command.
+
+Ordinary pushes and PRs only run the deterministic unit, CLI startup and real
+PowerShell execution checks across all three OSes. The live test is manual only.
