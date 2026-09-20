@@ -1,5 +1,6 @@
 """Tests for the agent-friendly CLI surface (--json, --no-interactive, payload shape)."""
 
+import asyncio
 import json
 from unittest.mock import MagicMock, patch
 
@@ -514,3 +515,169 @@ class TestAgentJsonStdoutPurity:
         assert "noisy" not in stdout
         # The noise landed on stderr instead
         assert "noisy" in result.stderr
+
+
+@pytest.mark.parametrize("output_flag", ["--json", "--json-stream", "--no-interactive"])
+def test_provider_failure_is_not_reported_as_success(tmp_path, output_flag):
+    """Exercise the real capture wrapper, where a failed SDK returns None."""
+    from unittest.mock import AsyncMock
+
+    from reverse_api.config import ConfigManager
+
+    config = ConfigManager(tmp_path / "config.json")
+    config.config.update({"sdk": "claude", "agent_provider": "chrome-mcp", "real_time_sync": False})
+    engine = MagicMock()
+    engine.analyze_and_generate = AsyncMock(return_value=None)
+    with (
+        patch("reverse_api.cli.config_manager", config),
+        patch("reverse_api.cli.session_manager", SessionManager(tmp_path / "history.json")),
+        patch("reverse_api.auto_engineer.ClaudeAutoEngineer", return_value=engine),
+    ):
+        result = CliRunner().invoke(main, ["agent", "-p", "test provider failure", "--headless", "-o", str(tmp_path), output_flag])
+    assert result.exit_code == 1, result.output
+    if output_flag != "--no-interactive":
+        payload = json.loads(result.stdout.strip().splitlines()[-1])
+        assert payload["status"] == "error"
+        assert payload["error_kind"] == "engine_failure"
+        assert payload["script_path"] is None
+        assert payload["error"] == "Agent analysis produced no result."
+    else:
+        assert "error: Agent analysis produced no result." in result.stderr
+    engine.stop_sync.assert_called_once()
+
+
+@pytest.mark.parametrize("sdk", ["claude", "cursor"])
+@pytest.mark.parametrize("interrupt_type", [KeyboardInterrupt, asyncio.CancelledError])
+@pytest.mark.parametrize(
+    "output_flag,after_result",
+    [("--json", False), ("--json-stream", False), ("--no-interactive", False), (None, False), (None, True)],
+)
+def test_provider_interrupt_output_modes(tmp_path, monkeypatch, sdk, output_flag, after_result, interrupt_type):
+    from contextlib import ExitStack
+    from unittest.mock import AsyncMock
+
+    from reverse_api.config import ConfigManager
+
+    config = ConfigManager(tmp_path / "config.json")
+    config.config.update({"sdk": sdk, "agent_provider": "chrome-mcp", "real_time_sync": False})
+    monkeypatch.setenv("CURSOR_API_KEY", "test-only")
+    SessionManager(tmp_path / "history.json").add_run("older-run", "previous prompt")
+    with ExitStack() as stack:
+        stack.enter_context(patch("reverse_api.cli.config_manager", config))
+        stack.enter_context(patch("reverse_api.cli.session_manager", SessionManager(tmp_path / "history.json")))
+        if sdk == "claude":
+            client = stack.enter_context(patch("reverse_api.auto_engineer.ClaudeSDKClient"))
+            client.return_value.__aexit__ = AsyncMock(return_value=False)
+            if after_result:
+                client.return_value.__aenter__ = AsyncMock(return_value=client.return_value)
+                client.return_value.query = AsyncMock()
+                stack.enter_context(patch(
+                    "reverse_api.auto_engineer.ClaudeAutoEngineer._process_streaming_response",
+                    new=AsyncMock(return_value={"script_path": "partial.py", "usage": {}}),
+                ))
+                stack.enter_context(patch(
+                    "reverse_api.auto_engineer.ClaudeAutoEngineer._prompt_follow_up",
+                    new=AsyncMock(side_effect=interrupt_type),
+                ))
+            else:
+                client.return_value.__aenter__ = AsyncMock(side_effect=interrupt_type)
+        else:
+            stack.enter_context(patch("reverse_api.cursor_engineer._ensure_cursor_bridge_deps", return_value=None))
+            if after_result:
+                stack.enter_context(patch("reverse_api.cursor_engineer.CursorAutoEngineer._one_turn", new=AsyncMock(return_value={})))
+                stack.enter_context(patch(
+                    "reverse_api.cursor_engineer.CursorAutoEngineer._prompt_follow_up",
+                    new=AsyncMock(side_effect=interrupt_type),
+                ))
+            else:
+                stack.enter_context(patch("reverse_api.cursor_engineer.CursorAutoEngineer._one_turn", new=AsyncMock(side_effect=interrupt_type)))
+        args = ["agent", "-p", "test interruption", "--headless", "-o", str(tmp_path)]
+        if output_flag:
+            args.append(output_flag)
+        result = CliRunner().invoke(main, args)
+    if interrupt_type is asyncio.CancelledError:
+        assert result.exit_code == 1, result.output
+        if output_flag in ("--json", "--json-stream"):
+            payload = json.loads(result.stdout.strip().splitlines()[-1])
+            assert payload["status"] == "error"
+            assert payload["error"] == "Agent analysis cancelled."
+        else:
+            assert "Agent analysis cancelled." in result.stderr
+    elif output_flag is None:
+        assert result.exit_code == 0, result.output
+        assert "run aborted" in result.output
+        assert "produced no result" not in result.output
+    else:
+        assert result.exit_code == 1, result.output
+        if output_flag == "--no-interactive":
+            assert "error: interrupted" in result.stderr
+        else:
+            payload = json.loads(result.stdout.strip().splitlines()[-1])
+            assert payload["status"] == "error"
+            assert payload["error_kind"] == "interrupted"
+            assert payload["error"] == "interrupted"
+
+    if interrupt_type is KeyboardInterrupt:
+        assert result.output.count("run aborted") == 1
+
+    if after_result:
+        history = json.loads((tmp_path / "history.json").read_text())
+        assert history[0]["paths"]["script_path"]
+
+
+@pytest.mark.parametrize("error_type", [Exception, TimeoutError])
+@pytest.mark.parametrize("output_flag", [None, "--json", "--json-stream", "--no-interactive"])
+def test_empty_provider_exception_is_failure(tmp_path, error_type, output_flag):
+    from reverse_api.config import ConfigManager
+
+    config = ConfigManager(tmp_path / "config.json")
+    config.config.update({"sdk": "claude", "agent_provider": "chrome-mcp", "real_time_sync": False})
+    engine = MagicMock()
+    engine.start_sync.side_effect = error_type()
+    with (
+        patch("reverse_api.cli.config_manager", config),
+        patch("reverse_api.cli.session_manager", SessionManager(tmp_path / "history.json")),
+        patch("reverse_api.auto_engineer.ClaudeAutoEngineer", return_value=engine),
+    ):
+        args = ["agent", "-p", "test empty failure", "--headless", "-o", str(tmp_path)]
+        if output_flag:
+            args.append(output_flag)
+        result = CliRunner().invoke(main, args)
+    assert result.exit_code == 1, result.output
+    if output_flag in ("--json", "--json-stream"):
+        payload = json.loads(result.stdout.strip().splitlines()[-1])
+        assert payload["status"] == "error"
+        assert payload["error"] == error_type.__name__
+    else:
+        assert result.stderr.count(f"error: {error_type.__name__}") == 1
+        assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("output_flag", ["--json", "--json-stream", "--no-interactive"])
+def test_direct_interrupt_after_claude_result_keeps_partial_run(tmp_path, output_flag):
+    from unittest.mock import AsyncMock
+
+    from reverse_api.config import ConfigManager
+
+    config = ConfigManager(tmp_path / "config.json")
+    config.config.update({"sdk": "claude", "agent_provider": "chrome-mcp", "real_time_sync": False})
+    with (
+        patch("reverse_api.cli.config_manager", config),
+        patch("reverse_api.cli.session_manager", SessionManager(tmp_path / "history.json")),
+        patch("reverse_api.auto_engineer.ClaudeSDKClient") as client,
+        patch("reverse_api.auto_engineer.ClaudeAutoEngineer._process_streaming_response",
+              new=AsyncMock(return_value={"script_path": "completed.py", "usage": {"input_tokens": 7}})),
+    ):
+        client.return_value.__aenter__ = AsyncMock(return_value=client.return_value)
+        client.return_value.query = AsyncMock()
+        client.return_value.__aexit__ = AsyncMock(side_effect=KeyboardInterrupt)
+        result = CliRunner().invoke(main, ["agent", "-p", "direct interruption", "--headless", "-o", str(tmp_path), output_flag])
+    assert result.exit_code == 1, result.output
+    assert result.output.count("run aborted") == 1
+    history = json.loads((tmp_path / "history.json").read_text())
+    assert history[0]["paths"]["script_path"] == "completed.py"
+    assert history[0]["usage"]["input_tokens"] == 7
+    if output_flag in ("--json", "--json-stream"):
+        payload = json.loads(result.stdout.strip().splitlines()[-1])
+        assert payload["error"] == "interrupted"
+        assert payload["script_path"] == "completed.py"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import random
 import sys
@@ -1799,7 +1800,7 @@ def agent(
     interactive = not no_interactive
 
     if not machine_output:
-        run_agent_capture(
+        result = run_agent_capture(
             prompt=prompt,
             url=url,
             model=model,
@@ -1807,6 +1808,12 @@ def agent(
             interactive=interactive,
             headless=headless,
         )
+        if isinstance(result, dict) and "error" in result:
+            if interactive and result["error"] == "interrupted":
+                return
+            if not result.get("error_reported"):
+                click.echo(f"error: {result['error'] or 'Agent analysis failed.'}", err=True)
+            sys.exit(1)
         return
 
     from .json_stream import make_json_stream_sink
@@ -2222,11 +2229,21 @@ def run_auto_capture(
         engineer.start_sync()
 
         interrupted = False
+        cancelled = False
         try:
             result = asyncio.run(engineer.analyze_and_generate())
-        except KeyboardInterrupt:
-            result = None
+            interrupted = isinstance(result, dict) and result.get("error") == "interrupted"
+        except KeyboardInterrupt as exc:
+            result = getattr(exc, "partial_result", None)
+            # Python 3.11+ Runner translates SIGINT cancellation to
+            # KeyboardInterrupt, with the tagged CancelledError as context.
+            if result is None and isinstance(exc.__context__, asyncio.CancelledError):
+                result = getattr(exc.__context__, "partial_result", None)
             interrupted = True
+            console.print("\n  [dim]run aborted[/dim]")
+        except asyncio.CancelledError as exc:
+            result = getattr(exc, "partial_result", None)
+            cancelled = True
         finally:
             # Always stop sync when done
             engineer.stop_sync()
@@ -2244,21 +2261,29 @@ def run_auto_capture(
             "mode": mode_label,
             "script_path": (result or {}).get("script_path"),
             "usage": (result or {}).get("usage", {}),
-            **({"error": "interrupted"} if interrupted else {}),
+            **(
+                {"error": "interrupted"}
+                if interrupted
+                else {"error": "Agent analysis cancelled."}
+                if cancelled
+                else {"error": "Agent analysis produced no result."}
+                if result is None
+                else {}
+            ),
         }
 
     except Exception as e:
-        console.print(f" [red]auto mode error: {escape(str(e))}[/red]")
-        console.print(f" [dim]{ERROR_CTA}[/dim]")
-        import traceback
-
-        traceback.print_exc()
+        message = str(e) or type(e).__name__
+        click.echo(f"error: {message}", err=True)
+        click.echo(ERROR_CTA, err=True)
+        logging.getLogger(__name__).debug("Auto mode failed", exc_info=True)
         return {
             "run_id": run_id,
             "mode": mode_label,
             "script_path": None,
             "usage": {},
-            "error": str(e),
+            "error": message,
+            "error_reported": True,
         }
 
 
