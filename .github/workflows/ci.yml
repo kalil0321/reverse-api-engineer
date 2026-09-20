@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      live_windows:
+        description: 'Run only live Windows generation using preinstalled Chrome and a free model'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -17,6 +22,7 @@ concurrency:
 # Pin action revisions so upstream tag changes cannot alter CI code.
 jobs:
   lint:
+    if: github.event_name != 'workflow_dispatch' || !inputs.live_windows
     name: ruff
     runs-on: ubuntu-latest
     steps:
@@ -33,6 +39,7 @@ jobs:
   # in the logs, but it never blocks a merge. Remove `continue-on-error` once
   # `uv run mypy src` is clean.
   typecheck:
+    if: github.event_name != 'workflow_dispatch' || !inputs.live_windows
     name: mypy (informational)
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -45,11 +52,15 @@ jobs:
       - run: uv run mypy src
 
   test:
+    if: github.event_name != 'workflow_dispatch' || !inputs.live_windows
     name: pytest (py${{ matrix.python-version }}, ${{ matrix.os }})
+    timeout-minutes: 15
     runs-on: ${{ matrix.os }}
     env:
       # Make the matrix interpreter explicit for every uv invocation.
       UV_PYTHON: ${{ matrix.python-version }}
+      # Exercise real PowerShell execution on every platform; do not silently skip.
+      RAE_REQUIRE_PWSH: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -63,4 +74,60 @@ jobs:
           python-version: ${{ matrix.python-version }}
       # --locked: fail loudly if uv.lock is stale instead of silently re-resolving.
       - run: uv sync --all-extras --locked
+      - name: Verify PowerShell 7+
+        shell: pwsh
+        run: |
+          if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'PowerShell 7+ required' }
+      - run: uv run reverse-api-engineer --version
+      - run: uv run reverse-api-engineer --help
       - run: uv run pytest -q
+
+  live-windows:
+    name: Live Windows generation (Chrome already installed)
+    if: github.event_name == 'workflow_dispatch' && inputs.live_windows
+    runs-on: windows-latest
+    timeout-minutes: 12
+    env:
+      UV_PYTHON: '3.13'
+      PYTHONIOENCODING: utf-8
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PLAYWRIGHT_MCP_BROWSER: chrome
+      RAE_OPENCODE_PACKAGE: opencode-ai@1.18.31
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          python-version: '3.13'
+          enable-cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Locate npm cache
+        id: npm-cache
+        shell: pwsh
+        run: '"path=$(npm config get cache)" >> $env:GITHUB_OUTPUT'
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ steps.npm-cache.outputs.path }}
+          key: windows-node22-opencode1.18.31-rae-mcp0.0.8-v1
+      - name: Verify preinstalled Chrome and PowerShell
+        shell: pwsh
+        run: |
+          $chrome = Join-Path $env:ProgramFiles 'Google/Chrome/Application/chrome.exe'
+          if (!(Test-Path $chrome)) { throw 'Preinstalled Chrome missing; refusing browser download' }
+          if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'PowerShell 7+ required' }
+          "PLAYWRIGHT_MCP_EXECUTABLE_PATH=$chrome" >> $env:GITHUB_ENV
+          (Get-Item $chrome).VersionInfo.ProductVersion
+      - run: uv sync --locked --no-dev
+      - name: Warm OpenCode package cache
+        run: npx --yes opencode-ai@1.18.31 --version
+      - name: Generate and execute PowerShell and Python clients
+        shell: pwsh
+        run: |
+          foreach ($language in @('powershell', 'python')) {
+            uv run --no-sync python scripts/validation/generation_e2e.py --language $language --artifacts-dir "$env:RUNNER_TEMP/rae-$language"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            Get-Content "$env:RUNNER_TEMP/rae-$language/result.json" >> $env:GITHUB_STEP_SUMMARY
+          }

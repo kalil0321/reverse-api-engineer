@@ -25,6 +25,7 @@ OUTPUT_LANGUAGE_EXTENSIONS = {
     "php": ".php",
     "ruby": ".rb",
     "c": ".c",
+    "powershell": ".psm1",
 }
 
 SCRIPT_EXTENSIONS = frozenset(OUTPUT_LANGUAGE_EXTENSIONS.values())
@@ -829,6 +830,19 @@ def build_script_commands(script: Path, script_args: tuple[str, ...] = ()) -> tu
             compile_cmd.append(str(cjson))
         compile_cmd += ["-lcurl", "-o", str(binary)]
         return [compile_cmd, [str(binary), *script_args]], "cc"
+    if suffix == ".psm1":
+        # The generated example is bound to api_client.psm1, not an arbitrary module.
+        if script.name != "api_client.psm1":
+            raise ValueError("PowerShell execution only supports api_client.psm1 with its companion Example.ps1")
+        if script_args:
+            raise ValueError(
+                "script arguments are not supported for PowerShell clients: "
+                "edit Example.ps1 or import api_client.psm1 and call its exported functions directly"
+            )
+        example = d / "Example.ps1"
+        if not example.is_file():
+            raise ValueError(f"cannot run {script.name}: companion Example.ps1 is missing")
+        return [["pwsh", "-NoProfile", "-File", str(example)]], "pwsh"
     raise ValueError(f"unsupported script type: {script.name}")
 
 
