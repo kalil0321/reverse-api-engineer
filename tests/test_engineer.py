@@ -574,12 +574,23 @@ class TestClaudeEngineerAnalyzeAndGenerate:
             assert result is None
 
     @pytest.mark.asyncio
-    async def test_assistant_message_with_tools(self, tmp_path):
+    @pytest.mark.parametrize("tool_content,expected", [
+        ("file content", "file content"),
+        ([{"type": "text", "text": "file content"}], "file content"),
+        ([{"type": "text", "text": "first"}, {"type": "text", "text": "second"}], "first\nsecond"),
+        ([{"type": "text", "text": None}], "{'type': 'text', 'text': None}"),
+        ([{"type": "text"}], "{'type': 'text'}"),
+        ("", ""),
+        ([], ""),
+        (0, "0"),
+        (None, None),
+    ])
+    async def test_assistant_message_with_tools(self, tmp_path, tool_content, expected):
         """AssistantMessage with tool blocks processes correctly."""
         eng = self._make_engineer(tmp_path)
 
         mock_tool_use = self._make_tool_use_block("Read", {"file_path": "/test.py"})
-        mock_tool_result = self._make_tool_result_block(is_error=False, content="file content")
+        mock_tool_result = self._make_tool_result_block(is_error=False, content=tool_content)
         mock_text = self._make_text_block("Analyzing the file...")
 
         mock_assistant = self._make_assistant_message(
@@ -609,9 +620,13 @@ class TestClaudeEngineerAnalyzeAndGenerate:
             mock_sdk.return_value.__aenter__ = AsyncMock(return_value=mock_client)
             mock_sdk.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            with patch.object(eng, "_prompt_follow_up", new_callable=AsyncMock, return_value=None):
+            with patch.object(eng, "_prompt_follow_up", new_callable=AsyncMock, return_value=None), patch.object(
+                eng.ui, "tool_result"
+            ) as render_result:
                 result = await eng.analyze_and_generate()
                 assert result is not None
+                render_result.assert_called_once_with("Read", False, expected)
+                eng.message_store.save_tool_result.assert_called_once_with("Read", False, expected)
 
     @pytest.mark.asyncio
     async def test_exception_handling(self, tmp_path):

@@ -16,7 +16,7 @@ import threading
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeGuard
 from urllib.parse import urlparse
 
 import httpx2 as httpx
@@ -53,7 +53,7 @@ def _parse_version(value: object) -> tuple[int, int, int] | None:
     match = re.match(r"^(\d+)\.(\d+)\.(\d+)", str(value or "").strip())
     if match is None:
         return None
-    return tuple(int(part) for part in match.groups())
+    return int(match[1]), int(match[2]), int(match[3])
 
 
 def _format_version(version: tuple[int, int, int]) -> str:
@@ -85,7 +85,7 @@ def _active(model: dict[str, Any]) -> bool:
     return str(model.get("status") or "active").casefold() == "active"
 
 
-def opencode_model_is_selectable(model: object) -> bool:
+def opencode_model_is_selectable(model: object) -> TypeGuard[dict[str, Any]]:
     """Return whether a catalog model is active and supports the tools RAE needs."""
     return isinstance(model, dict) and _active(model) and _tool_capable(model)
 
@@ -164,7 +164,8 @@ async def validate_opencode_model(client: httpx.AsyncClient, provider_id: str, m
 
     payload = await get_opencode_model_catalog(client)
     providers = [provider for provider in payload["providers"] if isinstance(provider, dict)]
-    defaults = payload.get("default") if isinstance(payload.get("default"), dict) else {}
+    raw_defaults = payload.get("default")
+    defaults = raw_defaults if isinstance(raw_defaults, dict) else {}
     provider = next((item for item in providers if item.get("id") == provider_id), None)
     free_models = _model_references(providers, defaults, free_only=True)
     free_hint = f" Free options currently available: {', '.join(free_models)}." if free_models else ""
