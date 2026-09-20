@@ -7,6 +7,7 @@ No model mock, production website, credentials, or paid-model fallback is used.
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import secrets
@@ -180,6 +181,7 @@ def main():
         if not server.page_hits or not server.api_hits:
             raise RuntimeError("The fixture website and API were not visited")
         # A new value unavailable during generation rejects cached/hardcoded examples.
+        captured_nonce = server.nonce
         server.nonce = secrets.token_hex(16)
         previous_hits = server.api_hits
         replayed = invoke_cli([
@@ -189,10 +191,22 @@ def main():
             raise RuntimeError("Generated client did not return fresh, correct API data")
         if server.api_hits <= previous_hits:
             raise RuntimeError("Client replay never contacted the API")
+        generated_files = [script]
+        if args.language == "powershell":
+            generated_files.append(script.parent / "Example.ps1")
+        client_evidence = {
+            path.name: {"sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                        "source": path.read_text(encoding="utf-8-sig")}
+            for path in generated_files
+        }
         report = {"status": "ok", "language": args.language, "model": f"opencode/{model}",
                   "package_version": version("reverse-api-engineer"), "script_path": str(script),
                   "har_entries": len(entries), "page_hits": server.page_hits, "api_hits": server.api_hits,
-                  "fresh_response_verified": True}
+                  "fresh_response_verified": True,
+                  "generation_status": generated["status"], "client_returncode": replayed["returncode"],
+                  "client_stdout": replayed["stdout"], "expected_response": server.payload(),
+                  "captured_nonce": captured_nonce, "replay_api_hits": server.api_hits - previous_hits,
+                  "generated_files": client_evidence}
         (directory / "result.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
         print(json.dumps(report))
     finally:
