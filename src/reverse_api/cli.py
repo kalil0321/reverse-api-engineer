@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import random
 import sys
@@ -1810,7 +1811,8 @@ def agent(
         if isinstance(result, dict) and "error" in result:
             if interactive and result["error"] == "interrupted":
                 return
-            click.echo(f"error: {result['error'] or 'Agent analysis failed.'}", err=True)
+            if not result.get("error_reported"):
+                click.echo(f"error: {result['error'] or 'Agent analysis failed.'}", err=True)
             sys.exit(1)
         return
 
@@ -2271,17 +2273,17 @@ def run_auto_capture(
         }
 
     except Exception as e:
-        console.print(f" [red]auto mode error: {escape(str(e) or type(e).__name__)}[/red]")
-        console.print(f" [dim]{ERROR_CTA}[/dim]")
-        import traceback
-
-        traceback.print_exc()
+        message = str(e) or type(e).__name__
+        click.echo(f"error: {message}", err=True)
+        click.echo(ERROR_CTA, err=True)
+        logging.getLogger(__name__).debug("Auto mode failed", exc_info=True)
         return {
             "run_id": run_id,
             "mode": mode_label,
             "script_path": None,
             "usage": {},
-            "error": str(e) or type(e).__name__,
+            "error": message,
+            "error_reported": True,
         }
 
 

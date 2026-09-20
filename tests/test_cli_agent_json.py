@@ -649,7 +649,8 @@ def test_empty_provider_exception_is_failure(tmp_path, error_type, output_flag):
         assert payload["status"] == "error"
         assert payload["error"] == error_type.__name__
     else:
-        assert f"error: {error_type.__name__}" in result.stderr
+        assert result.stderr.count(f"error: {error_type.__name__}") == 1
+        assert "Traceback" not in result.stderr
 
 
 @pytest.mark.parametrize("output_flag", ["--json", "--json-stream", "--no-interactive"])
