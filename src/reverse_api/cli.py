@@ -3342,9 +3342,10 @@ def run_script(
 
     # Execute with real-time stdout, capture stderr for import error detection
     cmd = [python_path, str(script), *script_args]
+    launch_env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     result = subprocess.run(
         cmd, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
-        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        env=launch_env,
     )
 
     # Print stderr so the user sees it, then check for missing imports
@@ -3368,7 +3369,7 @@ def run_script(
                 if install:
                     subprocess.run([str(venv_pip), "install", "-q", missing], check=True)
                     console.print(f"Installed [green]{missing}[/green]. Retrying...")
-                    retry_result = subprocess.run(cmd)
+                    retry_result = subprocess.run(cmd, env=launch_env)
                     raise SystemExit(retry_result.returncode)
 
     raise SystemExit(result.returncode)

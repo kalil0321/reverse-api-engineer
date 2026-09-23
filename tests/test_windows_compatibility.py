@@ -170,6 +170,44 @@ def test_run_json_real_python_unicode_output(tmp_path, monkeypatch):
     assert payload["stderr"] == "erreur — 中文\n"
 
 
+def test_interactive_dependency_retry_preserves_unicode(tmp_path, monkeypatch):
+    import venv
+
+    from click.testing import CliRunner
+
+    from reverse_api import cli
+
+    scripts = tmp_path / "scripts" / "retry-run"
+    scripts.mkdir(parents=True)
+    script = scripts / "api_client.py"
+    script.write_text("import rae_locale_dep\nprint('中文 — 🐍')\n", encoding="utf-8")
+    venv.EnvBuilder(with_pip=False).create(tmp_path / ".venv")
+    config = ConfigManager(tmp_path / "config.json")
+    config.set("output_dir", str(tmp_path))
+    session = SessionManager(tmp_path / "history.json")
+    session.add_run("retry-run", "retry output", paths={"script_path": str(script)})
+    monkeypatch.setattr(cli, "config_manager", config)
+    monkeypatch.setattr(cli, "session_manager", session)
+    monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
+    real_run = subprocess.run
+    executions = []
+
+    def run_with_local_install(cmd, **kwargs):
+        if "install" in cmd:
+            assert cmd[-1] == "rae_locale_dep"
+            (scripts / "rae_locale_dep.py").write_text("", encoding="utf-8")
+            return subprocess.CompletedProcess(cmd, 0)
+        completed = real_run(cmd, stdout=subprocess.PIPE, **kwargs)
+        executions.append(completed)
+        return completed
+
+    monkeypatch.setattr(subprocess, "run", run_with_local_install)
+    result = CliRunner().invoke(cli.main, ["run", "retry-run", "--auto-install"])
+    assert result.exit_code == 0, result.output
+    assert [execution.returncode for execution in executions] == [1, 0]
+    assert executions[-1].stdout.decode("utf-8").strip() == "中文 — 🐍"
+
+
 def test_windows_probe_resolves_cmd_launcher(monkeypatch):
     from reverse_api import agent_browser
 
