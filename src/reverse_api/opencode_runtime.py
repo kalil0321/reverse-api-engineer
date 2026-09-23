@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Mapping
@@ -381,6 +382,21 @@ def stop_managed_opencode_server() -> None:
 
     if process is None or process.poll() is not None:
         return
+    if sys.platform == "win32":
+        # npx.cmd -> node -> opencode: terminating only the launcher leaves
+        # the server listening. Kill its tree while the parent PID still exists.
+        taskkill = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "taskkill.exe")
+        try:
+            result = subprocess.run(
+                [taskkill, "/PID", str(process.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=5, check=False,
+            )
+            if result.returncode == 0:
+                process.wait(timeout=3)
+                return
+        except (OSError, subprocess.TimeoutExpired):
+            pass  # Best-effort parent cleanup if taskkill is unavailable.
     try:
         process.terminate()
     except OSError:

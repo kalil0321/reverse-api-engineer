@@ -15,7 +15,9 @@ def reset_runtime_state():
     opencode_runtime._PROCESS = None
     opencode_runtime._PROCESS_URL = None
     opencode_runtime._PROCESS_ENV_OVERRIDES = {}
-    yield
+    # Unit tests use fake Popen objects; never run native taskkill on their PIDs.
+    with patch.object(opencode_runtime.subprocess, "run", return_value=MagicMock(returncode=1)):
+        yield
     opencode_runtime._PROCESS = None
     opencode_runtime._PROCESS_URL = None
     opencode_runtime._PROCESS_ENV_OVERRIDES = {}
@@ -278,3 +280,28 @@ def test_stop_managed_server_terminates_child():
     process.terminate.assert_called_once_with()
     process.wait.assert_called_once_with(timeout=3)
     assert opencode_runtime._PROCESS is None
+
+
+def test_windows_shutdown_terminates_entire_tree():
+    process = MagicMock(pid=12345)
+    process.poll.return_value = None
+    opencode_runtime._PROCESS = process
+    with patch.object(opencode_runtime.sys, "platform", "win32"):
+        with patch.object(opencode_runtime.subprocess, "run", return_value=MagicMock(returncode=0)) as run:
+            opencode_runtime.stop_managed_opencode_server()
+    assert run.call_args.args[0][1:] == ["/PID", "12345", "/T", "/F"]
+    assert run.call_args.args[0][0].endswith("taskkill.exe")
+    process.terminate.assert_not_called()
+    process.wait.assert_called_once_with(timeout=3)
+    assert opencode_runtime._PROCESS is None
+
+
+def test_windows_shutdown_falls_back_when_taskkill_unavailable():
+    process = MagicMock(pid=12345)
+    process.poll.return_value = None
+    opencode_runtime._PROCESS = process
+    with patch.object(opencode_runtime.sys, "platform", "win32"):
+        with patch.object(opencode_runtime.subprocess, "run", side_effect=OSError("missing taskkill")):
+            opencode_runtime.stop_managed_opencode_server()
+    process.terminate.assert_called_once_with()
+    process.wait.assert_called_once_with(timeout=3)
