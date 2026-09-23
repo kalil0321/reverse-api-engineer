@@ -3095,7 +3095,8 @@ def _run_script_machine_payload(
             )
             return subprocess.CompletedProcess(
                 captured.args, captured.returncode,
-                decode_process_output(captured.stdout), decode_process_output(captured.stderr),
+                decode_process_output(captured.stdout, utf8_stream=True),
+                decode_process_output(captured.stderr, utf8_stream=True),
             )
 
         result = run_client()

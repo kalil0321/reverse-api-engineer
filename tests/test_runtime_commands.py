@@ -86,4 +86,9 @@ def test_real_npx_preserves_client_arguments(tmp_path):
 def test_mixed_stream_preserves_utf8_and_legacy_segments(monkeypatch, encoding, text):
     monkeypatch.setattr("locale.getencoding", lambda: encoding)
     data = text.encode(encoding) + " 🐍 ".encode() + text.encode(encoding)
-    assert decode_process_output(data) == f"{text} 🐍 {text}"
+    assert decode_process_output(data, utf8_stream=True) == f"{text} 🐍 {text}"
+
+
+def test_native_gbk_stream_with_valid_utf8_byte_pair(monkeypatch):
+    monkeypatch.setattr("locale.getencoding", lambda: "gbk")
+    assert decode_process_output("中文隆".encode("gbk")) == "中文隆"
