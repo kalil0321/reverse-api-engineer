@@ -3007,6 +3007,7 @@ def _run_script_machine_payload(
         if script.suffix != ".py":
             import shutil
 
+            from .runtime_commands import decode_process_output
             from .utils import build_script_commands
 
             try:
@@ -3039,7 +3040,7 @@ def _run_script_machine_payload(
             result = None
             for cmd in steps:
                 emit_event("process_started", run_id=run_id, script_path=str(script))
-                result = subprocess.run(cmd, cwd=str(script.parent), capture_output=True, text=True, errors="replace")
+                result = subprocess.run(cmd, cwd=str(script.parent), capture_output=True)
                 if result.returncode != 0:
                     break
             assert result is not None, "build_script_commands returned no execution steps"
@@ -3049,8 +3050,8 @@ def _run_script_machine_payload(
                 script_path=str(script),
                 script_args=script_args,
                 returncode=result.returncode,
-                stdout=result.stdout or "",
-                stderr=result.stderr or "",
+                stdout=decode_process_output(result.stdout),
+                stderr=decode_process_output(result.stderr),
                 scripts=scripts,
             )
 

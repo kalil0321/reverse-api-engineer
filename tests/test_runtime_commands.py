@@ -8,7 +8,17 @@ from unittest.mock import patch
 
 import pytest
 
-from reverse_api.runtime_commands import resolve_windows_command
+from reverse_api.runtime_commands import decode_process_output, resolve_windows_command
+
+
+def test_utf8_output_preferred_over_legacy_locale(monkeypatch):
+    monkeypatch.setattr("locale.getencoding", lambda: "gbk")
+    assert decode_process_output("中文 — 🐍\r\n".encode()) == "中文 — 🐍\n"
+
+
+def test_native_output_falls_back_to_legacy_locale(monkeypatch):
+    monkeypatch.setattr("locale.getencoding", lambda: "cp1252")
+    assert decode_process_output("café\r\n".encode("cp1252")) == "café\n"
 
 
 @pytest.mark.parametrize("argument", ["a&b", "a|b", "%PATH%", "!PATH!", "(a)", "a^b", 'a"b', "a\nb", "a>b", "a<b"])

@@ -2,10 +2,23 @@
 
 from __future__ import annotations
 
+import locale
 import re
 import shutil
 import sys
 from pathlib import Path
+
+
+def decode_process_output(output: bytes | str | None) -> str:
+    """Preserve UTF-8 tool output, with a fallback for legacy native tools."""
+    if output is None:
+        return ""
+    if isinstance(output, bytes):
+        try:
+            output = output.decode("utf-8")
+        except UnicodeDecodeError:
+            output = output.decode(locale.getencoding(), errors="replace")
+    return output.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def resolve_windows_command(argv: list[str]) -> list[str]:

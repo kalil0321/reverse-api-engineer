@@ -139,7 +139,8 @@ def test_node_diagnostic_probe_decodes_utf8_under_gbk(monkeypatch):
     assert "中文 — 🐍" in error
 
 
-def test_run_json_real_python_unicode_output(tmp_path, monkeypatch):
+@pytest.mark.parametrize("language", ["python", "javascript"])
+def test_run_json_real_unicode_output(tmp_path, monkeypatch, language):
     """Exercise actual child pipes under a legacy locale, including a spaced path."""
     import venv
 
@@ -150,9 +151,13 @@ def test_run_json_real_python_unicode_output(tmp_path, monkeypatch):
     output_dir = tmp_path / "User Name 中文"
     scripts = output_dir / "scripts" / "unicode-run"
     scripts.mkdir(parents=True)
-    script = scripts / "api_client.py"
-    script.write_text("import sys\nprint('中文 — café 🐍')\nprint('erreur — 中文', file=sys.stderr)\n", encoding="utf-8")
-    venv.EnvBuilder(with_pip=False).create(output_dir / ".venv")
+    if language == "python":
+        script = scripts / "api_client.py"
+        script.write_text("import sys\nprint('中文 — café 🐍')\nprint('erreur — 中文', file=sys.stderr)\n", encoding="utf-8")
+        venv.EnvBuilder(with_pip=False).create(output_dir / ".venv")
+    else:
+        script = scripts / "api_client.js"
+        script.write_text("console.log('中文 — café 🐍'); console.error('erreur — 中文');", encoding="utf-8")
     config = ConfigManager(tmp_path / "config.json")
     config.set("output_dir", str(output_dir))
     session = SessionManager(tmp_path / "history.json")
