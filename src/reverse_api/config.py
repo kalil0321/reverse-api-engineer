@@ -46,7 +46,7 @@ class ConfigManager:
         """Load configuration from disk."""
         if self.config_path.exists():
             try:
-                with open(self.config_path, encoding="utf-8") as f:
+                with open(self.config_path, encoding="utf-8-sig") as f:
                     user_config = json.load(f)
 
                     # Backward compatibility: migrate old config keys

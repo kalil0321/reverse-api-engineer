@@ -64,16 +64,17 @@ def test_nested_prompt_includes_under_legacy_locale(tmp_path, legacy_locale, mon
     assert load("main", value="done") == f"{UNICODE_TEXT} done"
 
 
-def test_unicode_persistence_under_legacy_locale(tmp_path, legacy_locale):
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-8-sig"])
+def test_unicode_persistence_under_legacy_locale(tmp_path, legacy_locale, encoding):
     config_path = tmp_path / "config.json"
-    config_path.write_text(json.dumps({"agent_browser_notes": UNICODE_TEXT}, ensure_ascii=False), encoding="utf-8")
+    config_path.write_text(json.dumps({"agent_browser_notes": UNICODE_TEXT}, ensure_ascii=False), encoding=encoding)
     config = ConfigManager(config_path)
     assert config.get("agent_browser_notes") == UNICODE_TEXT
     config.save()
     assert ConfigManager(config_path).get("agent_browser_notes") == UNICODE_TEXT
 
     history_path = tmp_path / "history.json"
-    history_path.write_text(json.dumps([{"run_id": "test", "prompt": UNICODE_TEXT}], ensure_ascii=False), encoding="utf-8")
+    history_path.write_text(json.dumps([{"run_id": "test", "prompt": UNICODE_TEXT}], ensure_ascii=False), encoding=encoding)
     session = SessionManager(history_path)
     assert session.get_run("test")["prompt"] == UNICODE_TEXT
     session.save()
@@ -271,3 +272,61 @@ def test_native_windows_cmd_probe(tmp_path, monkeypatch):
     launcher.write_bytes(b"@echo off\r\necho help\r\nexit /b 0\r\n")
     monkeypatch.setenv("PATH", str(tmp_path))
     assert _probe_help_argv(["probe"]) is None
+
+
+@pytest.mark.parametrize("machine", [False, True])
+def test_windows_batch_rejection_is_configuration_error(tmp_path, monkeypatch, machine):
+    import click
+
+    from reverse_api import cli
+
+    script = tmp_path / "api_client.ts"
+    script.touch()
+    monkeypatch.setattr("shutil.which", lambda _: "custom.cmd")
+    monkeypatch.setattr(cli, "resolve_run", lambda *args, **kwargs: {"run_id": "test"})
+    monkeypatch.setattr(cli, "discover_scripts", lambda *args, **kwargs: [script])
+    with patch.object(sys, "platform", "win32"), patch.object(subprocess, "run") as run:
+        if machine:
+            payload = cli._run_script_machine_payload(
+                identifier="test", script_args=("a&b",), file_name=None,
+                list_scripts=False, auto_install=False, emit_event=lambda *a, **kw: None,
+            )
+            assert payload["error_kind"] == "config_invalid"
+            assert "Cannot safely" in payload["error"]
+        else:
+            with pytest.raises(click.ClickException, match="Cannot safely"):
+                cli._run_non_python_script(script, ("a&b",))
+        run.assert_not_called()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="requires native Windows batch execution")
+@pytest.mark.parametrize("machine", [False, True])
+def test_windows_maven_uses_relative_pom_in_special_directory(tmp_path, monkeypatch, machine):
+    from reverse_api import cli
+
+    project = tmp_path / "dev (ops) %PATH% !name! & 中文"
+    project.mkdir()
+    script = project / "api_client.java"
+    script.touch()
+    (project / "pom.xml").write_text("<project/>", encoding="utf-8")
+    launcher = tmp_path / "mvn.cmd"
+    # A real batch process verifies argv and the working directory without a
+    # Maven dependency download; this is a launcher contract, not a Java build.
+    launcher.write_bytes(
+        b'@echo off\r\nif not exist pom.xml exit /b 98\r\n'
+        b'if not "%~3"=="pom.xml" exit /b 99\r\necho relative-pom-ok\r\nexit /b 0\r\n'
+    )
+    monkeypatch.setattr("shutil.which", lambda command: str(launcher) if command == "mvn" else None)
+    monkeypatch.setattr(cli, "resolve_run", lambda *args, **kwargs: {"run_id": "test"})
+    monkeypatch.setattr(cli, "discover_scripts", lambda *args, **kwargs: [script])
+    if machine:
+        payload = cli._run_script_machine_payload(
+            identifier="test", script_args=(), file_name=None,
+            list_scripts=False, auto_install=False, emit_event=lambda *a, **kw: None,
+        )
+        assert payload["status"] == "ok", payload
+        assert payload["stdout"].strip() == "relative-pom-ok"
+    else:
+        with pytest.raises(SystemExit) as exit_info:
+            cli._run_non_python_script(script, ())
+        assert exit_info.value.code == 0

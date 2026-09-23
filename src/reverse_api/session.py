@@ -17,7 +17,7 @@ class SessionManager:
         """Load history from disk."""
         if self.history_path.exists():
             try:
-                with open(self.history_path, encoding="utf-8") as f:
+                with open(self.history_path, encoding="utf-8-sig") as f:
                     self.history = json.load(f)
             except (json.JSONDecodeError, UnicodeError, OSError):
                 # Fallback to empty history if file is corrupted

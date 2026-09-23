@@ -3036,7 +3036,18 @@ def _run_script_machine_payload(
             if sys.platform == "win32":
                 from .runtime_commands import resolve_windows_command
 
-                steps[0] = resolve_windows_command([executable, *steps[0][1:]])
+                try:
+                    steps[0] = resolve_windows_command([executable, *steps[0][1:]])
+                except ValueError as e:
+                    return _build_run_payload(
+                        identifier=identifier,
+                        run_id=run_id,
+                        script_path=str(script),
+                        script_args=script_args,
+                        scripts=scripts,
+                        error=str(e),
+                        error_kind_hint="config_invalid",
+                    )
             binary_result = None
             for cmd in steps:
                 emit_event("process_started", run_id=run_id, script_path=str(script))

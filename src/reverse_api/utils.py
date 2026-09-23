@@ -783,9 +783,9 @@ def build_script_commands(script: Path, script_args: tuple[str, ...] = ()) -> tu
     """Build the subprocess command(s) that run a non-Python generated client.
 
     Python clients are executed by the caller's shared-venv flow and are not
-    handled here. Commands use absolute paths so they work from any cwd; run
-    them with cwd=script.parent so relative artifacts (cookie jars, build
-    output) land next to the script.
+    handled here. Run commands with cwd=script.parent so relative artifacts (cookie jars,
+    build output) land next to the script. Maven deliberately uses a relative
+    pom.xml to keep user directory names out of Windows batch arguments.
 
     Args:
         script: Path to the client script (any supported non-.py extension)
@@ -818,7 +818,7 @@ def build_script_commands(script: Path, script_args: tuple[str, ...] = ()) -> tu
                 "script arguments are not supported for Java clients: "
                 "mvn exec:exec's program arguments are fixed in the pom.xml"
             )
-        return [["mvn", "-q", "-f", str(d / "pom.xml"), "compile", "exec:exec"]], "mvn"
+        return [["mvn", "-q", "-f", "pom.xml", "compile", "exec:exec"]], "mvn"
     if suffix == ".cs":
         cmd = ["dotnet", "run", "--project", str(d / "ApiClient.csproj")]
         if script_args:
