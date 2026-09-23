@@ -17,7 +17,16 @@ def decode_process_output(output: bytes | str | None) -> str:
         try:
             text = output.decode("utf-8")
         except UnicodeDecodeError:
-            text = output.decode(locale.getencoding(), errors="replace")
+            # Retain valid UTF-8 characters even when a native child writes
+            # legacy bytes into the same pipe. Keep ASCII with undecodable
+            # bytes: it can be the trailing byte of a legacy multibyte glyph.
+            escaped = output.decode("utf-8", errors="surrogateescape")
+            encoding = locale.getencoding()
+            text = re.sub(
+                r"[\x00-\x7f\udc80-\udcff]+",
+                lambda match: match.group().encode("utf-8", errors="surrogateescape").decode(encoding, errors="replace"),
+                escaped,
+            )
     else:
         text = output
     return text.replace("\r\n", "\n").replace("\r", "\n")

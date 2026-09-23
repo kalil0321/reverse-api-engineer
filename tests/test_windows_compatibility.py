@@ -148,7 +148,7 @@ def test_node_diagnostic_probe_decodes_utf8_under_gbk(monkeypatch):
     assert "中文 — 🐍" in error
 
 
-@pytest.mark.parametrize("language", ["python", "python-legacy", "javascript"])
+@pytest.mark.parametrize("language", ["python", "python-legacy", "python-mixed", "javascript"])
 def test_run_json_real_unicode_output(tmp_path, monkeypatch, language):
     """Exercise actual child pipes under a legacy locale, including a spaced path."""
     import venv
@@ -169,6 +169,12 @@ def test_run_json_real_unicode_output(tmp_path, monkeypatch, language):
                 "sys.stderr.buffer.write('erreur café\\n'.encode('cp1252'))\n", encoding="utf-8",
             )
             monkeypatch.setattr("locale.getencoding", lambda: "cp1252")
+        if language == "python-mixed":
+            script.write_text(
+                "import sys\nsys.stdout.buffer.write('中文 — café 🐍'.encode('utf-8') + bytes([128]) + b'\\n')\n"
+                "sys.stderr.buffer.write('erreur — 中文'.encode('utf-8') + bytes([128]) + b'\\n')\n", encoding="utf-8",
+            )
+            monkeypatch.setattr("locale.getencoding", lambda: "cp1252")
         venv.EnvBuilder(with_pip=False).create(output_dir / ".venv")
     else:
         script = scripts / "api_client.js"
@@ -186,8 +192,9 @@ def test_run_json_real_unicode_output(tmp_path, monkeypatch, language):
     result = CliRunner().invoke(cli.main, ["run", "unicode-run", "--json"])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["stdout"] == ("café\n" if language == "python-legacy" else "中文 — café 🐍\n")
-    assert payload["stderr"] == ("erreur café\n" if language == "python-legacy" else "erreur — 中文\n")
+    suffix = "€\n" if language == "python-mixed" else "\n"
+    assert payload["stdout"] == ("café" if language == "python-legacy" else "中文 — café 🐍") + suffix
+    assert payload["stderr"] == ("erreur café" if language == "python-legacy" else "erreur — 中文") + suffix
 
 
 def test_interactive_dependency_retry_preserves_unicode(tmp_path, monkeypatch):
