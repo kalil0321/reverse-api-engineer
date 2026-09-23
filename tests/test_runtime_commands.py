@@ -68,10 +68,15 @@ def test_native_node_preserves_shell_characters(tmp_path):
 def test_real_npx_preserves_client_arguments(tmp_path):
     npx = shutil.which("npx")
     assert npx, "npx must be available on Windows CI"
-    script = tmp_path / "echo args.js"
-    script.write_text("console.log(JSON.stringify(process.argv.slice(2)))", encoding="utf-8")
+    script = tmp_path / "echo-args.js"
+    script.write_text("#!/usr/bin/env node\nconsole.log(JSON.stringify(process.argv.slice(2)))", encoding="utf-8")
+    (tmp_path / "package.json").write_text(json.dumps({
+        "name": "rae-argument-fixture", "version": "1.0.0",
+        "bin": {"rae-echo": "echo-args.js"},
+    }), encoding="utf-8")
     arguments = ["https://example.com/?a=1&b=2|three", "%PATH%", "!literal!", 'quoted"text', "中文"]
-    argv = resolve_windows_command([npx, "--offline", "--", "node", str(script), *arguments])
+    # A local dependency-free fixture avoids relying on cached registry metadata.
+    argv = resolve_windows_command([npx, "--offline", "--yes", "--package", str(tmp_path), "rae-echo", *arguments])
     assert argv[0].lower().endswith("node.exe"), "must bypass the batch shim"
     result = subprocess.run(argv, capture_output=True, encoding="utf-8", check=True, timeout=30)
     assert json.loads(result.stdout) == arguments

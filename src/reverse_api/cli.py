@@ -3037,21 +3037,21 @@ def _run_script_machine_payload(
                 from .runtime_commands import resolve_windows_command
 
                 steps[0] = resolve_windows_command([executable, *steps[0][1:]])
-            result = None
+            binary_result = None
             for cmd in steps:
                 emit_event("process_started", run_id=run_id, script_path=str(script))
-                result = subprocess.run(cmd, cwd=str(script.parent), capture_output=True)
-                if result.returncode != 0:
+                binary_result = subprocess.run(cmd, cwd=str(script.parent), capture_output=True)
+                if binary_result.returncode != 0:
                     break
-            assert result is not None, "build_script_commands returned no execution steps"
+            assert binary_result is not None, "build_script_commands returned no execution steps"
             return _build_run_payload(
                 identifier=identifier,
                 run_id=run_id,
                 script_path=str(script),
                 script_args=script_args,
-                returncode=result.returncode,
-                stdout=decode_process_output(result.stdout),
-                stderr=decode_process_output(result.stderr),
+                returncode=binary_result.returncode,
+                stdout=decode_process_output(binary_result.stdout),
+                stderr=decode_process_output(binary_result.stderr),
                 scripts=scripts,
             )
 

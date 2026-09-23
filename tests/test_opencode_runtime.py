@@ -160,7 +160,7 @@ async def test_starts_latest_package_without_global_opencode(monkeypatch: pytest
         with patch.object(
             opencode_runtime.shutil,
             "which",
-            side_effect=lambda name: None if name == "opencode" else f"/bin/{name}",
+            side_effect=lambda name: None if name == "opencode" else name if name.startswith("/bin/") else f"/bin/{name}",
         ):
             with patch.object(opencode_runtime.subprocess, "Popen", return_value=process) as popen:
                 status = await opencode_runtime.ensure_opencode_server(

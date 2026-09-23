@@ -15,10 +15,12 @@ def decode_process_output(output: bytes | str | None) -> str:
         return ""
     if isinstance(output, bytes):
         try:
-            output = output.decode("utf-8")
+            text = output.decode("utf-8")
         except UnicodeDecodeError:
-            output = output.decode(locale.getencoding(), errors="replace")
-    return output.replace("\r\n", "\n").replace("\r", "\n")
+            text = output.decode(locale.getencoding(), errors="replace")
+    else:
+        text = output
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def resolve_windows_command(argv: list[str]) -> list[str]:
