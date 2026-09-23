@@ -864,7 +864,7 @@ def extract_domain_from_har(har_path: Path) -> str | None:
     try:
         import json
 
-        with open(har_path) as f:
+        with open(har_path, encoding="utf-8-sig") as f:
             har_data = json.load(f)
 
         entries = har_data.get("log", {}).get("entries", [])

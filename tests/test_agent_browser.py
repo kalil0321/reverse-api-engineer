@@ -43,7 +43,8 @@ def test_global_binary_short_circuits_npm():
     assert agent_browser.agent_browser_shell_invoker() == "agent-browser"
     run.assert_called_once()
     argv = run.call_args[0][0]
-    assert argv == ["agent-browser", "--help"]
+    executable = "/fake/agent-browser" if agent_browser.sys.platform == "win32" else "agent-browser"
+    assert argv == [executable, "--help"]
 
 
 def test_global_help_failure():
@@ -196,4 +197,3 @@ def test_check_missing_node_is_error():
         st = agent_browser.check_agent_browser_runtime()
     assert not st.ok
     assert st.error and "node" in st.error.lower()
-

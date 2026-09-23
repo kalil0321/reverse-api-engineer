@@ -13,6 +13,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from typing import Any
 
@@ -95,11 +96,17 @@ def agent_browser_extra_notes() -> str:
 
 
 def _probe_help_argv(argv_without_help: list[str]) -> str | None:
+    argv = [*argv_without_help, "--help"]
+    if sys.platform == "win32":
+        # CreateProcess does not search PATHEXT for npm's .cmd launchers.
+        argv[0] = shutil.which(argv[0]) or argv[0]
     try:
         proc = subprocess.run(
-            [*argv_without_help, "--help"],
+            argv,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=240,
             check=False,
         )
@@ -228,6 +235,8 @@ def ensure_agent_browser_runtime() -> AgentBrowserSetup:
             [npm, "install", "-g", "--yes", pkg],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=600,
             check=False,
             env={**os.environ, "CI": "1"},

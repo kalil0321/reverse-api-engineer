@@ -492,7 +492,7 @@ def _build_dry_run_payload(
     else:
         try:
             ver = subprocess.run(
-                [node, "--version"], capture_output=True, text=True, timeout=5
+                [node, "--version"], capture_output=True, text=True, errors="replace", timeout=5
             ).stdout.strip()
             checks.append({"name": "node", "status": "ok", "message": ver})
         except Exception as e:
@@ -2832,7 +2832,7 @@ def show_run(run_id: str | None, as_json: bool) -> None:
         recording = har_dir / "recording.har"
         if recording.exists():
             try:
-                har_data = json.loads(recording.read_text())
+                har_data = json.loads(recording.read_text(encoding="utf-8-sig"))
                 har_entries = len(har_data.get("log", {}).get("entries", []))
             except Exception:
                 pass
@@ -2921,8 +2921,11 @@ def _run_non_python_script(script: Path, script_args: tuple[str, ...]) -> None:
         steps, tool = build_script_commands(script, script_args)
     except ValueError as e:
         raise click.ClickException(str(e)) from e
-    if shutil.which(tool) is None:
+    executable = shutil.which(tool)
+    if executable is None:
         raise click.ClickException(f"cannot run {script.name}: '{tool}' is missing from PATH — install it and retry")
+    if sys.platform == "win32":
+        steps[0][0] = executable
     returncode = 0
     for cmd in steps:
         returncode = subprocess.run(cmd, cwd=str(script.parent)).returncode
@@ -3014,7 +3017,8 @@ def _run_script_machine_payload(
                     error=str(e),
                     error_kind_hint="misuse",
                 )
-            if shutil.which(tool) is None:
+            executable = shutil.which(tool)
+            if executable is None:
                 return _build_run_payload(
                     identifier=identifier,
                     run_id=run_id,
@@ -3024,10 +3028,12 @@ def _run_script_machine_payload(
                     error=f"cannot run {script.name}: '{tool}' is missing from PATH — install it and retry",
                     error_kind_hint="config_invalid",
                 )
+            if sys.platform == "win32":
+                steps[0][0] = executable
             result = None
             for cmd in steps:
                 emit_event("process_started", run_id=run_id, script_path=str(script))
-                result = subprocess.run(cmd, cwd=str(script.parent), capture_output=True, text=True)
+                result = subprocess.run(cmd, cwd=str(script.parent), capture_output=True, text=True, errors="replace")
                 if result.returncode != 0:
                     break
             assert result is not None, "build_script_commands returned no execution steps"
@@ -3051,19 +3057,22 @@ def _run_script_machine_payload(
 
         if not venv_dir.exists():
             emit_event("venv_setup_started", run_id=run_id, path=str(venv_dir))
-            subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True, capture_output=True, text=True)
-            subprocess.run([str(venv_pip), "install", "-q", "requests"], check=True, capture_output=True, text=True)
+            subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True, capture_output=True, text=True, errors="replace")
+            subprocess.run([str(venv_pip), "install", "-q", "requests"], check=True, capture_output=True, text=True, errors="replace")
             emit_event("venv_setup_completed", run_id=run_id, path=str(venv_dir))
 
         requirements = script.parent / "requirements.txt"
         if requirements.exists():
             emit_event("requirements_install_started", run_id=run_id, path=str(requirements))
-            subprocess.run([str(venv_pip), "install", "-q", "-r", str(requirements)], check=True, capture_output=True, text=True)
+            subprocess.run([str(venv_pip), "install", "-q", "-r", str(requirements)], check=True, capture_output=True, text=True, errors="replace")
             emit_event("requirements_install_completed", run_id=run_id, path=str(requirements))
 
         cmd = [str(venv_python), str(script), *script_args]
         emit_event("process_started", run_id=run_id, script_path=str(script))
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        )
 
         stderr = result.stderr or ""
         if result.returncode != 0 and "ModuleNotFoundError: No module named" in stderr:
@@ -3072,10 +3081,13 @@ def _run_script_machine_payload(
                 emit_event("dependency_missing", run_id=run_id, package=missing)
                 if auto_install:
                     emit_event("dependency_install_started", run_id=run_id, package=missing)
-                    subprocess.run([str(venv_pip), "install", "-q", missing], check=True, capture_output=True, text=True)
+                    subprocess.run([str(venv_pip), "install", "-q", missing], check=True, capture_output=True, text=True, errors="replace")
                     emit_event("dependency_install_completed", run_id=run_id, package=missing)
                     emit_event("process_retried", run_id=run_id, script_path=str(script))
-                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    result = subprocess.run(
+                        cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                    )
                 else:
                     return _build_run_payload(
                         identifier=identifier,
@@ -3324,7 +3336,10 @@ def run_script(
 
     # Execute with real-time stdout, capture stderr for import error detection
     cmd = [python_path, str(script), *script_args]
-    result = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)
+    result = subprocess.run(
+        cmd, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+    )
 
     # Print stderr so the user sees it, then check for missing imports
     if result.stderr:

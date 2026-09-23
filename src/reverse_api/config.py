@@ -46,7 +46,7 @@ class ConfigManager:
         """Load configuration from disk."""
         if self.config_path.exists():
             try:
-                with open(self.config_path) as f:
+                with open(self.config_path, encoding="utf-8") as f:
                     user_config = json.load(f)
 
                     # Backward compatibility: migrate old config keys
@@ -61,14 +61,14 @@ class ConfigManager:
                     # Only keep valid keys
                     valid_config = {k: v for k, v in user_config.items() if k in self.config}
                     self.config.update(valid_config)
-            except (json.JSONDecodeError, OSError):
+            except (json.JSONDecodeError, UnicodeError, OSError):
                 # Fallback to defaults if file is corrupted
                 pass
 
     def save(self) -> None:
         """Save configuration to disk."""
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.config_path, "w") as f:
+        with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump(self.config, f, indent=4)
 
     def get(self, key: str, default: Any = None) -> Any:

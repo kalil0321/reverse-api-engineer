@@ -27,7 +27,7 @@ class MessageStore:
             "content": content,
             **kwargs,
         }
-        with open(self.messages_path, "a") as f:
+        with open(self.messages_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(message) + "\n")
 
     def save_prompt(self, prompt: str) -> None:
@@ -66,7 +66,7 @@ class MessageStore:
         if not self.messages_path.exists():
             return []
         messages = []
-        with open(self.messages_path) as f:
+        with open(self.messages_path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line:

@@ -17,16 +17,16 @@ class SessionManager:
         """Load history from disk."""
         if self.history_path.exists():
             try:
-                with open(self.history_path) as f:
+                with open(self.history_path, encoding="utf-8") as f:
                     self.history = json.load(f)
-            except (json.JSONDecodeError, OSError):
+            except (json.JSONDecodeError, UnicodeError, OSError):
                 # Fallback to empty history if file is corrupted
                 self.history = []
 
     def save(self) -> None:
         """Save history to disk."""
         self.history_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.history_path, "w") as f:
+        with open(self.history_path, "w", encoding="utf-8") as f:
             json.dump(self.history, f, indent=4)
 
     def add_run(self, run_id: str, prompt: str, **kwargs: Any) -> None:
