@@ -2915,6 +2915,7 @@ def _run_non_python_script(script: Path, script_args: tuple[str, ...]) -> None:
     import shutil
     import subprocess
 
+    from .runtime_commands import resolve_windows_command
     from .utils import build_script_commands
 
     try:
@@ -2925,7 +2926,10 @@ def _run_non_python_script(script: Path, script_args: tuple[str, ...]) -> None:
     if executable is None:
         raise click.ClickException(f"cannot run {script.name}: '{tool}' is missing from PATH — install it and retry")
     if sys.platform == "win32":
-        steps[0][0] = executable
+        try:
+            steps[0] = resolve_windows_command([executable, *steps[0][1:]])
+        except ValueError as e:
+            raise click.ClickException(str(e)) from e
     returncode = 0
     for cmd in steps:
         returncode = subprocess.run(cmd, cwd=str(script.parent)).returncode
@@ -3029,7 +3033,9 @@ def _run_script_machine_payload(
                     error_kind_hint="config_invalid",
                 )
             if sys.platform == "win32":
-                steps[0][0] = executable
+                from .runtime_commands import resolve_windows_command
+
+                steps[0] = resolve_windows_command([executable, *steps[0][1:]])
             result = None
             for cmd in steps:
                 emit_event("process_started", run_id=run_id, script_path=str(script))

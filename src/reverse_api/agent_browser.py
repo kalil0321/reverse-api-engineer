@@ -19,6 +19,7 @@ from typing import Any
 
 from rich.console import Console
 
+from .runtime_commands import resolve_windows_command
 from .utils import get_config_path
 
 _AGENT_BROWSER_TOOLS = frozenset(
@@ -97,10 +98,9 @@ def agent_browser_extra_notes() -> str:
 
 def _probe_help_argv(argv_without_help: list[str]) -> str | None:
     argv = [*argv_without_help, "--help"]
-    if sys.platform == "win32":
-        # CreateProcess does not search PATHEXT for npm's .cmd launchers.
-        argv[0] = shutil.which(argv[0]) or argv[0]
     try:
+        if sys.platform == "win32":
+            argv = resolve_windows_command(argv)
         proc = subprocess.run(
             argv,
             capture_output=True,
@@ -112,7 +112,7 @@ def _probe_help_argv(argv_without_help: list[str]) -> str | None:
         )
     except subprocess.TimeoutExpired:
         return f"timed out running `{shlex.join(argv_without_help)} --help`."
-    except OSError as e:
+    except (OSError, ValueError) as e:
         return f"failed subprocess `{shlex.join(argv_without_help)}`: {e}"
 
     stdout = (proc.stdout or "").strip()
@@ -232,7 +232,7 @@ def ensure_agent_browser_runtime() -> AgentBrowserSetup:
 
     try:
         proc = subprocess.run(
-            [npm, "install", "-g", "--yes", pkg],
+            resolve_windows_command([npm, "install", "-g", "--yes", pkg]),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -244,7 +244,7 @@ def ensure_agent_browser_runtime() -> AgentBrowserSetup:
     except subprocess.TimeoutExpired:
         notices.append("`npm install -g …` timed out; falling back to `npx -y …` for this session.")
         return _finalize_npx_invoker(notices)
-    except OSError as e:
+    except (OSError, ValueError) as e:
         notices.append(f"Could not spawn npm globally ({e}); falling back to `npx -y …`.")
         return _finalize_npx_invoker(notices)
 

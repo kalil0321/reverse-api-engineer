@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 
 import httpx2 as httpx
 
+from .runtime_commands import resolve_windows_command
 from .utils import get_config_path
 
 DEFAULT_OPENCODE_BASE_URL = "http://127.0.0.1:4096"
@@ -276,7 +277,10 @@ def _start_managed_server(
             )
 
         package = opencode_npx_package()
-        argv = [npx, "-y", package, "serve", "--hostname", host, "--port", str(port)]
+        try:
+            argv = resolve_windows_command([npx, "-y", package, "serve", "--hostname", host, "--port", str(port)])
+        except ValueError as e:
+            raise OpenCodeSetupError(str(e)) from e
         child_env = os.environ.copy()
         child_env.update(desired_env)
         try:
