@@ -1,6 +1,6 @@
 """Opt-in Windows acceptance with installed Chrome and the real OpenCode runtime.
 
-Run on Windows CI (or opt in locally); no model or production site is accessed.
+Run in the prepared live-windows job; no model or production site is accessed.
 """
 
 import asyncio
@@ -17,8 +17,7 @@ import httpx2
 import pytest
 
 pytestmark = pytest.mark.skipif(
-    sys.platform != "win32"
-    or (os.environ.get("GITHUB_ACTIONS") != "true" and os.environ.get("RAE_WINDOWS_RUNTIME_E2E") != "1"),
+    sys.platform != "win32" or os.environ.get("RAE_WINDOWS_RUNTIME_E2E") != "1",
     reason="opt-in native Windows runtime acceptance",
 )
 

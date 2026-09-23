@@ -105,6 +105,14 @@ def test_invalid_utf8_config_and_history_recover(tmp_path):
     assert SessionManager(path).history == []
 
 
+def test_corrupt_message_record_preserves_surrounding_history(tmp_path):
+    store = MessageStore("mixed-history", str(tmp_path))
+    first = json.dumps({"type": "prompt", "content": "中文"}, ensure_ascii=False).encode()
+    last = json.dumps({"type": "thinking", "content": "🐍"}, ensure_ascii=False).encode()
+    store.messages_path.write_bytes(first + b'\n{"content":"caf\xe9"}\ninvalid json\n' + last + b"\n")
+    assert [message["content"] for message in store.load()] == ["中文", "🐍"]
+
+
 @pytest.mark.parametrize(
     ("platform", "env", "relative"),
     [
