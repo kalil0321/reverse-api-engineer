@@ -85,5 +85,5 @@ def test_real_npx_preserves_client_arguments(tmp_path):
 @pytest.mark.parametrize("encoding,text", [("cp1252", "café"), ("gbk", "丂中文")])
 def test_mixed_stream_preserves_utf8_and_legacy_segments(monkeypatch, encoding, text):
     monkeypatch.setattr("locale.getencoding", lambda: encoding)
-    data = text.encode(encoding) + " 🐍 ".encode("utf-8") + text.encode(encoding)
+    data = text.encode(encoding) + " 🐍 ".encode() + text.encode(encoding)
     assert decode_process_output(data) == f"{text} 🐍 {text}"
