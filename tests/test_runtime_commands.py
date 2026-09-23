@@ -60,7 +60,7 @@ def test_native_node_preserves_shell_characters(tmp_path):
     launcher.write_text("@exit /b 99\n", encoding="ascii")
     arguments = ["https://example.com/?a=1&b=2|three", "%PATH%", "!literal!", 'quoted"text', "中文", "a path with spaces"]
     argv = resolve_windows_command([str(launcher), *arguments])
-    result = subprocess.run(argv, capture_output=True, encoding="utf-8", check=True)
+    result = subprocess.run(argv, capture_output=True, encoding="utf-8", check=True, timeout=30)
     assert json.loads(result.stdout) == arguments
 
 
