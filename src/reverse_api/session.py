@@ -1,6 +1,7 @@
 """Session and history management for reverse-api."""
 
 import json
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -26,8 +27,20 @@ class SessionManager:
     def save(self) -> None:
         """Save history to disk."""
         self.history_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.history_path, "w", encoding="utf-8") as f:
-            json.dump(self.history, f, indent=4)
+        # Close the temporary file before replacement (required on Windows),
+        # and keep it on the same filesystem for atomic replacement.
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=self.history_path.parent,
+                prefix=f".{self.history_path.name}.", suffix=".tmp", delete=False,
+            ) as f:
+                temp_path = Path(f.name)
+                json.dump(self.history, f, indent=4)
+            temp_path.replace(self.history_path)
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
 
     def add_run(self, run_id: str, prompt: str, **kwargs: Any) -> None:
         """Add a new run to history."""

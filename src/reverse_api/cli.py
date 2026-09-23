@@ -2950,6 +2950,8 @@ def _run_script_machine_payload(
     """Run or list generated scripts without prompts and with JSON-safe stdout."""
     import subprocess
 
+    from .runtime_commands import decode_process_output
+
     run_id: str | None = None
     script: Path | None = None
     scripts: list[Path] = []
@@ -3007,7 +3009,6 @@ def _run_script_machine_payload(
         if script.suffix != ".py":
             import shutil
 
-            from .runtime_commands import decode_process_output
             from .utils import build_script_commands
 
             try:
@@ -3087,10 +3088,17 @@ def _run_script_machine_payload(
 
         cmd = [str(venv_python), str(script), *script_args]
         emit_event("process_started", run_id=run_id, script_path=str(script))
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-        )
+        def run_client() -> subprocess.CompletedProcess[str]:
+            captured = subprocess.run(
+                cmd, capture_output=True,
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            )
+            return subprocess.CompletedProcess(
+                captured.args, captured.returncode,
+                decode_process_output(captured.stdout), decode_process_output(captured.stderr),
+            )
+
+        result = run_client()
 
         stderr = result.stderr or ""
         if result.returncode != 0 and "ModuleNotFoundError: No module named" in stderr:
@@ -3102,10 +3110,7 @@ def _run_script_machine_payload(
                     subprocess.run([str(venv_pip), "install", "-q", missing], check=True, capture_output=True, text=True, errors="replace")
                     emit_event("dependency_install_completed", run_id=run_id, package=missing)
                     emit_event("process_retried", run_id=run_id, script_path=str(script))
-                    result = subprocess.run(
-                        cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-                    )
+                    result = run_client()
                 else:
                     return _build_run_payload(
                         identifier=identifier,

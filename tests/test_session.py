@@ -182,3 +182,24 @@ class TestSessionManagerSave:
         sm = SessionManager(history_path)
         sm.add_run("run1", "test")
         assert history_path.exists()
+
+
+def test_interrupted_save_preserves_previous_history(tmp_path, monkeypatch):
+    import pytest
+
+    path = tmp_path / "history.json"
+    manager = SessionManager(path)
+    manager.add_run("original", "keep me")
+    original = path.read_bytes()
+    manager.history.insert(0, {"run_id": "new"})
+
+    def interrupted_dump(value, stream, **kwargs):
+        stream.write('[{"partial":')
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("reverse_api.session.json.dump", interrupted_dump)
+    with pytest.raises(KeyboardInterrupt):
+        manager.save()
+    assert path.read_bytes() == original
+    assert SessionManager(path).history[0]["run_id"] == "original"
+    assert not list(tmp_path.glob("*.tmp"))

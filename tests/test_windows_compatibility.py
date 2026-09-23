@@ -148,7 +148,7 @@ def test_node_diagnostic_probe_decodes_utf8_under_gbk(monkeypatch):
     assert "中文 — 🐍" in error
 
 
-@pytest.mark.parametrize("language", ["python", "javascript"])
+@pytest.mark.parametrize("language", ["python", "python-legacy", "javascript"])
 def test_run_json_real_unicode_output(tmp_path, monkeypatch, language):
     """Exercise actual child pipes under a legacy locale, including a spaced path."""
     import venv
@@ -160,9 +160,15 @@ def test_run_json_real_unicode_output(tmp_path, monkeypatch, language):
     output_dir = tmp_path / "User Name 中文"
     scripts = output_dir / "scripts" / "unicode-run"
     scripts.mkdir(parents=True)
-    if language == "python":
+    if language.startswith("python"):
         script = scripts / "api_client.py"
         script.write_text("import sys\nprint('中文 — café 🐍')\nprint('erreur — 中文', file=sys.stderr)\n", encoding="utf-8")
+        if language == "python-legacy":
+            script.write_text(
+                "import sys\nsys.stdout.buffer.write('café\\n'.encode('cp1252'))\n"
+                "sys.stderr.buffer.write('erreur café\\n'.encode('cp1252'))\n", encoding="utf-8",
+            )
+            monkeypatch.setattr("locale.getencoding", lambda: "cp1252")
         venv.EnvBuilder(with_pip=False).create(output_dir / ".venv")
     else:
         script = scripts / "api_client.js"
@@ -180,8 +186,8 @@ def test_run_json_real_unicode_output(tmp_path, monkeypatch, language):
     result = CliRunner().invoke(cli.main, ["run", "unicode-run", "--json"])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["stdout"] == "中文 — café 🐍\n"
-    assert payload["stderr"] == "erreur — 中文\n"
+    assert payload["stdout"] == ("café\n" if language == "python-legacy" else "中文 — café 🐍\n")
+    assert payload["stderr"] == ("erreur café\n" if language == "python-legacy" else "erreur — 中文\n")
 
 
 def test_interactive_dependency_retry_preserves_unicode(tmp_path, monkeypatch):
