@@ -9,8 +9,14 @@ import sys
 from pathlib import Path
 
 
-def decode_process_output(output: bytes | str | None) -> str:
-    """Preserve UTF-8 tool output, with a fallback for legacy native tools."""
+def decode_process_output(output: bytes | str | None, *, utf8_stream: bool = False) -> str:
+    """Decode UTF-8 or legacy output using the caller's stream contract.
+
+    Native tools fall back as a whole to the system encoding. For Python
+    clients configured with PYTHONIOENCODING=utf-8, retain valid UTF-8 spans
+    around stray legacy bytes. Ambiguous byte sequences cannot identify
+    an arbitrary mixed encoding reliably without this caller context.
+    """
     if output is None:
         return ""
     if isinstance(output, bytes):
@@ -20,13 +26,16 @@ def decode_process_output(output: bytes | str | None) -> str:
             # Retain valid UTF-8 characters even when a native child writes
             # legacy bytes into the same pipe. Keep ASCII with undecodable
             # bytes: it can be the trailing byte of a legacy multibyte glyph.
-            escaped = output.decode("utf-8", errors="surrogateescape")
             encoding = locale.getencoding()
-            text = re.sub(
-                r"[\x00-\x7f\udc80-\udcff]+",
-                lambda match: match.group().encode("utf-8", errors="surrogateescape").decode(encoding, errors="replace"),
-                escaped,
-            )
+            if not utf8_stream:
+                text = output.decode(encoding, errors="replace")
+            else:
+                escaped = output.decode("utf-8", errors="surrogateescape")
+                text = re.sub(
+                    r"[\x00-\x7f\udc80-\udcff]+",
+                    lambda match: match.group().encode("utf-8", errors="surrogateescape").decode(encoding, errors="replace"),
+                    escaped,
+                )
     else:
         text = output
     return text.replace("\r\n", "\n").replace("\r", "\n")
