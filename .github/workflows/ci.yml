@@ -116,9 +116,13 @@ jobs:
           if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'PowerShell 7+ required' }
           "PLAYWRIGHT_MCP_EXECUTABLE_PATH=$chrome" >> $env:GITHUB_ENV
           (Get-Item $chrome).VersionInfo.ProductVersion
-      - run: uv sync --locked --no-dev
+      - run: uv sync --locked --extra manual
       - name: Warm OpenCode package cache
         run: npx --yes opencode-ai@1.18.31 --version
+      - name: Verify native Chrome capture and OpenCode shutdown
+        env:
+          RAE_WINDOWS_RUNTIME_E2E: '1'
+        run: uv run --no-sync pytest -q tests/test_windows_runtime_e2e.py
       - name: Generate and execute PowerShell and Python clients
         shell: pwsh
         run: |

@@ -767,7 +767,7 @@ class TestBuildScriptCommands:
         from reverse_api.utils import build_script_commands
         script = tmp_path / "api_client.java"
         steps, tool = build_script_commands(script)
-        assert steps == [["mvn", "-q", "-f", str(tmp_path / "pom.xml"), "compile", "exec:exec"]]
+        assert steps == [["mvn", "-q", "-f", "pom.xml", "compile", "exec:exec"]]
         assert tool == "mvn"
 
     def test_java_rejects_script_args(self, tmp_path):

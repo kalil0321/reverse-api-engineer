@@ -27,7 +27,7 @@ class MessageStore:
             "content": content,
             **kwargs,
         }
-        with open(self.messages_path, "a") as f:
+        with open(self.messages_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(message) + "\n")
 
     def save_prompt(self, prompt: str) -> None:
@@ -66,13 +66,15 @@ class MessageStore:
         if not self.messages_path.exists():
             return []
         messages = []
-        with open(self.messages_path) as f:
+        # Decode each record independently: one corrupt/legacy-encoded line
+        # must not make all the surrounding valid history unreadable.
+        with open(self.messages_path, "rb") as f:
             for line in f:
                 line = line.strip()
                 if line:
                     try:
-                        messages.append(json.loads(line))
-                    except json.JSONDecodeError:
+                        messages.append(json.loads(line.decode("utf-8")))
+                    except (json.JSONDecodeError, UnicodeDecodeError):
                         continue
         return messages
 

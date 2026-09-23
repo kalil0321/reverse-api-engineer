@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Mapping
@@ -21,6 +22,7 @@ from urllib.parse import urlparse
 
 import httpx2 as httpx
 
+from .runtime_commands import resolve_windows_command
 from .utils import get_config_path
 
 DEFAULT_OPENCODE_BASE_URL = "http://127.0.0.1:4096"
@@ -275,7 +277,10 @@ def _start_managed_server(
             )
 
         package = opencode_npx_package()
-        argv = [npx, "-y", package, "serve", "--hostname", host, "--port", str(port)]
+        try:
+            argv = resolve_windows_command([npx, "-y", package, "serve", "--hostname", host, "--port", str(port)])
+        except ValueError as e:
+            raise OpenCodeSetupError(str(e)) from e
         child_env = os.environ.copy()
         child_env.update(desired_env)
         try:
@@ -381,6 +386,21 @@ def stop_managed_opencode_server() -> None:
 
     if process is None or process.poll() is not None:
         return
+    if sys.platform == "win32":
+        # npx.cmd -> node -> opencode: terminating only the launcher leaves
+        # the server listening. Kill its tree while the parent PID still exists.
+        taskkill = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "taskkill.exe")
+        try:
+            result = subprocess.run(
+                [taskkill, "/PID", str(process.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=5, check=False,
+            )
+            if result.returncode == 0:
+                process.wait(timeout=3)
+                return
+        except (OSError, subprocess.TimeoutExpired):
+            pass  # Best-effort parent cleanup if taskkill is unavailable.
     try:
         process.terminate()
     except OSError:

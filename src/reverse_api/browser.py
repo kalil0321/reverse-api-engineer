@@ -2,6 +2,7 @@
 
 import io
 import json
+import os
 import random
 import signal
 import sys
@@ -164,14 +165,18 @@ console.log('Stealth mode activated');
 """
 
 
-# Default Chrome profile path on macOS
-CHROME_USER_DATA_DIR = Path.home() / "Library/Application Support/Google/Chrome"
-
-
 def get_chrome_profile_dir() -> Path | None:
-    """Get Chrome user data directory if it exists."""
-    if CHROME_USER_DATA_DIR.exists():
-        return CHROME_USER_DATA_DIR
+    """Get Chrome's platform-specific user data directory if it exists."""
+    if sys.platform == "win32":
+        root = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData/Local")
+        profile = root / "Google/Chrome/User Data"
+    elif sys.platform == "darwin":
+        profile = Path.home() / "Library/Application Support/Google/Chrome"
+    else:
+        root = Path(os.environ.get("CHROME_CONFIG_HOME") or os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+        profile = root / "google-chrome"
+    if profile.is_dir():
+        return profile
     return None
 
 
@@ -215,7 +220,7 @@ class ManualBrowser:
             "end_time": end_time,
             "har_file": str(self.har_path),
         }
-        with open(self.metadata_path, "w") as f:
+        with open(self.metadata_path, "w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2)
 
     def _handle_signal(self, signum: int, frame: FrameType | None) -> None:
@@ -508,4 +513,3 @@ class ManualBrowser:
         console.print(" [dim]metadata synced[/dim]")
 
         return self.har_path
-

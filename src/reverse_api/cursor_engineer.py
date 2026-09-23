@@ -14,6 +14,7 @@ from typing import Any
 
 from .agent_browser import ensure_agent_browser_runtime, print_agent_browser_setup_notices
 from .base_engineer import BaseEngineer
+from .runtime_commands import resolve_windows_command
 from .tui import ClaudeUI
 
 _BRIDGE_DIR = Path(__file__).resolve().parent / "cursor_bridge"
@@ -39,6 +40,8 @@ def _cursor_node_version_error() -> str | None:
             timeout=10,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         return f"failed to check Node.js version (Cursor SDK requires Node.js 22.13+): {e}"
@@ -64,7 +67,7 @@ def _ensure_cursor_bridge_deps() -> str | None:
         return f"cursor bridge package-lock.json unavailable: {e}"
     if _SDK_MARKER.is_dir():
         try:
-            if _BRIDGE_INSTALL_STAMP.read_text().strip() == lock_digest:
+            if _BRIDGE_INSTALL_STAMP.read_text(encoding="utf-8").strip() == lock_digest:
                 return None
         except OSError:
             pass
@@ -73,22 +76,24 @@ def _ensure_cursor_bridge_deps() -> str | None:
         return "npm not found in PATH (required to install @cursor/sdk for sdk=cursor)"
     try:
         subprocess.run(
-            [npm, "install", "--no-fund", "--no-audit"],
+            resolve_windows_command([npm, "install", "--no-fund", "--no-audit"]),
             cwd=str(_BRIDGE_DIR),
             check=True,
             timeout=600,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
     except subprocess.CalledProcessError as e:
         tail = (e.stderr or e.stdout or "")[-2000:]
         return f"npm install in cursor_bridge failed: {tail or e}"
-    except (OSError, subprocess.TimeoutExpired) as e:
+    except (OSError, ValueError, subprocess.TimeoutExpired) as e:
         return f"npm install in cursor_bridge failed: {e}"
     if not _SDK_MARKER.is_dir():
         return "@cursor/sdk did not install under cursor_bridge/node_modules"
     try:
-        _BRIDGE_INSTALL_STAMP.write_text(f"{_bridge_lock_digest()}\n")
+        _BRIDGE_INSTALL_STAMP.write_text(f"{_bridge_lock_digest()}\n", encoding="utf-8")
     except OSError as e:
         return f"failed to record cursor bridge dependency state: {e}"
     return None

@@ -25,7 +25,7 @@ def _resolve_includes(text: str) -> str:
         end = text.index(_INCLUDE_SUFFIX, start + len(_INCLUDE_PREFIX))
         partial_name = text[start + len(_INCLUDE_PREFIX) : end]
         partial_path = _PARTIALS_DIR / f"{partial_name}.md"
-        partial_text = partial_path.read_text()
+        partial_text = partial_path.read_text(encoding="utf-8")
         partial_text = _resolve_includes(partial_text)
         text = text[:start] + partial_text + text[end + 1 :]
     return text
@@ -43,7 +43,7 @@ def load(template_name: str, **kwargs: str) -> str:
         The fully rendered prompt string.
     """
     path = _PROMPTS_DIR / f"{template_name}.md"
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     text = _resolve_includes(text)
     if kwargs:
         text = text.format_map(kwargs)

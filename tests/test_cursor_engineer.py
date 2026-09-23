@@ -208,6 +208,8 @@ def test_ensure_bridge_reinstalls_when_lock_stamp_is_not_current(
         timeout=600,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     expected = hashlib.sha256((bridge / "package-lock.json").read_bytes()).hexdigest()
     assert stamp.read_text().strip() == expected
