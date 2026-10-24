@@ -1,7 +1,7 @@
 """GitHub Copilot SDK implementation for reverse engineering."""
 
 import asyncio
-from typing import Any
+from typing import Any, cast
 
 from .base_engineer import BaseEngineer
 
@@ -55,14 +55,15 @@ class CopilotEngineer(BaseEngineer):
         # Capture self for use in the tool handler
         engineer = self
 
-        @define_tool(description="Ask the user a clarifying question. Use when you need user input to proceed.")
+        # The Copilot SDK exposes define_tool without a typed decorator signature.
+        tool_decorator = cast(Any, define_tool(description="Ask the user a clarifying question. Use when you need user input to proceed."))
         async def ask_user_question(params: AskUserParams) -> str:
             # Convert pydantic models to dicts for the shared method
             question_dicts = [q.model_dump() for q in params.questions]
             answers = await engineer._ask_user_questions(question_dicts)
             return "\n".join(f"{k}: {v}" for k, v in answers.items())
 
-        return ask_user_question
+        return tool_decorator(ask_user_question)
 
     async def analyze_and_generate(self) -> dict[str, Any] | None:
         """Run the reverse engineering analysis with GitHub Copilot."""

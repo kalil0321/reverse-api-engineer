@@ -7,11 +7,11 @@
 - Include a `main` function with example usage
 
 **Authentication & credentials:**
-- Hardcode all cookies, tokens, session IDs, and auth headers found in the traffic directly in the program
-- The user should be able to run the program immediately with zero configuration — no env vars, no config files, no manual setup
-- If the API uses cookies, set them via the client's cookie jar
-- If the API uses Bearer tokens or API keys, hardcode them in the request headers
-- Handle auth refresh so the program doesn't go stale: if you see a token refresh endpoint, OAuth refresh flow, or login endpoint in the traffic, implement automatic re-authentication when a request returns 401/403. If cookies have expiry, re-fetch them before they expire
+- Never put credentials, cookies, tokens, session IDs, or auth headers from captured traffic into source, examples, logs, or summaries.
+- Read required secrets from environment variables or explicit runtime parameters and document the required setup; do not claim zero-configuration execution.
+- If cookies are needed, use the client's cookie jar for persistence, populated only with runtime-provided values—not captured HAR values.
+- Build Bearer/API-key headers from runtime-provided values, never recorded values.
+- Implement refresh flows only when they use user-managed runtime credentials; never replay secrets extracted from traffic.
 
 **Testing:**
 - If a module was initialized, first run: `go mod tidy`

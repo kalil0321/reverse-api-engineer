@@ -139,6 +139,434 @@ class TestClaudeAutoEngineerPrompt:
         assert "requests" in sys_p
         assert "api_client.py" in sys_p
 
+    def test_omp_capture_prompt_preserves_browser_and_privacy_contracts(self, tmp_path):
+        from reverse_api.auto_engineer import OMPAutoEngineer
+
+        engineer = OMPAutoEngineer(
+            run_id="omp-test",
+            prompt="Inspect https://example.com",
+            output_dir=str(tmp_path),
+            verbose=False,
+        )
+        system_prompt, user_message = engineer._get_active_prompts()
+
+        assert "Never hardcode credentials" in system_prompt
+        assert "environment variables or explicit runtime parameters" in system_prompt
+        assert 'name: "rae-omp-test"' in user_message
+        assert 'url: "about:blank"' in user_message
+        assert "await tab.observe()" in user_message
+        assert "await tab.ariaSnapshot()" in user_message
+        assert "Do not use the RAE Playwright MCP" in user_message
+        assert 'allowed_domains: ["example.com"]' in user_message
+        assert "const requestedDomains = [\"example.com\"]" in user_message
+        assert "isAllowedHost(new URL(r.url).hostname)" in user_message
+        assert 'type: ["fetch", "xhr", "document"]' in user_message
+        assert 'method: "GET"' in user_message
+        assert 'status: "2xx"' in user_message
+        assert "Never inspect or replay POST requests." in user_message
+        assert "JSON.parse(detail.body)" in user_message
+        assert 'value: "<redacted>"' in user_message
+        assert "headers: [], queryString:" in user_message
+        assert "unredacted body" in user_message
+        assert "generated external clients do not inherit those browser cookies" in user_message
+        assert "Do not create a placeholder client" in user_message
+        assert "missing authentication is not a reason to skip client generation" in user_message
+        assert "Do not claim authenticated execution without user-managed runtime credentials" in user_message
+        assert f"await Bun.write(\"{engineer.har_path}\"" in user_message
+        assert str(engineer.scripts_dir / engineer._get_client_filename()) in user_message
+
+    def test_omp_auto_prompt_resolves_relative_har_paths(self, tmp_path, monkeypatch):
+        from pathlib import Path
+
+        from reverse_api.auto_engineer import OMPAutoEngineer
+
+        monkeypatch.chdir(tmp_path)
+        engineer = OMPAutoEngineer(
+            run_id="relative-har",
+            prompt="Inspect https://example.com",
+            output_dir="relative-output",
+            verbose=False,
+        )
+        expected_har_path = str(
+            (tmp_path / "relative-output" / "har" / "relative-har" / "recording.har").resolve()
+        )
+        _, user_message = engineer._get_active_prompts()
+
+        assert engineer.har_path == Path(expected_har_path)
+        assert user_message.count(expected_har_path) == 2
+        assert f'await Bun.write("{expected_har_path}"' in user_message
+
+    def test_omp_capture_prompt_bounds_and_progresses_body_reads(self, tmp_path):
+        from reverse_api.auto_engineer import OMPAutoEngineer
+
+        engineer = OMPAutoEngineer(
+            run_id="omp-bounds",
+            prompt="Inspect https://example.com",
+            output_dir=str(tmp_path),
+            verbose=False,
+        )
+        _, user_message = engineer._get_active_prompts()
+
+        assert "1024 * 1024" in user_message
+        assert "bodyRetrievalAttempts < 3" in user_message
+        assert "bodyRetrievalAttempts++" in user_message
+        assert "Number.isFinite(size)" in user_message
+        assert "size > 0 && size <= 1024 * 1024" in user_message
+        assert "detail.bodyTruncated !== true" in user_message
+        assert "new TextEncoder().encode(detail.body).byteLength <= responseBodyLimitBytes" in user_message
+        assert "visitedIds" in user_message
+        assert "(await getCandidates()).find(candidate => !visitedIds.has(String(candidate.id)))" in user_message
+        assert "await tab.requests(requestOptions)" in user_message
+        assert "await tab.wheel(0, 600)" in user_message
+        assert "Unknown browser request id " in user_message
+        assert "error instanceof Error" in user_message
+        assert "throw error" in user_message
+
+    def test_omp_prompt_derives_mission_target_and_allowed_hosts(self, tmp_path):
+        from reverse_api.auto_engineer import OMPAutoEngineer
+
+        engineer = OMPAutoEngineer(
+            run_id="omp-mission-url",
+            prompt="Inspect https://api.example.test/v1",
+            output_dir=str(tmp_path),
+            verbose=False,
+        )
+        _, user_message = engineer._get_active_prompts()
+
+        assert "https://api.example.test/v1" in user_message
+        assert "Use the supplied starting URL exactly: https://api.example.test/v1." in user_message
+        assert 'allowed_domains: ["api.example.test"]' in user_message
+
+    @pytest.mark.parametrize(
+        "output_language",
+        ["python", "javascript", "typescript", "go", "java", "csharp", "php", "ruby", "powershell"],
+    )
+    def test_omp_auth_guidance_is_runtime_managed_for_every_language(
+        self, tmp_path, output_language
+    ):
+        from reverse_api.auto_engineer import OMPAutoEngineer
+
+        engineer = OMPAutoEngineer(
+            run_id=f"omp-auth-{output_language}",
+            prompt="Inspect https://example.test",
+            output_dir=str(tmp_path),
+            output_language=output_language,
+            verbose=False,
+        )
+        system_prompt, _ = engineer._get_active_prompts()
+        lowered = system_prompt.lower()
+        assert "never hardcode credentials" in lowered
+        assert "environment variables or explicit runtime parameters" in lowered
+        assert "hardcode all cookies" not in lowered
+        assert "zero configuration" not in lowered
+    def test_omp_prompt_requires_a_mission_target_when_url_is_unresolved(self, tmp_path):
+        from reverse_api.auto_engineer import OMPAutoEngineer
+
+        engineer = OMPAutoEngineer(
+            run_id="omp-no-url",
+            prompt="Inspect the catalog",
+            output_dir=str(tmp_path),
+            verbose=False,
+        )
+        _, user_message = engineer._get_active_prompts()
+        assert "<requested_start_url>" not in user_message
+        assert "No starting URL was resolved; derive the target directly from the mission." in user_message
+        assert "Do not follow links or navigate to other hosts unless the mission requires it." in user_message
+
+    def test_omp_headless_prompt_keeps_browser_headless(self, tmp_path):
+        from reverse_api.auto_engineer import OMPAutoEngineer
+
+        engineer = OMPAutoEngineer(
+            run_id="omp-headless",
+            prompt="Inspect https://example.com",
+            output_dir=str(tmp_path),
+            headless=True,
+            verbose=False,
+        )
+        _, user_message = engineer._get_active_prompts()
+        assert "headed: false" in user_message
+
+
+    @pytest.mark.parametrize(
+        ("mission_prompt", "requested_url"),
+        [
+            ("Inspect the catalog", "https://shop.example.test/catalog"),
+            ("Inspect https://shop.example.test/catalog", None),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_omp_auto_rejects_wrong_host_and_removes_har(
+        self, tmp_path, monkeypatch, mission_prompt, requested_url
+    ):
+        import json
+
+        from reverse_api.auto_engineer import OMPAutoEngineer
+
+        engineer = OMPAutoEngineer(
+            run_id="omp-wrong-host",
+            prompt=mission_prompt,
+            url=requested_url,
+            output_dir=str(tmp_path),
+            verbose=False,
+        )
+
+        async def fake_run_omp(*args, **kwargs):
+            engineer.har_path.parent.mkdir(parents=True, exist_ok=True)
+            engineer.har_path.write_text(
+                json.dumps(
+                    {"log": {"entries": [{"request": {"url": "https://other.test/api"}}]}}
+                ),
+                encoding="utf-8",
+            )
+            return True
+
+        monkeypatch.setattr(engineer, "_run_omp", fake_run_omp)
+
+        assert await engineer.analyze_and_generate() is None
+        assert not engineer.har_path.exists()
+
+    @pytest.mark.asyncio
+    async def test_omp_auto_accepts_requested_host_after_other_har_entries(
+        self, tmp_path, monkeypatch
+    ):
+        import json
+
+        from reverse_api.auto_engineer import OMPAutoEngineer
+
+        engineer = OMPAutoEngineer(
+            run_id="omp-target-host",
+            prompt="Inspect the catalog",
+            url="https://shop.example.test/catalog",
+            output_dir=str(tmp_path),
+            verbose=False,
+        )
+
+        async def fake_run_omp(*args, **kwargs):
+            engineer.har_path.parent.mkdir(parents=True, exist_ok=True)
+            engineer.har_path.write_text(
+                json.dumps(
+                    {
+                        "log": {
+                            "entries": [
+                                {"request": {"url": "https://cdn.example.test/site.js"}},
+                                {"request": {"url": "https://shop.example.test/api/items"}},
+                            ]
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            client_path = engineer.scripts_dir / engineer._get_client_filename()
+            client_path.write_text("# generated client\n", encoding="utf-8")
+            return True
+
+        monkeypatch.setattr(engineer, "_run_omp", fake_run_omp)
+
+        result = await engineer.analyze_and_generate()
+
+        assert result is not None
+        assert engineer.har_path.is_file()
+
+
+    @pytest.mark.parametrize(
+        ("requested_url", "expected_domains"),
+        [
+            ("https://www.github.io", ["www.github.io"]),
+            ("https://www.customer.example", ["www.customer.example"]),
+            (
+                "https://www.linkedin.com/feed/",
+                ["www.linkedin.com", "*.linkedin.com", "static.licdn.com", "media.licdn.com"],
+            ),
+        ],
+    )
+    def test_allowed_domains_only_wildcards_the_verified_domain(
+        self, requested_url, expected_domains
+    ):
+        from reverse_api.auto_engineer import _allowed_domains
+
+        assert _allowed_domains(requested_url) == expected_domains
+
+
+    @pytest.mark.parametrize(
+        ("request_url", "accepted"),
+        [
+            ("https://www.linkedin.com/feed/", True),
+            ("https://platform.linkedin.com/api", True),
+            ("https://linkedin.com.evil.test/api", False),
+            ("https://platform.linkedin.com.evil.test/api", False),
+            ("https://evil-linkedin.com/api", False),
+            ("not a url", False),
+        ],
+    )
+    def test_har_requested_host_uses_allowed_domains(self, tmp_path, request_url, accepted):
+        import json
+
+        from reverse_api.auto_engineer import _har_contains_requested_host
+
+        har_path = tmp_path / "capture.har"
+        har_path.write_text(
+            json.dumps({"log": {"entries": [{"request": {"url": request_url}}]}}),
+            encoding="utf-8",
+        )
+
+        assert _har_contains_requested_host(har_path, "https://www.linkedin.com/feed/") is accepted
+
+    @pytest.mark.parametrize("requested_url", ["not a url", "https://[invalid"])
+    def test_har_requested_host_rejects_invalid_requested_url(
+        self, tmp_path, requested_url
+    ):
+        import json
+
+        from reverse_api.auto_engineer import _har_contains_requested_host
+
+        har_path = tmp_path / "capture.har"
+        har_path.write_text(
+            json.dumps({"log": {"entries": [{"request": {"url": "https://www.linkedin.com/"}}]}}),
+            encoding="utf-8",
+        )
+
+        assert not _har_contains_requested_host(har_path, requested_url)
+
+    @pytest.mark.asyncio
+    async def test_omp_auto_removes_har_when_client_generation_fails(
+        self, tmp_path, monkeypatch
+    ):
+        import json
+
+        from reverse_api.auto_engineer import OMPAutoEngineer
+
+        engineer = OMPAutoEngineer(
+            run_id="omp-missing-client",
+            prompt="Inspect https://example.test",
+            output_dir=str(tmp_path),
+            verbose=False,
+        )
+
+        async def fake_run_omp(*args, **kwargs):
+            engineer.har_path.parent.mkdir(parents=True, exist_ok=True)
+            engineer.har_path.write_text(
+                json.dumps(
+                    {"log": {"entries": [{"request": {"url": "https://example.test/api"}}]}}
+                ),
+                encoding="utf-8",
+            )
+            return True
+
+        monkeypatch.setattr(engineer, "_run_omp", fake_run_omp)
+
+        assert await engineer.analyze_and_generate() is None
+        assert not engineer.har_path.exists()
+
+    @pytest.mark.asyncio
+    async def test_omp_auto_removes_partial_har_when_omp_fails(self, tmp_path, monkeypatch):
+        from reverse_api.auto_engineer import OMPAutoEngineer
+
+        engineer = OMPAutoEngineer(
+            run_id="omp-failed-capture",
+            prompt="Inspect https://example.test",
+            output_dir=str(tmp_path),
+            verbose=False,
+        )
+
+        async def fake_run_omp(*args, **kwargs):
+            engineer.har_path.parent.mkdir(parents=True, exist_ok=True)
+            engineer.har_path.write_text("partial", encoding="utf-8")
+            return False
+
+        monkeypatch.setattr(engineer, "_run_omp", fake_run_omp)
+
+        assert await engineer.analyze_and_generate() is None
+        assert not engineer.har_path.exists()
+
+    @pytest.mark.asyncio
+    async def test_omp_auto_rejects_invalid_explicit_start_url(self, tmp_path, monkeypatch):
+        from reverse_api.auto_engineer import OMPAutoEngineer
+
+        engineer = OMPAutoEngineer(
+            run_id="omp-invalid-explicit-target",
+            prompt="Inspect https://example.test",
+            url="ftp://example.test",
+            output_dir=str(tmp_path),
+            verbose=False,
+        )
+        called = False
+
+        async def fake_run_omp(*args, **kwargs):
+            nonlocal called
+            called = True
+            return True
+
+        monkeypatch.setattr(engineer, "_run_omp", fake_run_omp)
+
+        assert await engineer.analyze_and_generate() is None
+        assert not called
+
+    @pytest.mark.asyncio
+    async def test_omp_auto_accepts_mission_target_without_url(self, tmp_path, monkeypatch):
+        import json
+
+        from reverse_api.auto_engineer import OMPAutoEngineer
+
+        engineer = OMPAutoEngineer(
+            run_id="omp-mission-target",
+            prompt="Inspect the public example.test catalog and fetch its product list",
+            output_dir=str(tmp_path),
+            verbose=False,
+        )
+
+        async def fake_run_omp(*args, **kwargs):
+            engineer.har_path.parent.mkdir(parents=True, exist_ok=True)
+            engineer.har_path.write_text(
+                json.dumps(
+                    {"log": {"entries": [{"request": {"url": "https://example.test/catalog"}}]}}
+                ),
+                encoding="utf-8",
+            )
+            client_path = engineer.scripts_dir / engineer._get_client_filename()
+            client_path.write_text("# generated client\n", encoding="utf-8")
+            return True
+
+        monkeypatch.setattr(engineer, "_run_omp", fake_run_omp)
+
+        assert engineer.url is None
+        assert await engineer.analyze_and_generate() is not None
+        assert engineer.har_path.is_file()
+
+    @pytest.mark.asyncio
+    async def test_omp_auto_does_not_assume_first_of_multiple_mission_urls(
+        self, tmp_path, monkeypatch
+    ):
+        import json
+
+        from reverse_api.auto_engineer import OMPAutoEngineer
+
+        engineer = OMPAutoEngineer(
+            run_id="omp-ambiguous-mission-target",
+            prompt=(
+                "Compare https://docs.example.test with https://api.example.test "
+                "and inspect the API calls"
+            ),
+            output_dir=str(tmp_path),
+            verbose=False,
+        )
+
+        async def fake_run_omp(*args, **kwargs):
+            engineer.har_path.parent.mkdir(parents=True, exist_ok=True)
+            engineer.har_path.write_text(
+                json.dumps(
+                    {"log": {"entries": [{"request": {"url": "https://api.example.test/items"}}]}}
+                ),
+                encoding="utf-8",
+            )
+            client_path = engineer.scripts_dir / engineer._get_client_filename()
+            client_path.write_text("# generated client\n", encoding="utf-8")
+            return True
+
+        monkeypatch.setattr(engineer, "_run_omp", fake_run_omp)
+
+        assert engineer.url is None
+        assert await engineer.analyze_and_generate() is not None
+
     def test_javascript_prompt(self, tmp_path):
         """JavaScript prompt includes JS-specific instructions."""
         eng = self._make_engineer(tmp_path, output_language="javascript")
@@ -1371,3 +1799,59 @@ class TestOpenCodeAutoEngineerAnalyze:
 
             result = await eng.analyze_and_generate()
             assert result is None
+
+
+def test_run_auto_capture_forwards_requested_url_to_omp_browser_goto(tmp_path, monkeypatch):
+    from reverse_api import auto_engineer, cli
+    from reverse_api.auto_engineer import OMPAutoEngineer
+
+    captured: dict[str, str] = {}
+
+    class Config:
+        @staticmethod
+        def get(key, default=None):
+            return {
+                "agent_provider": "auto",
+                "sdk": "omp",
+                "omp_model": "",
+                "output_language": "python",
+                "real_time_sync": False,
+            }.get(key, default)
+
+    class Sessions:
+        @staticmethod
+        def add_run(**kwargs):
+            return None
+
+        @staticmethod
+        def update_run(**kwargs):
+            return None
+
+    class CapturingOMPEngineer(OMPAutoEngineer):
+        def start_sync(self):
+            return None
+
+        def stop_sync(self):
+            return None
+
+        async def analyze_and_generate(self):
+            captured["user_message"] = self._get_active_prompts()[1]
+            client_path = self.scripts_dir / self._get_client_filename()
+            client_path.write_text("# generated test client\n", encoding="utf-8")
+            return {"script_path": str(client_path), "usage": {}}
+
+    monkeypatch.setattr(cli, "config_manager", Config())
+    monkeypatch.setattr(cli, "session_manager", Sessions())
+    monkeypatch.setattr(cli, "generate_run_id", lambda: "omp-url-run")
+    monkeypatch.setattr(cli, "get_timestamp", lambda: "2026-10-22T00:00:00Z")
+    monkeypatch.setattr(auto_engineer, "OMPAutoEngineer", CapturingOMPEngineer)
+
+    result = cli.run_auto_capture(
+        prompt="Search the requested site for its public API",
+        url="https://shop.example.test/catalog",
+        output_dir=str(tmp_path),
+        interactive=False,
+    )
+
+    assert "error" not in result
+    assert 'await tab.goto("https://shop.example.test/catalog")' in captured["user_message"]

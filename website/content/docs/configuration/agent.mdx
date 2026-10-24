@@ -3,19 +3,39 @@ title: Agent configuration
 description: Configure the AI agent that drives the browser in agent mode.
 ---
 
-Agent mode runs an AI loop. **`auto`** and **`chrome-mcp`** attach browser automation via **MCP**. **`agent-browser`** instead delegates browsing to the **[Vercel agent-browser CLI](https://github.com/vercel-labs/agent-browser)**; Reverse API Engineer looks for `agent-browser` on `PATH`, otherwise runs **`npm install -g …`** (using the same pin as config), surfaces a console notice, verifies **`--help`**, and only falls back to **`npx -y …`** if npm cannot complete the install.
+Agent mode runs an AI loop. **`auto`** normally uses Playwright MCP browser
+automation; the OMP SDK uses OMP's JavaScript `eval` browser facade instead.
+**`chrome-mcp`** uses Chrome DevTools MCP. **`agent-browser`** delegates
+browsing to the **[Vercel agent-browser CLI](https://github.com/vercel-labs/agent-browser)**;
+Reverse API Engineer looks for `agent-browser` on `PATH`, otherwise runs
+**`npm install -g …`** (using the same pin as config), surfaces a console
+notice, verifies **`--help`**, and only falls back to **`npx -y …`** if npm
+cannot complete the install.
 
 ## Agent providers
 
 ### `auto` (default)
 
-Playwright MCP browser automation with real-time reverse engineering. The
-configured SDK uses Playwright via MCP to control Chromium, capturing the HAR
-as it goes. Add `--headless` when running without a display.
+Playwright MCP browser automation with real-time reverse engineering for
+Claude, OpenCode, Copilot, and Cursor. The OMP SDK uses OMP's built-in
+JavaScript `eval` browser facade to capture the HAR and avoid starting a second
+browser runtime. It opens a fresh tab with relay and Tern disabled and a
+120-second open timeout; OMP's configured CDP endpoint or available cmux
+browser may still take precedence over managed Chromium. Add `--headless` when
+running without a display.
+OMP's working directory is the RAE output root, not necessarily the directory
+from which RAE was invoked. OMP therefore loads project settings from that
+output root, not the caller's project (unless they are the same directory).
+Explicit OMP `chrome-mcp` runs use a temporary working directory and likewise
+do not load the caller project's `.omp/config.yml`. Global OMP configuration
+and environment remain available; RAE neither copies project settings nor
+changes OMP configuration. Project-scoped approval settings in the caller's
+directory are not in force unless the output root is that directory; RAE does
+not override the approval policy OMP resolves for its session.
 
-Works with the Claude SDK (default) or the OpenCode SDK. Pick whichever
-you've already configured. Copilot and Cursor SDK backends are also supported
-when their optional dependencies and credentials are installed.
+Works with the Claude SDK (default), OpenCode SDK, or Oh My Pi (OMP). Copilot
+and Cursor SDK backends are also supported when their optional dependencies and
+credentials are installed.
 
 ### `chrome-mcp`
 
@@ -34,7 +54,7 @@ profile.
 
 Uses **[Vercel agent-browser](https://github.com/vercel-labs/agent-browser)** as a standalone CLI—not a Reverse API Engineer MCP shim.
 
-After the CLI is available, Reverse API Engineer embeds the resolved shell prefix in the user prompt (**`agent-browser …`** vs **`npx -y <pin> …`**) and validates with **`--help`**. Prompts steer the model through **`skills get core --full`** (retry with **`skills list`** / matching bundles when operators name a cloud/runtime backend via `agent_browser_notes`). Claude SDK runs widen the tool allow-list for Bash-heavy flows; OpenCode/Copilot/Cursor omit Reverse API Engineer browser MCP registration for `agent-browser` and rely on their own shell primitives.
+After the CLI is available, Reverse API Engineer embeds the resolved shell prefix in the user prompt (**`agent-browser …`** vs **`npx -y <pin> …`**) and validates with **`--help`**. Prompts steer the model through **`skills get core --full`** (retry with **`skills list`** / matching bundles when operators name a cloud/runtime backend via `agent_browser_notes`). Claude SDK runs widen the tool allow-list for Bash-heavy flows; OpenCode/Copilot/Cursor/OMP omit Reverse API Engineer browser MCP registration for `agent-browser` and rely on their own shell primitives.
 
 Suggested JSON knobs:
 

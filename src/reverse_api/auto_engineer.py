@@ -8,9 +8,12 @@ when missing, validated with ``--help``) instead of attaching browser MCP here.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
+from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from copilot.types import PostToolUseHookInput, PostToolUseHookOutput, PreToolUseHookInput, PreToolUseHookOutput
@@ -31,8 +34,214 @@ from .agent_browser import (
     print_agent_browser_setup_notices,
 )
 from .engineer import ClaudeEngineer
+from .omp_engineer import OMPEngineer
 from .opencode_engineer import OpenCodeEngineer, debug_log, format_error
-from .utils import build_sdk_env, get_har_dir
+from .utils import build_sdk_env, extract_domain_from_har, get_har_dir
+
+_HTTP_URL_RE = re.compile(r"""https?://[^\s<>"'`]+""", re.IGNORECASE)
+
+
+def _resolve_requested_url(url: str | None, prompt: str) -> str | None:
+    if url and url.strip():
+        requested_url = url.strip()
+    else:
+        mission_urls = {
+            match.group(0).rstrip(".,;:!?]")
+            for match in _HTTP_URL_RE.finditer(prompt)
+        }
+        if len(mission_urls) != 1:
+            return None
+        requested_url = mission_urls.pop()
+
+    try:
+        parsed = urlsplit(requested_url)
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+            return None
+    except ValueError:
+        return None
+    return requested_url
+
+def _allowed_domains(url: str) -> list[str]:
+    host = urlsplit(url).hostname
+    if host is None:
+        return []
+    domains = [host]
+    # Only linkedin.com is explicitly approved for cross-subdomain HAR matching.
+    # Other www hosts stay exact: their parent domain may be a multi-tenant boundary.
+    if host == "www.linkedin.com":
+        domains.extend(["*.linkedin.com", "static.licdn.com", "media.licdn.com"])
+    return domains
+
+
+
+def _har_contains_requested_host(har_path: Path, requested_url: str) -> bool:
+    try:
+        expected_domains = _allowed_domains(requested_url)
+        entries = json.loads(har_path.read_text(encoding="utf-8-sig")).get("log", {}).get("entries", [])
+    except (OSError, TypeError, ValueError, AttributeError):
+        return False
+
+    if not expected_domains or not isinstance(entries, list):
+        return False
+    exact_hosts = {domain.lower().rstrip(".") for domain in expected_domains if not domain.startswith("*.")}
+    wildcard_suffixes = [
+        domain[2:].lower().rstrip(".") for domain in expected_domains if domain.startswith("*.")
+    ]
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        request = entry.get("request")
+        request_url = request.get("url") if isinstance(request, dict) else None
+        if not isinstance(request_url, str):
+            continue
+        try:
+            host = urlsplit(request_url).hostname
+        except ValueError:
+            continue
+        if not host:
+            continue
+        normalized_host = host.lower().rstrip(".")
+        if normalized_host in exact_hosts or any(
+            normalized_host.endswith(f".{suffix}") for suffix in wildcard_suffixes
+        ):
+            return True
+    return False
+
+
+class OMPAutoEngineer(OMPEngineer):
+    """Agent mode through OMP, using its native Eval browser in auto mode."""
+
+    def __init__(
+        self,
+        run_id: str,
+        prompt: str,
+        omp_model: str | None = None,
+        output_dir: str | None = None,
+        agent_provider: str = "auto",
+        url: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        headless = kwargs.pop("headless", False)
+        har_path = get_har_dir(run_id, output_dir) / "recording.har"
+        super().__init__(
+            run_id=run_id,
+            har_path=har_path,
+            prompt=prompt,
+            omp_model=omp_model,
+            output_dir=output_dir,
+            **kwargs,
+        )
+        self.mcp_run_id = run_id
+        self.agent_provider = agent_provider
+        self.headless = headless
+        self.has_explicit_url = bool(url and url.strip())
+        self.url = _resolve_requested_url(url, prompt)
+
+    def _get_active_prompts(self) -> tuple[str, str]:
+        system_prompt, user_message = ClaudeAutoEngineer._build_auto_prompts(self)
+        if self.agent_provider == "auto":
+            from .prompts import load
+
+            system_prompt = system_prompt.replace("**MCP.**", "**OMP Eval browser facade.**")
+            user_message = load(
+                "auto/user_omp_browser",
+                prompt=self.prompt,
+                requested_start_url_block=(
+                    f"<requested_start_url>\n{self.url}\n</requested_start_url>"
+                    if self.url
+                    else ""
+                ),
+                starting_url_instruction=(
+                    f"Use the supplied starting URL exactly: {self.url}."
+                    if self.url
+                    else "No starting URL was resolved; derive the target directly from the mission."
+                ),
+                allowed_domains_option=(
+                    f"allowed_domains: {json.dumps(_allowed_domains(self.url))},"
+                    if self.url
+                    else ""
+                ),
+                scripts_dir=str(self.scripts_dir),
+                client_path=str(self.scripts_dir / self._get_client_filename()),
+                har_path=str(self.har_path),
+                allowed_domains_json=json.dumps(_allowed_domains(self.url)) if self.url else "[]",
+                requested_url_json=json.dumps(self.url or ""),
+                har_path_json=json.dumps(str(self.har_path)),
+                run_id=self.run_id,
+                headed_option=f"headed: {str(not self.headless).lower()},",
+            )
+        return system_prompt, user_message
+
+    async def analyze_and_generate(self) -> dict[str, Any] | None:
+        self.ui.header(self.run_id, self.prompt, self.omp_model or "OMP configured model", self.sdk, mode="agent")
+        self.ui.start_analysis()
+
+        if self.agent_provider == "auto" and self.has_explicit_url and self.url is None:
+            error = "OMP auto requires an HTTP(S) target URL via --url."
+            self.ui.error(error)
+            self.message_store.save_error(error)
+            return None
+
+        if self.agent_provider == "agent-browser":
+            ab_setup = ensure_agent_browser_runtime()
+            print_agent_browser_setup_notices(self.ui.console, ab_setup)
+            if not ab_setup.ok:
+                error = ab_setup.error or "agent-browser setup failed"
+                self.ui.error(error)
+                self.message_store.save_error(error)
+                return None
+
+        system_prompt, user_message = self._get_active_prompts()
+        if self.agent_provider != "auto":
+            system_prompt += (
+                "\n\nUse only the browser integration specified above. Do not use OMP's "
+                "built-in browser or browser relay; they are not attached to this run."
+            )
+        self.message_store.save_prompt(user_message)
+        mcp_servers = None
+        if self.agent_provider not in ("agent-browser", "auto"):
+            server_name, server_config = ClaudeAutoEngineer._get_mcp_config(self)
+            if server_config.get("command") == "npx":
+                server_config = {**server_config, "args": ["-y", *server_config["args"]]}
+            mcp_servers = {server_name: server_config}
+
+        capture_verified = False
+        try:
+            if not await self._run_omp(system_prompt, user_message, mcp_servers=mcp_servers):
+                return None
+            if self.agent_provider == "auto" and self.url is not None:
+                if not _har_contains_requested_host(self.har_path, self.url):
+                    error = "Browser capture HAR did not contain a request to the requested host."
+                    self.ui.error(error)
+                    self.message_store.save_error(error)
+                    return None
+            elif self.agent_provider != "chrome-mcp" and not extract_domain_from_har(self.har_path):
+                error = "Browser capture did not contain a valid request; OMP agent result was not accepted."
+                self.ui.error(error)
+                self.message_store.save_error(error)
+                return None
+
+            script_file = self.scripts_dir / self._get_client_filename()
+            if not script_file.is_file():
+                error = "OMP agent did not generate the expected client file."
+                self.ui.error(error)
+                self.message_store.save_error(error)
+                return None
+            script_path = str(script_file)
+            result = {"script_path": script_path, "usage": self.usage_metadata}
+            self.ui.success(script_path, str(self.local_scripts_dir / self._get_client_filename()) if self.local_scripts_dir else None)
+            self.message_store.save_result(result)
+            capture_verified = True
+            return result
+        finally:
+            if self.agent_provider != "chrome-mcp" and not capture_verified:
+                try:
+                    self.har_path.unlink(missing_ok=True)
+                except OSError as exc:
+                    error = f"Could not remove incomplete browser capture HAR: {exc}"
+                    self.ui.error(error)
+                    self.message_store.save_error(error)
+
 
 # Suppress claude_agent_sdk logs
 logging.getLogger("claude_agent_sdk").setLevel(logging.WARNING)
@@ -170,7 +379,7 @@ class ClaudeAutoEngineer(ClaudeEngineer):
         # Auto-approve all other tools
         return PermissionResultAllow(updated_input=input_data)
 
-    def _get_mcp_config(self) -> tuple[str, McpStdioServerConfig]:
+    def _get_mcp_config(self: AutoPromptEngineer) -> tuple[str, McpStdioServerConfig]:
         """Return ``(server_name, mcp_config)`` for Playwright or Chrome MCP providers.
 
         Not applicable to ``agent-browser`` (calling this raises). Auto-connect Chrome

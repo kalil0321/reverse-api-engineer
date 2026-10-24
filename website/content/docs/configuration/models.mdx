@@ -1,6 +1,6 @@
 ---
 title: Model selection
-description: Choose a model for Claude, OpenCode, Copilot, or Cursor.
+description: Choose a model for Claude, OpenCode, Copilot, Cursor, or OMP.
 ---
 
 ## Claude models
@@ -48,6 +48,7 @@ The full default config:
   "cursor_web_search": true,
   "cursor_setting_sources": null,
   "copilot_model": "gpt-5",
+  "omp_model": "",
   "opencode_model": "big-pickle",
   "opencode_provider": "opencode",
   "output_dir": null,
@@ -74,3 +75,9 @@ context OpenCode requires. RAE does not pull models automatically.
 Copilot uses `copilot_model` (default `gpt-5`). Cursor uses `cursor_model`
 (default `composer-2.5`) plus `cursor_web_search` / `cursor_setting_sources`
 for controlling which Cursor settings layers are loaded.
+
+## Oh My Pi users
+
+OMP's configured provider and model are used by default. Set `omp_model` to a
+model id to override the configured model for RAE; leave it empty to preserve
+OMP's model selection.

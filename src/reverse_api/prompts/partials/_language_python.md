@@ -6,11 +6,11 @@
 - Include a `main` section with example usage
 
 **Authentication & credentials:**
-- Hardcode all cookies, tokens, session IDs, and auth headers found in the traffic directly in the script
-- The user should be able to run the script immediately with zero configuration — no env vars, no config files, no manual setup
-- If the API uses cookies, set them on the session directly
-- If the API uses Bearer tokens or API keys, hardcode them in the headers
-- Handle auth refresh so the script doesn't go stale: if you see a token refresh endpoint, OAuth refresh flow, or login endpoint in the traffic, implement automatic re-authentication when a request returns 401/403. If cookies have expiry, re-fetch them before they expire
+- Never put credentials, cookies, tokens, session IDs, or auth headers from captured traffic into source, examples, logs, or summaries.
+- Read required secrets from environment variables or explicit runtime parameters and document the required setup; do not claim zero-configuration execution.
+- If cookies are needed, use a `requests.Session` for persistence, populated only with runtime-provided values—not captured HAR values.
+- Build Bearer/API-key headers from runtime-provided values, never recorded values.
+- Implement refresh flows only when they use user-managed runtime credentials; never replay secrets extracted from traffic.
 
 **Bot detection:**
 - If you encounter bot detection or anti-scraping measures, first try `httpcloak` to cloak your HTTP fingerprint (TLS, HTTP/2, header order)

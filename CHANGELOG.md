@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Oh My Pi (OMP) CLI-backed SDK selection for API client generation. OMP resolves provider and credentials from its own configuration and environment, with an optional `omp_model` override. OMP auto mode uses OMP's JavaScript Eval browser facade; explicit MCP runs use a temporary working directory with the RAE output root added as workspace access.
+- OMP auto browser capture opens a fresh named tab without an `app` or `app.target` override so OMP chooses its configured browser route, gives browser open a 120-second deadline, and records HAR directly to the RAE run path. A configured CDP endpoint or available cmux browser may take precedence over managed Chromium. The auto run's OMP working directory is the RAE output root, not necessarily the caller's project; caller-project settings and project-scoped approvals apply only when that is the OMP working directory. RAE does not copy project settings or override OMP approval policy.
+- OMP auto-agent dry-run does not require Node.js or `npx` for its native Eval browser. Auto capture uses supported Eval inspection methods (`tab.observe()` and `tab.ariaSnapshot()`), preserves URLs ending in balanced parentheses, includes the resolved start URL only when available, and restricts other-host navigation unless the mission requires it.
+- OMP auto-capture restricts navigation and requests to a target-derived host allowlist; wildcard and static/media CDN hosts are added only when the resolved target hostname is `www.linkedin.com`.
+- OMP auto capture builds a bounded HAR only from already-received successful GET JSON fetch/XHR responses or JSON documents on the requested host and its explicitly allowed subdomains, redacting scalar values, identifier-like path segments, query values, and all headers before writing. It still generates a client from a usable redacted schema when runtime authentication is unavailable, marks authenticated execution unverified, and never reuses browser-session credentials. The native OMP browser-capture path is not yet validated end to end: a read-only `https://example.com` smoke reached the page but produced no HAR because no JSON API response was available.
+
+### Fixed
+- Generated JavaScript and C# client testing uses only documented runtime credentials; missing secrets are reported rather than hardcoded. Ruby cookie guidance distinguishes response-set cookies from captured HAR values.
+- OMP auto-capture runs in JSON event mode without persisting raw tool results, scans newest-first past stale or bodyless eligible responses while retrieving at most three bodies of 1 MiB each, and makes the exact client path a required post-capture completion condition.
+
+
 ## [0.14.0] - 2026-09-23
 
 ### Security

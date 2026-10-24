@@ -8,14 +8,17 @@
 - If using external deps, generate a `package.json` with `"type": "module"`
 
 **Authentication & credentials:**
-- Hardcode all cookies, tokens, session IDs, and auth headers found in the traffic directly in the script
-- The user should be able to run the script immediately with zero configuration — no env vars, no config files, no manual setup
-- Handle auth refresh so the script doesn't go stale: if you see a token refresh or login endpoint in the traffic, implement automatic re-authentication on 401/403. If cookies have expiry, re-fetch them before they expire
+- Never put credentials, cookies, tokens, session IDs, or auth headers from captured traffic into source, examples, logs, or summaries.
+- Read required secrets from environment variables or explicit runtime parameters and document the required setup; do not claim zero-configuration execution.
+- If cookies are needed, accept cookie values only through runtime inputs and use an appropriate session mechanism; never copy captured HAR values.
+- Build Bearer/API-key headers from runtime-provided values, never recorded values.
+- Implement refresh flows only when they use user-managed runtime credentials; never replay secrets extracted from traffic.
 
 **Testing:**
 - If `package.json` was generated, first run: `npm install`
 - Run with: `{run_command}`
 - You have up to 5 attempts to fix issues
+- If required secrets are unavailable, report the missing configuration rather than hardcoding credentials. Use placeholders or user-provided environment/runtime values when testing, and document any values the user must supply.
 
 Save the module to: `{scripts_dir}/{client_filename}`
 Save documentation to: `{scripts_dir}/README.md`

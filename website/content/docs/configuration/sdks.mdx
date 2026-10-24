@@ -4,7 +4,7 @@ description: Choose the SDK backend for code generation.
 ---
 
 Reverse API Engineer can drive code generation through Claude, OpenCode,
-Copilot, or Cursor.
+Copilot, Cursor, or Oh My Pi (OMP).
 
 ## Claude (default)
 
@@ -112,6 +112,50 @@ so WebFetch/WebSearch and configured tools match your desktop setup.
   "cursor_setting_sources": null
 }
 ```
+
+## Oh My Pi
+
+Runs the locally installed `omp` CLI. OMP resolves provider and credentials
+through its own configuration and environment. In agent mode, OMP also loads
+project settings from its session working directory; see the working-directory
+scope below. RAE does not require Claude authentication or pass credential
+values as command-line arguments. Install and authenticate OMP using its own
+setup, then select `omp` in `/settings`. The `omp` executable must be available
+in `PATH`; RAE does not install or configure it.
+
+```json
+{
+  "sdk": "omp",
+  "omp_model": ""
+}
+```
+
+An empty `omp_model` leaves model selection to OMP's existing configuration.
+Set it to a model identifier to override that selection for RAE runs.
+The `omp` executable must be available in `PATH`.
+
+In agent mode, OMP's `auto` workflow instructs the agent to use OMP's
+built-in JavaScript `eval` browser facade and write the HAR directly to the
+RAE run path. The prompt asks the agent to open a fresh named tab without
+`app` or `app.target` options; this does not guarantee a specific browser
+backend. OMP's normal selection rules apply, so a configured CDP endpoint or
+available cmux browser may take precedence over managed Chromium. This does not
+change OMP project or global settings.
+
+Agent-mode OMP runs without MCP use the RAE output root as OMP's working
+directory, not necessarily the directory from which RAE was invoked. OMP
+discovers project settings from its working directory, so caller-project
+settings apply only when that is the same directory. `chrome-mcp` runs use a
+temporary working directory and temporary MCP configuration; RAE adds the
+output root with `--add-dir` for workspace access only, not as OMP's working
+directory or project-config source. Such runs do not load the caller project's
+`.omp/config.yml`. RAE does not copy project settings or mutate OMP configuration.
+
+OMP browser operations follow the approval policy effective in that OMP
+session. RAE does not override approval settings. Project-scoped approval
+settings from the caller's directory are not loaded unless it is the active
+OMP working directory; global OMP policy remains applicable. Approval-required
+tools may not run in non-interactive sessions.
 
 ## Switching SDKs
 

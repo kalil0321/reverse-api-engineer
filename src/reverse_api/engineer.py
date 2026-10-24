@@ -366,7 +366,7 @@ def run_reverse_engineering(
     """Run reverse engineering with the specified SDK.
 
     Args:
-        sdk: "claude", "opencode", "copilot", or "cursor" - determines which SDK to use
+        sdk: "claude", "opencode", "copilot", "cursor", or "omp" - determines which SDK to use
         opencode_provider: Provider ID for OpenCode (e.g., "anthropic")
         opencode_model: Model ID for OpenCode (e.g., "claude-sonnet-4-6")
         copilot_model: Model ID for Copilot (e.g., "gpt-5")
@@ -438,6 +438,25 @@ def run_reverse_engineering(
             output_mode=output_mode,
             copilot_model=copilot_model,
             interactive=interactive,
+        )
+    elif sdk == "omp":
+        from .omp_engineer import OMPEngineer
+
+        engineer = OMPEngineer(
+            run_id=run_id,
+            har_path=har_path,
+            prompt=prompt,
+            model=model,
+            additional_instructions=additional_instructions,
+            output_dir=output_dir,
+            verbose=verbose,
+            enable_sync=enable_sync,
+            sdk=sdk,
+            is_fresh=is_fresh,
+            output_language=output_language,
+            output_mode=output_mode,
+            interactive=interactive,
+            omp_model=model,
         )
     else:
         engineer = ClaudeEngineer(

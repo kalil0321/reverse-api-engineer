@@ -26,11 +26,11 @@
 - The output file is named `{client_filename}` (lowercase with underscores), so name the top-level class holding `main` exactly `ApiClient`, declared package-private, *without* the `public` modifier — a `public` class's filename must exactly match its class name, and this generator's file naming convention doesn't follow Java's usual PascalCase file naming. A package-private top-level class compiles and runs identically; it just isn't visible from other packages, which this single-file client has no need for.
 
 **Authentication & credentials:**
-- Hardcode all cookies, tokens, session IDs, and auth headers found in the traffic directly in the program
-- The user should be able to run the program immediately after `mvn compile` — no env vars, no additional config files, no manual setup beyond what's generated
-- If the API uses cookies, build the `HttpClient` with a `CookieHandler`/`CookieManager` so cookies persist across requests
-- If the API uses Bearer tokens or API keys, hardcode them in the request headers
-- Handle auth refresh so the program doesn't go stale: if you see a token refresh endpoint, OAuth refresh flow, or login endpoint in the traffic, implement automatic re-authentication when a request returns 401/403. If cookies have expiry, re-fetch them before they expire
+- Never put credentials, cookies, tokens, session IDs, or auth headers from captured traffic into source, examples, logs, or summaries.
+- Read required secrets from environment variables or explicit runtime parameters and document the required setup; do not claim zero-configuration execution.
+- If cookies are needed, use an `HttpClient` `CookieHandler`/`CookieManager` for persistence, populated only with runtime-provided values—not captured HAR values.
+- Build Bearer/API-key headers from runtime-provided values, never recorded values.
+- Implement refresh flows only when they use user-managed runtime credentials; never replay secrets extracted from traffic.
 
 **Testing:**
 - Run: `{run_command}`

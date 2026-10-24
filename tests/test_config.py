@@ -148,6 +148,7 @@ class TestDefaultConfig:
             "cursor_model",
             "cursor_setting_sources",
             "cursor_web_search",
+            "omp_model",
             "opencode_model",
             "opencode_provider",
             "opencode_auto_start",
@@ -177,3 +178,4 @@ class TestDefaultConfig:
         assert DEFAULT_CONFIG["opencode_npx_package"] == "opencode-ai@latest"
         assert DEFAULT_CONFIG["ollama_auto_start"] is True
         assert DEFAULT_CONFIG["ollama_base_url"] == "http://127.0.0.1:11434"
+        assert DEFAULT_CONFIG["omp_model"] == ""

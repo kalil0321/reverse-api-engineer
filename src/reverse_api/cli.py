@@ -128,6 +128,8 @@ def _select_ollama_model_for_settings() -> str | None:
 def default_model_for_configured_sdk(sdk: str | None = None) -> str:
     """Return the configured default model id for the given SDK (or current config SDK)."""
     s = (sdk or config_manager.get("sdk", "claude") or "claude").lower()
+    if s == "omp":
+        return str(config_manager.get("omp_model") or "")
     if s == "opencode":
         return str(config_manager.get("opencode_model") or DEFAULT_OPENCODE_MODEL)
     if s == "copilot":
@@ -457,11 +459,16 @@ def _build_dry_run_payload(
         "copilot": "GITHUB_COPILOT_TOKEN",
         "cursor": "CURSOR_API_KEY",
     }.get(sdk)
-    if sdk_env_var is None:
+    if sdk == "omp":
+        if shutil.which("omp"):
+            checks.append({"name": "sdk:omp", "status": "ok", "message": "OMP CLI available; uses its configured provider credentials"})
+        else:
+            checks.append({"name": "sdk:omp", "status": "error", "message": "OMP CLI not found in PATH"})
+    elif sdk_env_var is None:
         checks.append({
             "name": "sdk",
             "status": "error",
-            "message": f"unknown sdk {sdk!r}; expected 'claude', 'opencode', 'copilot', or 'cursor'",
+            "message": f"unknown sdk {sdk!r}; expected 'claude', 'opencode', 'copilot', 'cursor', or 'omp'",
         })
     elif not os.environ.get(sdk_env_var):
         checks.append({
@@ -472,9 +479,12 @@ def _build_dry_run_payload(
     else:
         checks.append({"name": f"sdk:{sdk}", "status": "ok", "message": f"{sdk_env_var} present"})
 
-    # 5. Node.js + npx — MCP providers need both; agent-browser with a global binary does not.
+    # OMP auto uses its native Eval browser rather than an npx-launched MCP server.
     node = shutil.which("node")
-    needs_node_for_browser = agent_provider != "agent-browser" or global_agent_browser is None
+    uses_omp_eval_browser = sdk == "omp" and agent_provider == "auto"
+    needs_node_for_browser = not uses_omp_eval_browser and (
+        agent_provider != "agent-browser" or global_agent_browser is None
+    )
     if node is None:
         if needs_node_for_browser:
             checks.append({
@@ -484,11 +494,12 @@ def _build_dry_run_payload(
                 "(MCP browser servers plus Vercel agent-browser install/bootstrap)",
             })
         else:
-            checks.append({
-                "name": "node",
-                "status": "ok",
-                "message": "not on PATH (optional while global `agent-browser` is installed)",
-            })
+            message = (
+                "not required for OMP's native Eval browser"
+                if uses_omp_eval_browser
+                else "not on PATH (optional while global `agent-browser` is installed)"
+            )
+            checks.append({"name": "node", "status": "ok", "message": message})
     else:
         try:
             ver = subprocess.run(
@@ -499,8 +510,9 @@ def _build_dry_run_payload(
             checks.append({"name": "node", "status": "warn", "message": f"could not query version: {e}"})
 
     npx = shutil.which("npx")
-    needs_npx_for_browser = agent_provider in ("auto", "chrome-mcp") or (
-        agent_provider == "agent-browser" and global_agent_browser is None
+    needs_npx_for_browser = not uses_omp_eval_browser and (
+        agent_provider in ("auto", "chrome-mcp")
+        or (agent_provider == "agent-browser" and global_agent_browser is None)
     )
     if npx is None:
         if needs_npx_for_browser:
@@ -511,11 +523,12 @@ def _build_dry_run_payload(
                 "fetch/run the pinned agent-browser CLI when no global binary is present",
             })
         else:
-            checks.append({
-                "name": "npx",
-                "status": "ok",
-                "message": "not on PATH (optional while global `agent-browser` is installed)",
-            })
+            message = (
+                "not required for OMP's native Eval browser"
+                if uses_omp_eval_browser
+                else "not on PATH (optional while global `agent-browser` is installed)"
+            )
+            checks.append({"name": "npx", "status": "ok", "message": message})
     else:
         checks.append({"name": "npx", "status": "ok", "message": npx})
 
@@ -586,12 +599,14 @@ def _build_dry_run_payload(
         "opencode": "opencode_model",
         "copilot": "copilot_model",
         "cursor": "cursor_model",
+        "omp": "omp_model",
     }.get(sdk, "claude_code_model")
     sdk_default_model = {
         "claude": "claude-sonnet-4-6",
         "opencode": "claude-opus-4-6",
         "copilot": "gpt-5",
         "cursor": "composer-2.5",
+        "omp": "",
     }.get(sdk, "claude-sonnet-4-6")
     resolved_model = model or config_manager.get(sdk_model_key, sdk_default_model)
 
@@ -1062,11 +1077,13 @@ def repl_loop() -> None:
     update_executor = ThreadPoolExecutor(max_workers=1)
     update_future = update_executor.submit(check_for_updates)
 
-    # Get current SDK and model from config
+    # Get current SDK and model from config.
     sdk = config_manager.get("sdk", "claude")
     model = default_model_for_configured_sdk(sdk)
-
-    display_banner(console, sdk=sdk, model=model)
+    # OMP chooses its model from its own config unless explicitly overridden;
+    # show the active SDK even when that leaves no concrete model to display.
+    banner_model = model or ("OMP configured model" if sdk == "omp" else model)
+    display_banner(console, sdk=sdk, model=banner_model)
     console.print("  [dim]shift+tab to cycle modes | ctrl+r for random task (agent)[/dim]")
     display_footer(console)
 
@@ -1216,6 +1233,7 @@ def _handle_settings_action(mode_color: str = THEME_PRIMARY) -> bool:  # noqa: C
         Choice(title="Copilot Model", value="copilot_model"),
         Choice(title="Cursor Model", value="cursor_model"),
         Choice(title="Cursor Web Search", value="cursor_web_search"),
+        Choice(title="OMP Model", value="omp_model"),
         Choice(title="OpenCode Provider / Model", value="opencode_pair"),
         Choice(title="Output Directory", value="output_dir"),
         Choice(title="Output Language", value="output_language"),
@@ -1267,6 +1285,7 @@ def _handle_settings_action(mode_color: str = THEME_PRIMARY) -> bool:  # noqa: C
             Choice(title="copilot", value="copilot"),
             Choice(title="cursor", value="cursor"),
             Choice(title="opencode", value="opencode"),
+            Choice(title="omp", value="omp"),
             Choice(title="back", value="back"),
         ]
         sdk = questionary.select(
@@ -1369,6 +1388,18 @@ def _handle_settings_action(mode_color: str = THEME_PRIMARY) -> bool:  # noqa: C
                 console.print(" [dim]existing sessions, cookies, and auth will be available.[/dim]")
                 console.print(" [dim]avoid browsing sensitive sites while the agent is active.[/dim]")
             console.print()
+
+    elif action == "omp_model":
+        current = config_manager.get("omp_model", "")
+        model = questionary.text(
+            " > omp model (blank uses OMP's configured model)",
+            default=current,
+            qmark="",
+            style=questionary.Style([("question", f"fg:{THEME_SECONDARY}")]),
+        ).ask()
+        if model is not None:
+            config_manager.set("omp_model", model.strip())
+            console.print(" [dim]updated[/dim] OMP model override\n")
 
     elif action == "opencode_pair":
         pair = _select_opencode_pair_for_settings(mode_color)
@@ -1551,7 +1582,7 @@ def handle_history(mode_color: str = THEME_PRIMARY) -> None:
         console.print()
 
         if questionary.confirm(" > recode?", qmark="").ask():
-            model = run.get("model") or config_manager.get("claude_code_model", "claude-sonnet-4-6")
+            model = run.get("model") or default_model_for_configured_sdk()
             run_engineer(run_id, model=model)
     else:
         console.print(" [dim]> not found[/dim]")
@@ -1714,7 +1745,7 @@ Exit codes:
 @click.option(
     "--model",
     "-m",
-    type=click.Choice(["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"]),
+    type=str,
     default=None,
 )
 @click.option("--output-dir", "-o", default=None, help="Custom output directory.")
@@ -2146,12 +2177,25 @@ def run_auto_capture(
 
     try:
         output_language = config_manager.get("output_language", "python")
-        from .auto_engineer import ClaudeAutoEngineer, CopilotAutoEngineer, OpenCodeAutoEngineer
+        from .auto_engineer import ClaudeAutoEngineer, CopilotAutoEngineer, OMPAutoEngineer, OpenCodeAutoEngineer
         from .cursor_engineer import CursorAutoEngineer
 
-        engineer: ClaudeAutoEngineer | CopilotAutoEngineer | OpenCodeAutoEngineer | CursorAutoEngineer
-        if sdk == "opencode":
-            from .auto_engineer import OpenCodeAutoEngineer
+        engineer: ClaudeAutoEngineer | CopilotAutoEngineer | OMPAutoEngineer | OpenCodeAutoEngineer | CursorAutoEngineer
+        if sdk == "omp":
+            engineer = OMPAutoEngineer(
+                run_id=run_id,
+                prompt=prompt,
+                omp_model=model if model else None,
+                output_dir=output_dir,
+                agent_provider=agent_provider,
+                url=url,
+                enable_sync=config_manager.get("real_time_sync", False),
+                sdk=sdk,
+                output_language=output_language,
+                interactive=interactive,
+                headless=headless,
+            )
+        elif sdk == "opencode":
 
             engineer = OpenCodeAutoEngineer(
                 run_id=run_id,
@@ -2346,7 +2390,7 @@ Exit codes:
 @click.option(
     "--model",
     "-m",
-    type=click.Choice(["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"]),
+    type=str,
     default=None,
 )
 @click.option("--output-dir", "-o", default=None, help="Custom output directory.")
@@ -2545,6 +2589,22 @@ def run_engineer(
             cursor_model=_cm,
             cursor_web_search=bool(config_manager.get("cursor_web_search", True)),
             cursor_setting_sources=_cursor_src,
+            enable_sync=enable_sync,
+            additional_instructions=additional_instructions,
+            is_fresh=is_fresh,
+            output_language=output_language,
+            output_mode=output_mode,
+            interactive=interactive,
+            json_event_sink=json_event_sink,
+        )
+    elif sdk == "omp":
+        result = run_reverse_engineering(
+            run_id=run_id,
+            har_path=har_path,
+            prompt=prompt,
+            model=model or config_manager.get("omp_model") or None,
+            output_dir=output_dir,
+            sdk=sdk,
             enable_sync=enable_sync,
             additional_instructions=additional_instructions,
             is_fresh=is_fresh,

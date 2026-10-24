@@ -13,6 +13,7 @@ from reverse_api import cli
     ("opencode", "opencode_model", cli.DEFAULT_OPENCODE_MODEL),
     ("copilot", "copilot_model", "gpt-5"),
     ("cursor", "cursor_model", "composer-2.5"),
+    ("omp", "omp_model", ""),
 ])
 @pytest.mark.parametrize("saved", [None, "", "custom-model"])
 @pytest.mark.parametrize("infer_sdk", [False, True])

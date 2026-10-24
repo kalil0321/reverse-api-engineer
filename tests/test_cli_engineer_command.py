@@ -63,3 +63,11 @@ class TestEngineerCommandPromptWiring:
         assert kwargs["prompt"] == "reverse engineer the auth flow only"
         assert kwargs["additional_instructions"] is None
         assert kwargs["is_fresh"] is True
+
+    def test_engineer_accepts_model_ids_for_non_claude_sdks(self):
+        runner = CliRunner()
+        with patch("reverse_api.cli.run_engineer") as mock_run:
+            result = runner.invoke(engineer, ["abc123", "--model", "openai/gpt-5.2"])
+
+        assert result.exit_code == 0, result.output
+        assert mock_run.call_args.kwargs["model"] == "openai/gpt-5.2"

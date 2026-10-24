@@ -7,6 +7,7 @@ Covers:
 
 import json
 import os
+import shutil
 import subprocess
 from unittest.mock import patch
 
@@ -386,6 +387,60 @@ class TestAgentDryRun:
         assert "node" in check_names
         assert "output_dir" in check_names
 
+
+    def test_omp_dry_run_uses_omp_model_without_claude_auth(self, tmp_path):
+        from reverse_api.cli import agent as agent_cmd
+
+        runner = CliRunner()
+        real_which = shutil.which
+        with (
+            patch("reverse_api.cli.config_manager") as cm,
+            patch.dict("os.environ", {"ANTHROPIC_API_KEY": ""}, clear=False),
+            patch("shutil.which", side_effect=lambda name: "/opt/omp" if name == "omp" else real_which(name)),
+        ):
+            cm.get.side_effect = lambda key, default=None: {
+                "agent_provider": "auto",
+                "sdk": "omp",
+                "omp_model": "openai/gpt-5.2",
+                "output_dir": str(tmp_path),
+            }.get(key, default)
+            result = runner.invoke(agent_cmd, ["--dry-run", "-p", "fetch public docs", "-u", "https://example.com"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout.strip())
+        assert payload["would_run"]["sdk"] == "omp"
+        assert payload["would_run"]["model"] == "openai/gpt-5.2"
+        sdk_check = next(check for check in payload["checks"] if check["name"] == "sdk:omp")
+        assert sdk_check["status"] == "ok"
+        assert "ANTHROPIC_API_KEY" not in sdk_check["message"]
+
+
+    def test_omp_auto_dry_run_does_not_require_node_or_npx(self, tmp_path):
+        from reverse_api.cli import agent as agent_cmd
+
+        runner = CliRunner()
+        with (
+            patch("reverse_api.cli.config_manager") as cm,
+            patch("shutil.which", side_effect=lambda name: "/opt/omp" if name == "omp" else None),
+        ):
+            cm.get.side_effect = lambda key, default=None: {
+                "agent_provider": "auto",
+                "sdk": "omp",
+                "output_dir": str(tmp_path),
+            }.get(key, default)
+            result = runner.invoke(
+                agent_cmd,
+                ["--dry-run", "-p", "fetch public docs", "-u", "https://example.com"],
+            )
+
+        payload = json.loads(result.stdout.strip())
+        assert result.exit_code == 0, result.output
+        assert payload["status"] == "ok"
+        assert all(
+            check["status"] != "error"
+            for check in payload["checks"]
+            if check["name"] in ("node", "npx")
+        )
     def test_dry_run_missing_prompt_is_misuse(self, tmp_path):
         """Missing --prompt → error_kind=misuse, exit 1, no browser launched."""
         from reverse_api.cli import agent as agent_cmd
@@ -864,3 +919,86 @@ class TestHeadlessMcpConfig:
         eng = self._make("auto", headless=False, tmp_path=tmp_path)
         _, cfg = eng._get_mcp_config()
         assert "--headless" not in cfg["args"]
+
+
+def test_history_recode_preserves_empty_omp_model(monkeypatch):
+    from reverse_api.cli import handle_history
+
+    run = {
+        "run_id": "omp-run",
+        "prompt": "Inspect the site",
+        "model": "",
+        "usage": {},
+    }
+
+    class PromptAnswer:
+        def __init__(self, answer: str) -> None:
+            self.answer = answer
+
+        def ask(self) -> str:
+            return self.answer
+
+    monkeypatch.setattr(
+        "reverse_api.cli.questionary.select",
+        lambda *args, **kwargs: PromptAnswer("omp-run"),
+    )
+    monkeypatch.setattr(
+        "reverse_api.cli.questionary.confirm",
+        lambda *args, **kwargs: PromptAnswer("yes"),
+    )
+
+    with (
+        patch("reverse_api.cli.session_manager") as session_manager,
+        patch("reverse_api.cli.config_manager") as config_manager,
+        patch("reverse_api.cli.run_engineer") as run_engineer,
+    ):
+        session_manager.get_history.return_value = [run]
+        session_manager.get_run.return_value = run
+        config_manager.get.side_effect = lambda key, default=None: {
+            "sdk": "omp",
+            "omp_model": "",
+            "claude_code_model": "claude-sonnet-4-6",
+        }.get(key, default)
+
+        handle_history()
+
+    run_engineer.assert_called_once_with("omp-run", model="")
+
+
+def test_repl_startup_indicates_omp_with_omp_configured_model(monkeypatch):
+    from reverse_api import cli
+
+    class Future:
+        @staticmethod
+        def result(timeout=None):
+            return None
+
+    class Executor:
+        def __init__(self, **kwargs):
+            pass
+
+        @staticmethod
+        def submit(function):
+            return Future()
+
+        @staticmethod
+        def shutdown(wait=False):
+            pass
+
+    banner: dict[str, str] = {}
+    monkeypatch.setattr("concurrent.futures.ThreadPoolExecutor", Executor)
+    monkeypatch.setattr(
+        cli.config_manager,
+        "get",
+        lambda key, default=None: {"sdk": "omp", "omp_model": ""}.get(key, default),
+    )
+    monkeypatch.setattr(
+        cli,
+        "display_banner",
+        lambda console, sdk=None, model=None: banner.update(sdk=sdk, model=model),
+    )
+    monkeypatch.setattr(cli, "prompt_interactive_options", lambda **kwargs: {"command": "/exit"})
+
+    cli.repl_loop()
+
+    assert banner == {"sdk": "omp", "model": "OMP configured model"}

@@ -92,11 +92,32 @@ tuned system prompt. Output:
 - Pagination helpers, error types, retry-safe operations.
 - A runnable `example_usage.*` and a generated `README.md`.
 
-### Multi-SDK: Claude, OpenCode, Copilot, or Cursor
+### Multi-SDK: Claude, OpenCode, Copilot, Cursor, or Oh My Pi
 
 Use **Anthropic's API directly** (default) or route through **OpenCode**
-running locally. Copilot and Cursor SDK backends are also available when their
-optional dependencies and credentials are configured.
+running locally.
+
+**Copilot** requires the optional `copilot` dependency: from source, install it
+with `uv sync --extra copilot`; for an installed package, use
+`pip install 'reverse-api-engineer[copilot]'`. Install and authenticate the
+GitHub Copilot CLI with `gh auth login`. `GITHUB_COPILOT_TOKEN` is checked by
+`agent --dry-run`; if it is absent, dry-run warns because the SDK may still
+resolve authentication from its configuration.
+
+**Cursor** uses a bundled bridge that installs `@cursor/sdk` through npm when
+needed. It requires Node.js 22.13+ and npm, plus `CURSOR_API_KEY` from the
+[Cursor integrations dashboard](https://cursor.com/dashboard/integrations).
+
+**Oh My Pi (OMP)** requires the local `omp` CLI and provider credentials
+available to OMP through its configuration or inherited environment. RAE does
+not set OMP provider credentials or pass them as command-line arguments. An
+empty `omp_model` leaves model selection to OMP.
+
+OMP agent runs without MCP use the RAE output root as OMP's working directory,
+so caller-project settings and project-scoped approvals apply only when that
+is the same directory. `chrome-mcp` uses a temporary working directory. RAE
+does not override OMP's approval policy. OMP's configured CDP or cmux route may
+take precedence over managed Chromium.
 
 ### Interactive CLI with mode cycling
 

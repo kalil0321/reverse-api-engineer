@@ -61,6 +61,29 @@ class TestRunReverseEngineering:
                 )
                 mock_cls.assert_called_once()
 
+
+    def test_dispatches_to_omp(self, tmp_path):
+        """OMP uses the installed CLI adapter without Claude SDK dispatch."""
+        har_path = tmp_path / "test.har"
+        har_path.touch()
+
+        with patch("reverse_api.omp_engineer.OMPEngineer") as mock_cls:
+            mock_instance = MagicMock()
+            mock_cls.return_value = mock_instance
+            mock_instance.start_sync = MagicMock()
+            mock_instance.stop_sync = MagicMock()
+
+            with patch("reverse_api.engineer.asyncio.run", return_value={"test": True}):
+                run_reverse_engineering(
+                    run_id="test123",
+                    har_path=har_path,
+                    prompt="test prompt",
+                    sdk="omp",
+                    model="openai/gpt-5.2",
+                )
+
+        mock_cls.assert_called_once()
+        assert mock_cls.call_args.kwargs["omp_model"] == "openai/gpt-5.2"
     def test_starts_sync(self, tmp_path):
         """Sync is started before analysis."""
         har_path = tmp_path / "test.har"
