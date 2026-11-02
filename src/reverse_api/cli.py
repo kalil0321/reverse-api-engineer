@@ -268,7 +268,7 @@ _STABLE_USAGE_KEYS: dict[str, tuple[str, ...]] = {
     "input_tokens": ("input_tokens",),
     "output_tokens": ("output_tokens",),
     "cache_read_tokens": ("cache_read_input_tokens", "cache_read_tokens"),
-    "cache_write_tokens": ("cache_creation_input_tokens", "cache_write_tokens"),
+    "cache_write_tokens": ("cache_creation_input_tokens", "cache_write_tokens", "cache_creation_tokens"),
     "total_cost_usd": ("estimated_cost_usd", "total_cost_usd", "total_cost"),
 }
 

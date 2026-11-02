@@ -424,6 +424,7 @@ class TestOpenCodeEngineerHandlePartUpdate:
     async def test_step_finish_calculates_cost_when_zero(self, tmp_path):
         """Step finish calculates cost locally when API returns 0."""
         eng = self._make_engineer(tmp_path)
+        eng.opencode_model = "claude-sonnet-4-6"
         seen_parts = set()
         properties = {
             "part": {
