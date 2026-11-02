@@ -184,7 +184,7 @@ class ManualBrowser:
     """Manages a Playwright browser session with HAR recording.
 
     Supports two modes:
-    - Real Chrome: Uses your actual Chrome browser with existing profile (best for stealth)
+    - Real Chrome: Your installed Chrome with a fresh, empty profile (best for stealth; starts signed out)
     - Stealth Chromium: Falls back to Playwright's Chromium with stealth patches
     """
 
@@ -264,7 +264,11 @@ class ManualBrowser:
         return self._playwright
 
     def _start_with_real_chrome(self, start_url: str | None = None) -> Path:
-        """Start using the real Chrome browser with user's profile."""
+        """Start the installed Chrome with a fresh temporary profile.
+
+        The user's Chrome profile only shows that Chrome is installed; it is not copied,
+        so the capture starts without the user's logins and cookies.
+        """
         import shutil
         import tempfile
 
@@ -276,7 +280,7 @@ class ManualBrowser:
         # Create a temporary profile directory
         temp_profile_dir = Path(tempfile.mkdtemp(prefix="chrome_profile_"))
 
-        console.print(" [dim]using real chrome (profile copy)[/dim]")
+        console.print(" [dim]using chrome with a fresh profile · sign in during the capture if the site needs it[/dim]")
         console.print(" [yellow]⚠️  please browse in the FIRST tab only[/yellow]")
         console.print(" [yellow]    (new tabs may not be recorded)[/yellow]")
         console.print()
