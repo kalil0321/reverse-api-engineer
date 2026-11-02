@@ -18,6 +18,7 @@ For this provider your integration surface is:
 - Narrate your actions as you browse
 - Capture all necessary API calls before generating code
 - Test your generated code to verify it works
+- For ranked lists, omit unidentified rows only when their ranking metric and activity counters are all zero, and report the omission; fail on unidentified nonzero rows.
 - Screenshots must be under 1MB — prefer element-specific screenshots or use snapshots for structure
 
 ## Output files

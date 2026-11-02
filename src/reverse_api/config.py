@@ -27,6 +27,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Optional override: list of setting source ids, e.g. ["project","user","all"]. None uses cursor_web_search.
     "cursor_setting_sources": None,
     "copilot_model": "gpt-5",  # Model for Copilot SDK sessions
+    "codex_model": None,  # None uses the default model selected by the local Codex CLI
     "opencode_model": DEFAULT_OPENCODE_MODEL,
     "opencode_provider": DEFAULT_OPENCODE_PROVIDER,
     "opencode_auto_start": True,
@@ -37,7 +38,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "output_dir": None,  # None means use ~/.reverse-api/runs
     "output_language": "python",  # "python", "javascript", "typescript", "go", "java", "csharp", "php", "ruby", "c", or "powershell"
     "real_time_sync": True,  # Enable real-time file sync during engineering
-    "sdk": "claude",  # "claude", "opencode", "copilot", or "cursor"
+    "sdk": "claude",  # "claude", "opencode", "copilot", "cursor", or "codex"
 }
 
 

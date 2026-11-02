@@ -17,8 +17,9 @@ rae calls a model through the SDK selected in its config:
 | `opencode` | An OpenCode server rae starts or reuses. Defaults to a free model; can route to local models through Ollama |
 | `copilot` | GitHub Copilot credentials (`GITHUB_COPILOT_TOKEN`) |
 | `cursor` | `CURSOR_API_KEY` |
+| `codex` | Existing local Codex CLI login; Codex Desktop's bundled CLI is preferred when present, then `codex` on `PATH` |
 
-`agent --dry-run` reports which of these it can see. A missing env var is a warning, not an error, because some SDKs find credentials on their own.
+`agent --dry-run` reports which of these it can see. A missing env var is a warning, not an error, because some SDKs find credentials on their own. Codex defaults to `gpt-6-luna` unless `codex_model` or `--model` overrides it.
 
 ## Settings
 
@@ -28,8 +29,9 @@ Settings live in `~/.reverse-api/config.json`. Only two have per-run flags on `a
 |---|---|
 | `agent_provider` | `chrome-mcp` (the user's real Chrome, no HAR; default for new configs in recent versions), `auto` (Playwright MCP, records a HAR; the default in older versions), `agent-browser` (Vercel agent-browser CLI, records a HAR) |
 | `output_language` | `python`, `javascript`, `typescript`, `go`, `java`, `csharp`, `php`, `ruby`, `c`, `powershell` |
-| `sdk` | `claude`, `opencode`, `copilot`, `cursor` |
+| `sdk` | `claude`, `opencode`, `copilot`, `cursor`, `codex` |
 | `claude_code_model` | Model for the `claude` SDK; `agent -m` overrides it per run |
+| `codex_model` | Optional model for the `codex` SDK; defaults to `gpt-6-luna` |
 | `output_dir` | Where runs are stored; `null` means `~/.reverse-api/runs` |
 
 The user can also change them interactively by running `reverse-api-engineer` and typing `/settings`.

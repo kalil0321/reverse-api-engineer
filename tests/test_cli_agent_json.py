@@ -221,6 +221,30 @@ class TestShowJsonNotFound:
         assert "error" in payload
         assert payload["run_id"] == "doesnotexist"
 
+    def test_show_json_maps_codex_usage_aliases(self, tmp_path):
+        run = {
+            "run_id": "codex123",
+            "prompt": "capture a public page",
+            "mode": "auto",
+            "model": "gpt-6-luna",
+            "sdk": "codex",
+            "usage": {"input_tokens": 100, "output_tokens": 8, "cache_read_tokens": 64},
+            "paths": {},
+        }
+        with (
+            patch("reverse_api.cli.session_manager") as sm,
+            patch("reverse_api.cli.config_manager") as cm,
+            patch("reverse_api.cli.get_base_output_dir", return_value=tmp_path),
+        ):
+            sm.get_run.return_value = run
+            cm.get.return_value = None
+            result = CliRunner().invoke(show_run, ["codex123", "--json"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout.strip())
+        assert payload["sdk"] == "codex"
+        assert payload["cache_read_input_tokens"] == 64
+
 
 # ---------------------------------------------------------------------------
 # `run` command: --no-interactive and --auto-install behavior

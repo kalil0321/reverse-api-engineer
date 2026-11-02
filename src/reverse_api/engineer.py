@@ -411,6 +411,7 @@ def run_reverse_engineering(
     opencode_model: str | None = None,
     copilot_model: str | None = None,
     cursor_model: str | None = None,
+    codex_model: str | None = None,
     cursor_web_search: bool = True,
     cursor_setting_sources: list[str] | None = None,
     enable_sync: bool = False,
@@ -428,11 +429,12 @@ def run_reverse_engineering(
     resume_session, cost_before and on_session reopen and record the SDK session, see BaseEngineer.
 
     Args:
-        sdk: "claude", "opencode", "copilot", or "cursor" - determines which SDK to use
+        sdk: "claude", "opencode", "copilot", "cursor", or "codex" - determines which SDK to use
         opencode_provider: Provider ID for OpenCode (e.g., "anthropic")
         opencode_model: Model ID for OpenCode (e.g., "claude-sonnet-4-6")
         copilot_model: Model ID for Copilot (e.g., "gpt-5")
         cursor_model: Model id for Cursor SDK (e.g., "composer-2.5")
+        codex_model: Optional model id for the local Codex CLI; None uses its configured default.
         cursor_web_search: When True, load extra Cursor setting layers so WebFetch/WebSearch and plugins apply.
         cursor_setting_sources: Optional explicit list (overrides cursor_web_search), e.g. ["project","user","all"].
         enable_sync: Enable real-time file syncing during engineering
@@ -499,6 +501,25 @@ def run_reverse_engineering(
             output_language=output_language,
             output_mode=output_mode,
             copilot_model=copilot_model,
+            interactive=interactive,
+        )
+    elif sdk == "codex":
+        from .codex_engineer import CodexEngineer
+
+        engineer = CodexEngineer(
+            run_id=run_id,
+            har_path=har_path,
+            prompt=prompt,
+            model=model,
+            codex_model=codex_model,
+            additional_instructions=additional_instructions,
+            output_dir=output_dir,
+            verbose=verbose,
+            enable_sync=enable_sync,
+            sdk=sdk,
+            is_fresh=is_fresh,
+            output_language=output_language,
+            output_mode=output_mode,
             interactive=interactive,
         )
     else:
