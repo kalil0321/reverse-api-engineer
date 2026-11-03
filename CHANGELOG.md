@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `agent --json` and `engineer --json` report `status: error` (`engine_failure`) when the run ends without writing its client, instead of `ok` with a `script_path` that does not exist.
 - Playwright MCP prompt: `browser_run_code` is now `browser_run_code_unsafe`, and the nonexistent `browser_scroll` tool is no longer listed.
 - The Claude SDK message buffer is raised to 32 MB, so a large screenshot no longer aborts a run.
+- `list` and `show` report the cost of Claude, Copilot and Cursor runs. They used to read only `total_cost` or `cost`, while those engines record `estimated_cost_usd`, so the cost was always empty.
 - OpenCode runs on free or local models (`opencode/big-pickle`, Ollama) report a cost of $0. When OpenCode reported no cost, rae priced every unknown model as Claude Sonnet 4.6; it now estimates only for models with known prices, and short names such as `opus` are priced as the model they map to.
 - OpenCode runs report their cost and cache writes in `--json` usage (`total_cost_usd`, `cache_write_tokens`) and their cost in `/history` and `/resume`.
 - README: the `agent --json` usage fields are `total_cost_usd` and the cache token counts, not `total_cost`.

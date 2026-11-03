@@ -222,6 +222,33 @@ class TestShowJsonNotFound:
         assert payload["run_id"] == "doesnotexist"
 
 
+class TestListAndShowCost:
+    """`list` and `show` report the cost under whichever key the run recorded it."""
+
+    @pytest.mark.parametrize(
+        ("usage", "cost"),
+        [
+            ({"estimated_cost_usd": 0.42}, 0.42),
+            ({"estimated_cost_usd": 0.0}, 0.0),
+            ({"cost": 0.13}, 0.13),
+            ({"total_cost": 0.07}, 0.07),
+            ({}, None),
+        ],
+    )
+    def test_cost_from_each_recorded_key(self, tmp_path, monkeypatch, usage, cost):
+        monkeypatch.chdir(tmp_path)
+        run = {"run_id": "r1", "prompt": "jobs", "mode": "agent", "usage": usage}
+        runner = CliRunner()
+        with patch("reverse_api.cli.session_manager") as sm:
+            sm.history = [run]
+            sm.get_run.return_value = run
+            listed = runner.invoke(list_runs, ["--json"])
+            shown = runner.invoke(show_run, ["r1", "--json"])
+        assert listed.exit_code == 0 and shown.exit_code == 0
+        assert json.loads(listed.stdout)[0]["cost"] == cost
+        assert json.loads(shown.stdout)["cost"] == cost
+
+
 # ---------------------------------------------------------------------------
 # `run` command: --no-interactive and --auto-install behavior
 # ---------------------------------------------------------------------------
