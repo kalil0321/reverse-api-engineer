@@ -15,6 +15,7 @@ from typing import Any
 from .agent_browser import ensure_agent_browser_runtime, print_agent_browser_setup_notices
 from .base_engineer import BaseEngineer
 from .chrome_mcp import CHROME_DEVTOOLS_MCP_PACKAGE
+from .config import PLAYWRIGHT_MCP_PACKAGE
 from .runtime_commands import resolve_windows_command
 from .tui import ClaudeUI
 
@@ -533,7 +534,7 @@ class CursorAutoEngineer(CursorEngineer):
             }
         playwright_args = [
             "-y",
-            "rae-playwright-mcp@latest",
+            PLAYWRIGHT_MCP_PACKAGE,
             "run-mcp-server",
             "--run-id",
             self.mcp_run_id,
