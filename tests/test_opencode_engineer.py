@@ -444,9 +444,9 @@ class TestOpenCodeEngineerHandlePartUpdate:
         assert eng.usage_metadata["cost"] > 0  # Should have calculated locally
 
     @staticmethod
-    def _step_finish(part_id="step1", cost=0.0):
+    def _step_finish(part_id="step1", cost=0.0, session="session_abc"):
         tokens = {"input": 1000, "output": 500, "reasoning": 0, "cache": {"read": 0, "write": 0}}
-        return {"part": {"id": part_id, "type": "step-finish", "cost": cost, "tokens": tokens, "sessionID": "session_abc"}}
+        return {"part": {"id": part_id, "type": "step-finish", "cost": cost, "tokens": tokens, "sessionID": session}}
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("provider", "model"), [("opencode", "big-pickle"), ("ollama", "qwen3:8b")])
@@ -476,6 +476,37 @@ class TestOpenCodeEngineerHandlePartUpdate:
         await eng._handle_part_update(self._step_finish("step2", cost=0.1), seen_parts)
         assert eng.usage_metadata["cost"] == pytest.approx(0.15)
         assert eng.usage_metadata["estimated_cost_usd"] == pytest.approx(0.15)
+
+    @pytest.mark.asyncio
+    async def test_a_step_delivered_twice_counts_once(self, tmp_path):
+        eng = self._make_engineer(tmp_path)
+        seen_parts: set = set()
+        for _ in range(2):
+            await eng._handle_part_update(self._step_finish("step1", cost=0.1), seen_parts)
+        assert eng.usage_metadata["cost"] == pytest.approx(0.1)
+        assert eng.usage_metadata["input_tokens"] == 1000
+
+    @pytest.mark.asyncio
+    async def test_subagent_tool_calls_and_usage_count_but_not_its_text(self, tmp_path):
+        eng = self._make_engineer(tmp_path)
+        eng._child_sessions.add("session_child")
+        seen_parts: set = set()
+        state = {"status": "running", "input": {"command": "ls"}}
+        tool = {"id": "tool1", "type": "tool", "tool": "Bash", "sessionID": "session_child", "state": state}
+        text = {"id": "text1", "type": "text", "text": "x" * 60, "sessionID": "session_child", "messageID": "message_assistant"}
+        await eng._handle_part_update({"part": tool}, seen_parts)
+        await eng._handle_part_update({"part": text}, seen_parts)
+        await eng._handle_part_update(self._step_finish("step1", cost=0.2, session="session_child"), seen_parts)
+        eng.opencode_ui.tool_start.assert_called_once_with("Bash", {"command": "ls"})
+        eng.opencode_ui.update_text.assert_not_called()
+        assert eng.usage_metadata["cost"] == pytest.approx(0.2)
+        assert (eng.usage_metadata["input_tokens"], eng.usage_metadata["output_tokens"]) == (1000, 500)
+
+    @pytest.mark.asyncio
+    async def test_usage_from_an_unrelated_session_is_not_counted(self, tmp_path):
+        eng = self._make_engineer(tmp_path)
+        await eng._handle_part_update(self._step_finish(cost=0.2, session="other_session"), set())
+        assert "cost" not in eng.usage_metadata
 
     @pytest.mark.asyncio
     async def test_wrong_session_ignored(self, tmp_path):
@@ -597,6 +628,41 @@ class TestOpenCodeEngineerStreamEvents:
 
         await eng._stream_events(mock_client)
         eng.opencode_ui.session_retry.assert_called_with(2, "Rate limited")
+        mock_client.post.assert_not_called()
+        assert eng._last_error is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Free usage exceeded, add credits https://opencode.ai/zen",
+            "You exceeded your current quota, please check your plan and billing details.",
+            "Insufficient credits. Add more using https://openrouter.ai/settings/credits",
+        ],
+    )
+    async def test_a_refusal_for_lack_of_credit_stops_the_run(self, tmp_path, message):
+        eng = self._make_engineer(tmp_path)
+        status = {"type": "session.status", "properties": {"sessionID": "session_abc", "status": {"type": "retry", "attempt": 1, "message": message}}}
+        lines = ["data: " + json.dumps(status), 'data: {"type":"session.idle","properties":{"sessionID":"session_abc"}}']
+        mock_response = AsyncMock()
+
+        async def mock_aiter_lines():
+            for line in lines:
+                yield line
+
+        mock_response.aiter_lines = mock_aiter_lines
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=mock_response)
+        cm.__aexit__ = AsyncMock(return_value=False)
+        mock_client = AsyncMock()
+        mock_client.stream = MagicMock(return_value=cm)
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=200))
+
+        await eng._stream_events(mock_client)
+
+        assert eng._last_error == f"The provider refused the request: {message}"
+        mock_client.post.assert_awaited_once_with("/session/session_abc/abort")
+        eng.opencode_ui.session_status.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_permission_updated_event(self, tmp_path):
@@ -663,6 +729,79 @@ class TestOpenCodeEngineerStreamEvents:
         )
         eng.opencode_ui.permission_requested.assert_called_once_with("write", "/tmp/client.py")
         eng.opencode_ui.permission_approved.assert_called_once_with("write")
+
+    @pytest.mark.asyncio
+    async def test_subagent_sessions_are_followed_at_any_depth(self, tmp_path):
+        eng = self._make_engineer(tmp_path)
+
+        def created(sid, parent):
+            return {"type": "session.created", "properties": {"sessionID": sid, "info": {"id": sid, "parentID": parent}}}
+
+        def step(part_id, cost, sid):
+            tokens = {"input": 10, "output": 5, "reasoning": 0, "cache": {"read": 0, "write": 0}}
+            part = {"id": part_id, "type": "step-finish", "cost": cost, "tokens": tokens, "sessionID": sid}
+            return {"type": "message.part.updated", "properties": {"part": part}}
+
+        events = [
+            created("ses_child", "session_abc"),
+            created("ses_grandchild", "ses_child"),
+            created("ses_stranger", "ses_other"),
+            step("s1", 0.2, "ses_grandchild"),
+            step("s2", 0.4, "ses_stranger"),
+            {"type": "permission.v2.asked", "properties": {"id": "per_1", "sessionID": "ses_child", "action": "bash", "resources": ["ls"]}},
+            {"type": "session.idle", "properties": {"sessionID": "session_abc"}},
+        ]
+        mock_response = AsyncMock()
+
+        async def mock_aiter_lines():
+            for event in events:
+                yield "data: " + json.dumps(event)
+
+        mock_response.aiter_lines = mock_aiter_lines
+        stream = AsyncMock()
+        stream.__aenter__ = AsyncMock(return_value=mock_response)
+        stream.__aexit__ = AsyncMock(return_value=False)
+        mock_client = AsyncMock()
+        mock_client.stream = MagicMock(return_value=stream)
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=204))
+
+        await eng._stream_events(mock_client)
+
+        assert eng._child_sessions == {"ses_child", "ses_grandchild"}
+        assert eng.usage_metadata["cost"] == pytest.approx(0.2)
+        assert (eng.usage_metadata["input_tokens"], eng.usage_metadata["output_tokens"]) == (10, 5)
+        mock_client.post.assert_awaited_once_with("/api/session/ses_child/permission/per_1/reply", json={"reply": "always"})
+        eng.opencode_ui.permission_approved.assert_called_once_with("bash")
+
+    @pytest.mark.asyncio
+    async def test_a_subagent_refused_for_lack_of_credit_stops_the_run(self, tmp_path):
+        eng = self._make_engineer(tmp_path)
+        refusal = {"type": "retry", "attempt": 1, "message": "Insufficient credits"}
+        events = [
+            {"type": "session.created", "properties": {"info": {"id": "ses_child", "parentID": "session_abc"}}},
+            {"type": "session.status", "properties": {"sessionID": "ses_child", "status": refusal}},
+            {"type": "session.idle", "properties": {"sessionID": "session_abc"}},
+        ]
+        mock_response = AsyncMock()
+
+        async def mock_aiter_lines():
+            for event in events:
+                yield "data: " + json.dumps(event)
+
+        mock_response.aiter_lines = mock_aiter_lines
+        stream = AsyncMock()
+        stream.__aenter__ = AsyncMock(return_value=mock_response)
+        stream.__aexit__ = AsyncMock(return_value=False)
+        mock_client = AsyncMock()
+        mock_client.stream = MagicMock(return_value=stream)
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=200))
+
+        await eng._stream_events(mock_client)
+
+        assert eng._last_error == "The provider refused the request: Insufficient credits"
+        aborted = sorted(c.args[0] for c in mock_client.post.await_args_list)
+        assert aborted == ["/session/ses_child/abort", "/session/session_abc/abort"]
+        eng.opencode_ui.session_status.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_todo_updated_event(self, tmp_path):
@@ -1588,6 +1727,47 @@ class TestOpenCodeEngineerAnalyzeAndGenerate:
             assert result is not None
             assert "script_path" in result
             assert result["session_id"] == "sess_abc"
+
+    @pytest.mark.asyncio
+    async def test_a_provider_refusal_ends_the_run_with_its_message(self, tmp_path):
+        eng = self._make_engineer(tmp_path)
+        aborted = asyncio.Event()
+        health = MagicMock(status_code=200, json=MagicMock(return_value={"status": "ok"}))
+        session = MagicMock(json=MagicMock(return_value={"id": "sess_abc"}))
+
+        async def mock_get(path, **kwargs):
+            return _valid_catalog_response() if path == "/config/providers" else health
+
+        async def mock_post(path, **kwargs):
+            if path == "/session":
+                return session
+            if path.endswith("/abort"):
+                aborted.set()
+                await asyncio.sleep(0.3)  # the prompt request ends before the abort is answered
+                return MagicMock(status_code=200)
+            await aborted.wait()  # OpenCode answers the prompt request only once the session stops
+            raise httpx.ReadError("connection closed")
+
+        refusal = {"sessionID": "sess_abc", "status": {"type": "retry", "attempt": 1, "message": "Free usage exceeded, add credits"}}
+        stream_resp = AsyncMock()
+
+        async def mock_aiter_lines():
+            yield "data: " + json.dumps({"type": "session.status", "properties": refusal})
+
+        stream_resp.aiter_lines = mock_aiter_lines
+        stream_cm = AsyncMock()
+        stream_cm.__aenter__ = AsyncMock(return_value=stream_resp)
+        stream_cm.__aexit__ = AsyncMock(return_value=False)
+        mock_client = AsyncMock(get=mock_get, post=mock_post)
+        mock_client.stream = MagicMock(return_value=stream_cm)
+
+        with patch("reverse_api.opencode_engineer.httpx.AsyncClient") as mock_async:
+            mock_async.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_async.return_value.__aexit__ = AsyncMock(return_value=False)
+            result = await asyncio.wait_for(eng.analyze_and_generate(), timeout=5)
+
+        assert result is None
+        eng.opencode_ui.error.assert_called_once_with("The provider refused the request: Free usage exceeded, add credits")
 
     @pytest.mark.asyncio
     async def test_health_401_custom_username(self, tmp_path):

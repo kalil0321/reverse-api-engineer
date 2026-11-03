@@ -261,6 +261,22 @@ class TestListAndShowCost:
         assert "$0.42" in listed.output
         assert "$0.42" in shown.output
 
+    @pytest.mark.parametrize(
+        "usage",
+        [
+            {"cache_creation_input_tokens": 50, "cache_read_input_tokens": 100},  # Claude
+            {"cache_write_tokens": 50, "cache_read_tokens": 100},  # Copilot, Cursor
+            {"cache_creation_tokens": 50, "cache_read_tokens": 100},  # OpenCode
+        ],
+    )
+    def test_show_reads_each_sdks_cache_counts(self, tmp_path, monkeypatch, usage):
+        monkeypatch.chdir(tmp_path)
+        run = {"run_id": "r1", "prompt": "jobs", "mode": "agent", "usage": {"input_tokens": 10, **usage}}
+        with patch("reverse_api.cli.session_manager") as sm:
+            sm.get_run.return_value = run
+            shown = json.loads(CliRunner().invoke(show_run, ["r1", "--json"]).stdout)
+        assert (shown["input_tokens"], shown["cache_creation_input_tokens"], shown["cache_read_input_tokens"]) == (10, 50, 100)
+
 
 # ---------------------------------------------------------------------------
 # `run` command: --no-interactive and --auto-install behavior

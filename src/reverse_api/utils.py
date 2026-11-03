@@ -92,6 +92,12 @@ _CLAUDE_SETTING_SOURCES = ("user", "project", "local")
 _CLAUDE_EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 
 
+def recorded_cost(usage: dict[str, Any] | None) -> float | None:
+    """A run's cost from its history usage: estimated_cost_usd, or cost / total_cost on OpenCode and older entries."""
+    usage = usage or {}
+    return next((usage[key] for key in ("estimated_cost_usd", "total_cost", "cost") if usage.get(key) is not None), None)
+
+
 def predates_effort(model: str | None) -> bool:
     """Haiku 4.5 came before the effort setting, so it never gets one."""
     return (model or "").startswith("claude-haiku-4")

@@ -42,6 +42,7 @@ from .utils import (
     get_messages_path,
     get_timestamp,
     normalize_url,
+    recorded_cost,
     resolve_run,
 )
 
@@ -2289,9 +2290,7 @@ def _get_run_details(run: dict) -> dict:
                     local_path = f"./scripts/{subdir.name}/"
                     break
 
-    # The engines record estimated_cost_usd; OpenCode runs and older entries carry cost or total_cost.
-    usage = run.get("usage") or {}
-    cost = next((usage[key] for key in ("estimated_cost_usd", "total_cost", "cost") if usage.get(key) is not None), None)
+    cost = recorded_cost(run.get("usage"))
 
     return {
         "run_id": run_id,
@@ -2454,11 +2453,12 @@ def show_run(run_id: str | None, as_json: bool) -> None:
     details["url"] = run.get("url")
     details["output_mode"] = run.get("output_mode", "client")
 
-    usage = run.get("usage", {})
+    # Each SDK names its cache counts differently; the keys of show --json stay Claude's.
+    usage = _normalize_usage(run.get("usage"))
     details["input_tokens"] = usage.get("input_tokens", 0)
     details["output_tokens"] = usage.get("output_tokens", 0)
-    details["cache_creation_input_tokens"] = usage.get("cache_creation_input_tokens", 0)
-    details["cache_read_input_tokens"] = usage.get("cache_read_input_tokens", 0)
+    details["cache_creation_input_tokens"] = usage.get("cache_write_tokens", 0)
+    details["cache_read_input_tokens"] = usage.get("cache_read_tokens", 0)
 
     # Artifact paths with existence
     har_dir = base_dir / "har" / rid

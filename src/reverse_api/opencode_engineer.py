@@ -7,6 +7,7 @@ TypeScript SDK documentation.
 import asyncio
 import json
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,9 @@ from .opencode_ui import OpenCodeUI
 
 # Enable debug mode with OPENCODE_DEBUG=1
 DEBUG = os.environ.get("OPENCODE_DEBUG", "0") == "1"
+
+# Retry messages that waiting cannot fix: OpenCode retries them until the prompt request times out.
+OUT_OF_CREDIT = re.compile(r"credit|billing|insufficient|usage exceeded|exceeded your current quota|payment required", re.IGNORECASE)
 
 
 def debug_log(msg: str) -> None:
@@ -142,6 +146,7 @@ class OpenCodeEngineer(BaseEngineer):
         self._assistant_message_ids: set[str] = set()
         self._message_roles: dict[str, str] = {}
         self._pending_text_parts: dict[str, list[dict[str, Any]]] = {}
+        self._child_sessions: set[str] = set()  # subagents run in sessions opened under ours, at any depth
 
         # Read OpenCode server authentication from environment variables
         self.opencode_password = os.environ.get("OPENCODE_SERVER_PASSWORD")
@@ -245,8 +250,7 @@ class OpenCodeEngineer(BaseEngineer):
                     "parts": [{"type": "text", "text": combined_prompt}],
                 }
 
-                prompt_r = await client.post(f"/session/{self._session_id}/message", json=prompt_body)
-                prompt_r.raise_for_status()
+                await self._send_prompt(client, prompt_body)
 
                 # Wait for events to complete
                 try:
@@ -408,6 +412,11 @@ class OpenCodeEngineer(BaseEngineer):
                     elif event_type == "message.part.updated":
                         await self._handle_part_update(properties, seen_parts)
 
+                    elif event_type in ("session.created", "session.updated"):
+                        info = properties.get("info", {})
+                        if info.get("id") and info.get("parentID") and self._is_ours(info["parentID"]):
+                            self._child_sessions.add(str(info["id"]))
+
                     elif event_type == "session.idle":
                         event_sid = properties.get("sessionID")
                         debug_log(f"session.idle: sessionID={event_sid}, our session={self._session_id}")
@@ -423,12 +432,16 @@ class OpenCodeEngineer(BaseEngineer):
                         status = properties.get("status", {})
                         status_type = status.get("type", "idle")
                         debug_log(f"session.status: sessionID={event_sid}, status={status_type}")
-                        if event_sid == self._session_id:
-                            if status_type == "retry":
-                                attempt = status.get("attempt", 1)
-                                message = status.get("message", "")
-                                self.opencode_ui.session_retry(attempt, message)
-                            elif status_type == "busy":
+                        # A subagent refused for lack of credit leaves the run waiting on it just the same.
+                        if status_type == "retry" and self._is_ours(event_sid):
+                            message = status.get("message", "")
+                            self.opencode_ui.session_retry(status.get("attempt", 1), message)
+                            if OUT_OF_CREDIT.search(message):
+                                self._last_error = f"The provider refused the request: {message}"
+                                await self._abort_sessions(client, {str(event_sid), str(self._session_id)})
+                                return
+                        elif event_sid == self._session_id:
+                            if status_type == "busy":
                                 import time
 
                                 self._busy_time = time.time()
@@ -462,7 +475,8 @@ class OpenCodeEngineer(BaseEngineer):
 
                         debug_log(f"{event_type}: id={permission_id}, type={perm_type}, title={perm_title}")
 
-                        if perm_session == self._session_id and permission_id:
+                        # A subagent's request goes unanswered otherwise, and the run waits on it forever.
+                        if self._is_ours(perm_session) and permission_id:
                             # Show permission request in UI
                             self.opencode_ui.permission_requested(perm_type, perm_title)
 
@@ -472,12 +486,12 @@ class OpenCodeEngineer(BaseEngineer):
                             try:
                                 if is_v2:
                                     perm_response = await client.post(
-                                        f"/api/session/{self._session_id}/permission/{permission_id}/reply",
+                                        f"/api/session/{perm_session}/permission/{permission_id}/reply",
                                         json={"reply": "always"},
                                     )
                                 else:
                                     perm_response = await client.post(
-                                        f"/session/{self._session_id}/permissions/{permission_id}",
+                                        f"/session/{perm_session}/permissions/{permission_id}",
                                         json={"response": "always"},  # Legacy OpenCode permission API
                                     )
                                 debug_log(f"Permission response: {perm_response.status_code}")
@@ -662,6 +676,29 @@ class OpenCodeEngineer(BaseEngineer):
         except Exception as e:
             debug_log(f"Error checking session: {e}")
 
+    async def _abort_sessions(self, client: httpx.AsyncClient, session_ids: set[str]) -> None:
+        """Stops OpenCode's work on these sessions; stopping the run's own one ends the pending prompt request."""
+        for sid in sorted(session_ids):
+            try:
+                r = await client.post(f"/session/{sid}/abort")
+                debug_log(f"Abort {sid}: HTTP {r.status_code}")
+            except Exception as e:
+                debug_log(f"Abort {sid} failed: {e}")
+
+    async def _send_prompt(self, client: httpx.AsyncClient, body: dict[str, Any]) -> None:
+        """Posts the prompt, which OpenCode answers only once the session stops."""
+        try:
+            r = await client.post(f"/session/{self._session_id}/message", json=body)
+            r.raise_for_status()
+        except httpx.HTTPError:
+            # The stream records why it stopped the session before aborting it, so the request can end mid-abort.
+            if not self._last_error:
+                raise
+
+    def _is_ours(self, session_id: object) -> bool:
+        """The run's session or one of its subagents'."""
+        return session_id == self._session_id or session_id in self._child_sessions
+
     async def _handle_part_update(self, properties: dict, seen_parts: set) -> None:
         """Handle message.part.updated events."""
         part = properties.get("part", {})
@@ -673,8 +710,9 @@ class OpenCodeEngineer(BaseEngineer):
 
         debug_log(f"Part update: type={part_type}, session={part_session}, our={self._session_id}")
 
-        # Only process parts for our session
-        if part_session != self._session_id:
+        # A subagent's tool calls and usage belong to the run; its text is the subagent talking to the agent.
+        subagent_part = part_session in self._child_sessions and part_type in ("tool", "step-finish")
+        if part_session != self._session_id and not subagent_part:
             debug_log("Skipping part for other session")
             return
 
@@ -725,6 +763,11 @@ class OpenCodeEngineer(BaseEngineer):
 
         elif part_type == "step-finish":
             debug_log("Handling step-finish part")
+            # A part delivered again must not count its tokens and cost twice.
+            if part_id and part_id in seen_parts:
+                return
+            if part_id:
+                seen_parts.add(part_id)
             # Extract usage stats
             api_cost = part.get("cost", 0)
             tokens = part.get("tokens", {})

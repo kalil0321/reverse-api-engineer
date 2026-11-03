@@ -1159,6 +1159,11 @@ class TestReviewedSession:
 
         assert run_summary({"timestamp": "2026-10-26T10:00", "prompt": "p", "usage": {"estimated_cost_usd": 0.002}}).endswith("<$0.01")
 
+    def test_history_shows_the_cost_of_opencode_runs_that_kept_it_as_cost(self):
+        from reverse_api.repl.view import run_summary
+
+        assert run_summary({"timestamp": "2026-10-26T10:00", "prompt": "p", "usage": {"cost": 0.5}}).endswith("$0.50")
+
     def test_width_is_the_real_terminal_width(self, monkeypatch):
         import os
 

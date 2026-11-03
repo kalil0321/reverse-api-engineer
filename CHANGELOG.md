@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OpenCode runs on free or local models (`opencode/big-pickle`, Ollama) report a cost of $0. When OpenCode reported no cost, rae priced every unknown model as Claude Sonnet 4.6; it now estimates only for models with known prices, and short names such as `opus` are priced as the model they map to.
 - OpenCode runs report their cost and cache writes in `--json` usage (`total_cost_usd`, `cache_write_tokens`) and their cost in `/history` and `/resume`.
 - README: the `agent --json` usage fields are `total_cost_usd` and the cache token counts, not `total_cost`.
+- OpenCode runs follow their subagents: a subagent's tool calls show, its cost counts, and its permission requests are approved, so the run no longer waits forever on one.
+- An OpenCode step delivered twice counts its tokens and cost once.
+- An OpenCode run that its provider refuses for lack of credit or quota stops at once with the provider's message, instead of retrying until the request times out after 10 minutes.
+- `show` reports the cache token counts of Copilot, Cursor and OpenCode runs, which name them differently from Claude.
+- `/history` shows the cost of OpenCode runs recorded before this release.
 
 ### Security
 - Manual capture requires Playwright 1.64.1 or later, which bundles Chromium 156, and the lockfile pins it. Playwright 1.58 bundled Chromium 145, which lacks the fixes for the Chrome vulnerabilities exploited in 2026.

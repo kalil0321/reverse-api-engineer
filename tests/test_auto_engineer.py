@@ -455,6 +455,51 @@ class TestOpenCodeChromeMcpConfig:
         sys_p, user_p = eng._get_active_prompts()
         assert "browser_navigate" in user_p
 
+    @pytest.mark.asyncio
+    async def test_a_provider_refusal_ends_an_agent_run_with_its_message(self, tmp_path):
+        import json
+
+        eng = self._make_engineer(tmp_path, agent_provider="auto")
+        aborted = asyncio.Event()
+        posted: list[str] = []
+
+        async def mock_post(path, **kwargs):
+            posted.append(path)
+            if path.endswith("/abort"):
+                aborted.set()
+                await asyncio.sleep(0.3)  # the prompt request ends before the abort is answered
+            elif path.endswith("/message"):
+                await aborted.wait()  # OpenCode answers the prompt request only once the session stops
+                raise httpx.ReadError("connection closed")
+            return MagicMock(status_code=200)
+
+        refusal = {"sessionID": "sess_test", "status": {"type": "retry", "attempt": 1, "message": "Insufficient credits"}}
+        stream_resp = AsyncMock()
+
+        async def mock_aiter_lines():
+            yield "data: " + json.dumps({"type": "session.status", "properties": refusal})
+
+        stream_resp.aiter_lines = mock_aiter_lines
+        stream_cm = AsyncMock()
+        stream_cm.__aenter__ = AsyncMock(return_value=stream_resp)
+        stream_cm.__aexit__ = AsyncMock(return_value=False)
+        client = AsyncMock(post=mock_post)
+        client.stream = MagicMock(return_value=stream_cm)
+
+        with (
+            patch("reverse_api.auto_engineer.httpx.AsyncClient") as mock_async,
+            patch.object(eng, "_prepare_server", AsyncMock(return_value=True)),
+            patch.object(eng, "_open_session", AsyncMock(return_value="sess_test")),
+        ):
+            mock_async.return_value.__aenter__ = AsyncMock(return_value=client)
+            mock_async.return_value.__aexit__ = AsyncMock(return_value=False)
+            result = await asyncio.wait_for(eng.analyze_and_generate(), timeout=5)
+
+        assert result is None
+        eng.opencode_ui.error.assert_called_once_with("The provider refused the request: Insufficient credits")
+        assert "/session/sess_test/abort" in posted
+        client.delete.assert_any_await(f"/mcp/{eng.mcp_name}")
+
 
 class TestClaudeAutoEngineerAnalyze:
     """Test ClaudeAutoEngineer analyze_and_generate."""
