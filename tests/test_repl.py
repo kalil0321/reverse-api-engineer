@@ -865,6 +865,47 @@ class TestResume:
         session.show_run("a1")
         assert "resume" not in [v for v, _, _ in session.st.picker.items]
 
+    def test_a_resumed_run_shows_where_it_stopped(self, app_session):
+        session, history = app_session
+        history.get_run.return_value = {"run_id": "a1", "prompt": "jobs", "sdk_session": {"id": "s", "mode": "agent"}}
+        log = [{"type": "thinking", "content": f"step {i:02d}", "timestamp": f"2026-10-25T15:47:{i:02d}"} for i in range(30)]
+        with patch("reverse_api.repl.app.MessageStore") as store, patch.object(session, "work"):
+            store.return_value.load.return_value = log
+            session.run_command("/resume a1")
+        text = plain(session.transcript)
+        assert "step 29" in text and "step 06" in text and "step 05" not in text
+        assert "+6 earlier lines · ctrl+o full output" in text
+        assert session.st.running
+
+    def test_a_runs_messages_are_read_from_its_own_folder(self, app_session):
+        from reverse_api.repl.app import run_output_dir
+
+        assert run_output_dir({"sdk_session": {"output_dir": "/data/rae"}, "paths": {"har_dir": "/other/har/a1"}}) == "/data/rae"
+        assert run_output_dir({"paths": {"har_dir": "/data/rae/har/a1"}}) == "/data/rae"
+        assert run_output_dir({"run_id": "a1"}) is None and run_output_dir(None) is None
+
+        session, history = app_session
+        history.get_run.return_value = {"run_id": "a1", "prompt": "jobs", "sdk_session": {"id": "s", "mode": "agent", "output_dir": "/data/rae"}}
+        with patch("reverse_api.repl.app.MessageStore") as store, patch.object(session, "work"):
+            store.return_value.load.return_value = []
+            session.run_command("/resume a1")
+            session.run_command("/messages a1")
+        assert store.call_args_list == [call("a1", "/data/rae"), call("a1", "/data/rae")]
+
+    def test_an_opencode_resume_prints_where_it_stopped_before_its_prompt(self, app_session):
+        session, history = app_session
+        history.get_run.return_value = {"run_id": "a1", "prompt": "jobs", "sdk_session": {"id": "s", "mode": "agent", "sdk": "opencode"}}
+        log = [{"type": "thinking", "content": "the jobs come from GraphQL", "timestamp": "2026-10-25T15:47:00"}]
+        with patch("reverse_api.repl.app.MessageStore") as store, patch.object(session, "classic") as classic:
+            store.return_value.load.return_value = log
+            session.run_command("/resume a1")
+        reopen = classic.call_args.args[0]
+        with patch.object(session.cli, "console") as console, patch.object(session.cli, "resume_run") as resume_run:
+            reopen()
+        printed = console.print.call_args.args[0]
+        assert "GraphQL" in "".join(str(row) for row in printed.renderables)
+        resume_run.assert_called_once_with("a1")
+
     def test_resume_waits_for_an_open_run(self, app_session):
         session, history = app_session
         history.get_run.return_value = {"run_id": "a1", "prompt": "jobs", "sdk_session": {"id": "s", "mode": "agent"}}
@@ -992,6 +1033,14 @@ class TestEffortIsClaudeOnly:
         assert st.effort is None
         session.run_command("/effort")
         assert st.picker is None and "effort is a claude setting" in plain(session.transcript)
+
+    def test_a_claude_model_without_effort_says_so(self, app_session):
+        session, _history = app_session
+        st = session.st
+        st.sdk, st.model = "claude", "claude-haiku-4-5"
+        session.run_command("/effort")
+        text = plain(session.transcript)
+        assert st.picker is None and "haiku 4.5 has no effort setting" in text and "is a claude setting" not in text
 
     def test_claude_keeps_its_effort(self, app_session):
         session, _history = app_session
