@@ -107,6 +107,31 @@ def host_in(prompt: str) -> str:
     return (m.group(1) or m.group(2) or "") if m else ""
 
 
+def run_log(run_id: str) -> list[tuple[str, str, str, str]]:
+    """A past run's saved messages as (clock, verb, text, kind) rows, for /messages and /resume."""
+    entries: list[tuple[str, str, str, str]] = []
+    for msg in MessageStore(run_id).load():
+        kind, content, clock = msg.get("type"), msg.get("content"), str(msg.get("timestamp", ""))[11:19]
+        if kind == "prompt":
+            # The first prompt of a run is the engine's full brief; the user's words are its mission.
+            mission = re.search(r"<mission>(.*?)</mission>", str(content), re.DOTALL)
+            entries.append((clock, "prompt", first_line(mission.group(1) if mission else content, 200), "user"))
+        elif kind == "tool_start" and isinstance(content, dict):
+            found = describe(short_name(str(content.get("name", ""))), content.get("input") or {})
+            if found:
+                entries.append((clock, found[0], found[1], found[2]))
+        elif kind == "tool_result" and isinstance(content, dict) and content.get("is_error"):
+            entries.append((clock, "failed", first_line(content.get("output") or "the tool returned an error", 200), "error"))
+        elif kind == "thinking":
+            entries.append((clock, "says", first_line(strip_markdown(str(content)), 200), "say"))
+        elif kind == "error":
+            entries.append((clock, "error", first_line(content, 200), "error"))
+        elif kind == "result":
+            script = content.get("script_path") if isinstance(content, dict) else None
+            entries.append((clock, "done", Path(script).name if script else "finished", "done"))
+    return entries
+
+
 class InputLexer(Lexer):
     """Highlights /commands and URLs while typing."""
 
@@ -314,7 +339,7 @@ class Session:
                 self.open_picker(title, choices, current, self.set_model)
         elif cmd == "/effort" and not st.has_effort:
             view.command(cmd)
-            view.notice(f"effort is a claude setting · this session runs {st.sdk} {st.model_label}")
+            view.notice(st.no_effort_reason)
         elif cmd == "/effort":
             self.open_picker("how hard the agent thinks", [(e, e, EFFORT_NOTES[e]) for e in EFFORTS], st.effort_label, self.set_effort)
         elif cmd == "/mode":
@@ -409,26 +434,7 @@ class Session:
 
     def show_messages(self, run_id: str) -> None:
         self.view.command("/messages", run_id)
-        entries: list[tuple[str, str, str, str]] = []  # clock, verb, text, kind
-        for msg in MessageStore(run_id).load():
-            kind, content, clock = msg.get("type"), msg.get("content"), str(msg.get("timestamp", ""))[11:19]
-            if kind == "prompt":
-                # The first prompt of a run is the engine's full brief; the user's words are its mission.
-                mission = re.search(r"<mission>(.*?)</mission>", str(content), re.DOTALL)
-                entries.append((clock, "prompt", first_line(mission.group(1) if mission else content, 200), "user"))
-            elif kind == "tool_start" and isinstance(content, dict):
-                found = describe(short_name(str(content.get("name", ""))), content.get("input") or {})
-                if found:
-                    entries.append((clock, found[0], found[1], found[2]))
-            elif kind == "tool_result" and isinstance(content, dict) and content.get("is_error"):
-                entries.append((clock, "failed", first_line(content.get("output") or "the tool returned an error", 200), "error"))
-            elif kind == "thinking":
-                entries.append((clock, "says", first_line(strip_markdown(str(content)), 200), "say"))
-            elif kind == "error":
-                entries.append((clock, "error", first_line(content, 200), "error"))
-            elif kind == "result":
-                script = content.get("script_path") if isinstance(content, dict) else None
-                entries.append((clock, "done", Path(script).name if script else "finished", "done"))
+        entries = run_log(run_id)
         if not entries:
             self.view.notice(f"no messages for run {run_id}")
         else:
@@ -447,14 +453,23 @@ class Session:
         elif run["sdk_session"].get("sdk") == "opencode":
             # OpenCode runs still use the classic screen, which asks for the next message there.
             self.view.run_details(run)
+            self.show_past(run_id)
             self.classic(lambda: self.cli.resume_run(run_id))
         else:
             self.view.run_details(run)
+            self.show_past(run_id)
             self.view.gap()
             st.host, st.client_name = host_in(str(run.get("prompt") or "")), ""
             st.started, st.running, st.verb, st.kind = time.time(), True, "reopening", "other"
             self.work(lambda: self.cli.resume_run(run_id))
         self.invalidate()
+
+    def show_past(self, run_id: str) -> None:
+        """What the run did so far, so a resumed conversation picks up in view."""
+        entries = run_log(run_id)
+        if entries:
+            self.view.gap()
+            self.view.message_log(entries, latest=True)
 
     def reengineer(self, run_id: str) -> None:
         if self.st.running or self.st.waiting:

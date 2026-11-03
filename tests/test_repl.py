@@ -865,6 +865,18 @@ class TestResume:
         session.show_run("a1")
         assert "resume" not in [v for v, _, _ in session.st.picker.items]
 
+    def test_a_resumed_run_shows_where_it_stopped(self, app_session):
+        session, history = app_session
+        history.get_run.return_value = {"run_id": "a1", "prompt": "jobs", "sdk_session": {"id": "s", "mode": "agent"}}
+        log = [{"type": "thinking", "content": f"step {i:02d}", "timestamp": f"2026-10-25T15:47:{i:02d}"} for i in range(30)]
+        with patch("reverse_api.repl.app.MessageStore") as store, patch.object(session, "work"):
+            store.return_value.load.return_value = log
+            session.run_command("/resume a1")
+        text = plain(session.transcript)
+        assert "step 29" in text and "step 06" in text and "step 05" not in text
+        assert "+6 earlier lines · ctrl+o full output" in text
+        assert session.st.running
+
     def test_resume_waits_for_an_open_run(self, app_session):
         session, history = app_session
         history.get_run.return_value = {"run_id": "a1", "prompt": "jobs", "sdk_session": {"id": "s", "mode": "agent"}}
@@ -992,6 +1004,14 @@ class TestEffortIsClaudeOnly:
         assert st.effort is None
         session.run_command("/effort")
         assert st.picker is None and "effort is a claude setting" in plain(session.transcript)
+
+    def test_a_claude_model_without_effort_says_so(self, app_session):
+        session, _history = app_session
+        st = session.st
+        st.sdk, st.model = "claude", "claude-haiku-4-5"
+        session.run_command("/effort")
+        text = plain(session.transcript)
+        assert st.picker is None and "haiku 4.5 has no effort setting" in text and "is a claude setting" not in text
 
     def test_claude_keeps_its_effort(self, app_session):
         session, _history = app_session
