@@ -496,7 +496,7 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
                     "parts": [{"type": "text", "text": active_prompt}],
                 }
 
-                await self._send_prompt(client, prompt_body, event_task)
+                await self._send_prompt(client, prompt_body)
 
                 # Wait for events to complete
                 try:

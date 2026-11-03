@@ -1743,6 +1743,7 @@ class TestOpenCodeEngineerAnalyzeAndGenerate:
                 return session
             if path.endswith("/abort"):
                 aborted.set()
+                await asyncio.sleep(0.3)  # the prompt request ends before the abort is answered
                 return MagicMock(status_code=200)
             await aborted.wait()  # OpenCode answers the prompt request only once the session stops
             raise httpx.ReadError("connection closed")

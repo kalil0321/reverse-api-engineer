@@ -250,7 +250,7 @@ class OpenCodeEngineer(BaseEngineer):
                     "parts": [{"type": "text", "text": combined_prompt}],
                 }
 
-                await self._send_prompt(client, prompt_body, event_task)
+                await self._send_prompt(client, prompt_body)
 
                 # Wait for events to complete
                 try:
@@ -685,13 +685,14 @@ class OpenCodeEngineer(BaseEngineer):
             except Exception as e:
                 debug_log(f"Abort {sid} failed: {e}")
 
-    async def _send_prompt(self, client: httpx.AsyncClient, body: dict[str, Any], event_task: asyncio.Task[None]) -> None:
+    async def _send_prompt(self, client: httpx.AsyncClient, body: dict[str, Any]) -> None:
         """Posts the prompt, which OpenCode answers only once the session stops."""
         try:
             r = await client.post(f"/session/{self._session_id}/message", json=body)
             r.raise_for_status()
         except httpx.HTTPError:
-            if not (event_task.done() and self._last_error):  # else the stream already said why it stopped
+            # The stream records why it stopped the session before aborting it, so the request can end mid-abort.
+            if not self._last_error:
                 raise
 
     def _is_ours(self, session_id: object) -> bool:

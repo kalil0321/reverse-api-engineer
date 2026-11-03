@@ -467,6 +467,7 @@ class TestOpenCodeChromeMcpConfig:
             posted.append(path)
             if path.endswith("/abort"):
                 aborted.set()
+                await asyncio.sleep(0.3)  # the prompt request ends before the abort is answered
             elif path.endswith("/message"):
                 await aborted.wait()  # OpenCode answers the prompt request only once the session stops
                 raise httpx.ReadError("connection closed")
