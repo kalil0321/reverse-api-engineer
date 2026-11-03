@@ -392,7 +392,7 @@ class TestChromeMcpConfig:
         eng = self._make_engineer(tmp_path, agent_provider="auto")
         name, config = eng._get_mcp_config()
         assert name == "playwright"
-        assert "rae-playwright-mcp@latest" in config["args"]
+        assert "rae-playwright-mcp@0.0.9" in config["args"]
         assert "--run-id" in config["args"]
 
     def test_agent_browser_no_mcp_config_path(self, tmp_path):
@@ -434,7 +434,7 @@ class TestOpenCodeChromeMcpConfig:
         eng = self._make_engineer(tmp_path, agent_provider="auto")
         config = eng._get_opencode_mcp_config()
         assert "playwright" in eng.mcp_name
-        assert "rae-playwright-mcp@latest" in config["config"]["command"]
+        assert "rae-playwright-mcp@0.0.9" in config["config"]["command"]
 
     def test_opencode_agent_browser_skips_mcp(self, tmp_path):
         """CLI-only agent-browser mode does not register OpenCode MCP."""
