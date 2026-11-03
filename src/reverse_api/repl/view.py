@@ -586,8 +586,8 @@ class LedgerView:
             lines.append(f"     [{DIM}]{escape(spend) + ' · ' if spend else ''}[/][{INK_SOFT}]{client}[/]")
         self.out("\n".join(lines))
 
-    def message_log(self, entries: list[tuple[str, str, str, str]], latest: bool = False) -> None:
-        """A past run's log: (clock, verb, text, kind) rows in the ledger's colors; latest folds the oldest rows instead."""
+    def log_rows(self, entries: list[tuple[str, str, str, str]]) -> list[Text]:
+        """A past run's (clock, verb, text, kind) rows in the ledger's colors."""
         room = max(20, width() - VERB_COL - 16)
         colors = {"user": self.st.accent, "say": DIM, "error": PINK, "done": MINT}
         rows = []
@@ -597,6 +597,11 @@ class LedgerView:
             body = body if len(body) <= room else body[: room - 1] + "…"
             style = f"italic {DIM}" if kind == "say" else PINK if kind == "error" else INK_SOFT
             rows.append(Text.assemble(f"   {clock:<8}  ", (f"{verb:<{VERB_COL}} ", f"bold {tint}"), (body, style), style=DIM))
+        return rows
+
+    def message_log(self, entries: list[tuple[str, str, str, str]], latest: bool = False) -> None:
+        """A past run's log, folded to its first rows, or with latest to its last ones."""
+        rows = self.log_rows(entries)
         shown = rows[-LOG_PREVIEW:] if latest else rows[:LOG_PREVIEW]
         if len(rows) > len(shown):
             self.st.folded = True

@@ -38,7 +38,7 @@ from prompt_toolkit.layout.processors import AfterInput, ConditionalProcessor
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.output import create_output
 from prompt_toolkit.styles import Style
-from rich.console import Console, RenderableType
+from rich.console import Console, Group, RenderableType
 from rich.text import Text
 
 from ..messages import MessageStore
@@ -107,10 +107,20 @@ def host_in(prompt: str) -> str:
     return (m.group(1) or m.group(2) or "") if m else ""
 
 
-def run_log(run_id: str) -> list[tuple[str, str, str, str]]:
+def run_output_dir(run: dict[str, Any] | None) -> str | None:
+    """The folder a run saved its files under, when it is not the default: its session's, else its HAR folder's base."""
+    run = run or {}
+    saved = (run.get("sdk_session") or {}).get("output_dir")
+    if saved:
+        return str(saved)
+    har_dir = (run.get("paths") or {}).get("har_dir")  # <base>/har/<run_id>
+    return str(Path(har_dir).parent.parent) if har_dir else None
+
+
+def run_log(run_id: str, output_dir: str | None = None) -> list[tuple[str, str, str, str]]:
     """A past run's saved messages as (clock, verb, text, kind) rows, for /messages and /resume."""
     entries: list[tuple[str, str, str, str]] = []
-    for msg in MessageStore(run_id).load():
+    for msg in MessageStore(run_id, output_dir).load():
         kind, content, clock = msg.get("type"), msg.get("content"), str(msg.get("timestamp", ""))[11:19]
         if kind == "prompt":
             # The first prompt of a run is the engine's full brief; the user's words are its mission.
@@ -434,7 +444,7 @@ class Session:
 
     def show_messages(self, run_id: str) -> None:
         self.view.command("/messages", run_id)
-        entries = run_log(run_id)
+        entries = run_log(run_id, run_output_dir(self.cli.session_manager.get_run(run_id)))
         if not entries:
             self.view.notice(f"no messages for run {run_id}")
         else:
@@ -453,23 +463,30 @@ class Session:
         elif run["sdk_session"].get("sdk") == "opencode":
             # OpenCode runs still use the classic screen, which asks for the next message there.
             self.view.run_details(run)
-            self.show_past(run_id)
-            self.classic(lambda: self.cli.resume_run(run_id))
+            entries = self.show_past(run_id, run)
+
+            def reopen() -> None:
+                if entries:  # the plain terminal does not show the session's transcript
+                    self.cli.console.print(Group(*self.view.log_rows(entries)))
+                self.cli.resume_run(run_id)
+
+            self.classic(reopen)
         else:
             self.view.run_details(run)
-            self.show_past(run_id)
+            self.show_past(run_id, run)
             self.view.gap()
             st.host, st.client_name = host_in(str(run.get("prompt") or "")), ""
             st.started, st.running, st.verb, st.kind = time.time(), True, "reopening", "other"
             self.work(lambda: self.cli.resume_run(run_id))
         self.invalidate()
 
-    def show_past(self, run_id: str) -> None:
+    def show_past(self, run_id: str, run: dict[str, Any]) -> list[tuple[str, str, str, str]]:
         """What the run did so far, so a resumed conversation picks up in view."""
-        entries = run_log(run_id)
+        entries = run_log(run_id, run_output_dir(run))
         if entries:
             self.view.gap()
             self.view.message_log(entries, latest=True)
+        return entries
 
     def reengineer(self, run_id: str) -> None:
         if self.st.running or self.st.waiting:
