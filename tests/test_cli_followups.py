@@ -288,6 +288,42 @@ def test_engineer_uses_recorded_resumed_har_path(tmp_path):
     assert generate.call_args.kwargs["har_path"] == resumed_har
 
 
+def test_resumed_codex_capture_keeps_relative_output_har_absolute(tmp_path, monkeypatch):
+    from reverse_api.cli import run_auto_capture
+    from reverse_api.codex_engineer import CodexAutoEngineer
+
+    monkeypatch.chdir(tmp_path)
+    expected = tmp_path / "runs" / "har" / "codex-run-1234" / "recording.har"
+    observed = []
+
+    async def capture(engineer):
+        observed.append(engineer.har_path)
+        assert engineer.har_path == expected
+        assert str(expected) in engineer._get_active_prompts()[1]
+        return {"har_path": str(engineer.har_path), "usage": {}}
+
+    with (
+        patch(
+            "reverse_api.cli.config_manager.get",
+            side_effect=lambda key, default=None: {"sdk": "codex", "real_time_sync": False}.get(key, default),
+        ),
+        patch("reverse_api.cli.session_manager"),
+        patch("reverse_api.cli.time.time", return_value=1234),
+        patch("reverse_api.cli._keep_session_cost"),
+        patch.object(CodexAutoEngineer, "analyze_and_generate", capture),
+    ):
+        result = run_auto_capture(
+            prompt="capture weather",
+            output_dir="runs",
+            agent_provider="auto",
+            interactive=False,
+            resume={"run_id": "codex-run", "sdk_session": {"id": "saved-session", "sdk": "codex"}},
+        )
+
+    assert observed == [expected]
+    assert result["har_path"] == str(expected)
+
+
 class TestEngineerJsonMissingRunId:
     """`engineer --json` without RUN_ID must emit a JSON misuse payload, not
     Click's plain-text 'missing argument' error.

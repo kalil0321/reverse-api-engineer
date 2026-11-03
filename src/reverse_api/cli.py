@@ -1764,7 +1764,7 @@ def run_auto_capture(  # noqa: C901 - SDK/provider/session lifecycle dispatch
             if hasattr(engineer, "mcp_run_id"):
                 engineer.mcp_run_id = f"{run_id}-{int(time.time())}"
             if sdk == "codex":
-                engineer.har_path = get_har_dir(engineer.mcp_run_id, output_dir) / "recording.har"
+                engineer.har_path = (get_har_dir(engineer.mcp_run_id, output_dir) / "recording.har").resolve()
 
         if json_event_sink is not None:
             from .json_stream import attach_json_stream_to_engineer
