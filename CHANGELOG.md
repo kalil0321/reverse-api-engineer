@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `agent --json` and `engineer --json` report `status: error` (`engine_failure`) when the run ends without writing its client, instead of `ok` with a `script_path` that does not exist.
 - Playwright MCP prompt: `browser_run_code` is now `browser_run_code_unsafe`, and the nonexistent `browser_scroll` tool is no longer listed.
 - The Claude SDK message buffer is raised to 32 MB, so a large screenshot no longer aborts a run.
+- `list` and `show` report the cost of Claude, Copilot and Cursor runs. They used to read only `total_cost` or `cost`, while those engines record `estimated_cost_usd`, so the cost was always empty.
 
 ### Security
 - Raise security minimums to aiohttp >=3.14.4, certifi >=2026.10.19, multidict >=6.9.1, OpenTelemetry API >=1.45.1, PyJWT >=2.15.0 and urllib3 >=2.8.0, and lock the patched versions. certifi drops the emSign root CAs whose intermediate keys were compromised.
