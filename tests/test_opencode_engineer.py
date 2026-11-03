@@ -424,6 +424,7 @@ class TestOpenCodeEngineerHandlePartUpdate:
     async def test_step_finish_calculates_cost_when_zero(self, tmp_path):
         """Step finish calculates cost locally when API returns 0."""
         eng = self._make_engineer(tmp_path)
+        eng.opencode_model = "claude-sonnet-4-6"
         seen_parts = set()
         properties = {
             "part": {
@@ -441,6 +442,40 @@ class TestOpenCodeEngineerHandlePartUpdate:
         }
         await eng._handle_part_update(properties, seen_parts)
         assert eng.usage_metadata["cost"] > 0  # Should have calculated locally
+
+    @staticmethod
+    def _step_finish(part_id="step1", cost=0.0):
+        tokens = {"input": 1000, "output": 500, "reasoning": 0, "cache": {"read": 0, "write": 0}}
+        return {"part": {"id": part_id, "type": "step-finish", "cost": cost, "tokens": tokens, "sessionID": "session_abc"}}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("provider", "model"), [("opencode", "big-pickle"), ("ollama", "qwen3:8b")])
+    async def test_free_and_local_models_cost_nothing(self, tmp_path, provider, model):
+        eng = self._make_engineer(tmp_path)
+        eng.opencode_provider, eng.opencode_model = provider, model
+        await eng._handle_part_update(self._step_finish(), set())
+        assert eng.usage_metadata["cost"] == 0
+        assert eng.usage_metadata["estimated_cost_usd"] == 0
+
+    @pytest.mark.asyncio
+    async def test_short_model_names_are_priced_as_the_model_they_map_to(self, tmp_path):
+        from reverse_api.pricing import calculate_cost
+
+        eng = self._make_engineer(tmp_path)
+        eng.opencode_model = "opus"
+        await eng._handle_part_update(self._step_finish(), set())
+        expected = calculate_cost(model_id="claude-opus-4-6", input_tokens=1000, output_tokens=500)
+        assert eng.usage_metadata["estimated_cost_usd"] == pytest.approx(expected)
+        assert expected != pytest.approx(calculate_cost(model_id="claude-sonnet-4-6", input_tokens=1000, output_tokens=500))
+
+    @pytest.mark.asyncio
+    async def test_cost_adds_up_across_steps_under_both_keys(self, tmp_path):
+        eng = self._make_engineer(tmp_path)
+        seen_parts: set = set()
+        await eng._handle_part_update(self._step_finish("step1", cost=0.05), seen_parts)
+        await eng._handle_part_update(self._step_finish("step2", cost=0.1), seen_parts)
+        assert eng.usage_metadata["cost"] == pytest.approx(0.15)
+        assert eng.usage_metadata["estimated_cost_usd"] == pytest.approx(0.15)
 
     @pytest.mark.asyncio
     async def test_wrong_session_ignored(self, tmp_path):

@@ -268,7 +268,7 @@ _STABLE_USAGE_KEYS: dict[str, tuple[str, ...]] = {
     "input_tokens": ("input_tokens",),
     "output_tokens": ("output_tokens",),
     "cache_read_tokens": ("cache_read_input_tokens", "cache_read_tokens"),
-    "cache_write_tokens": ("cache_creation_input_tokens", "cache_write_tokens"),
+    "cache_write_tokens": ("cache_creation_input_tokens", "cache_write_tokens", "cache_creation_tokens"),
     "total_cost_usd": ("estimated_cost_usd", "total_cost_usd", "total_cost"),
 }
 
@@ -2289,8 +2289,9 @@ def _get_run_details(run: dict) -> dict:
                     local_path = f"./scripts/{subdir.name}/"
                     break
 
-    usage = run.get("usage", {})
-    cost = usage.get("total_cost", usage.get("cost"))
+    # The engines record estimated_cost_usd; OpenCode runs and older entries carry cost or total_cost.
+    usage = run.get("usage") or {}
+    cost = next((usage[key] for key in ("estimated_cost_usd", "total_cost", "cost") if usage.get(key) is not None), None)
 
     return {
         "run_id": run_id,
