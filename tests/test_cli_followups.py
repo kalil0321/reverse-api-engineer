@@ -219,10 +219,14 @@ class TestEngineerCommandJson:
 def test_auto_capture_records_selected_sdk_in_history(tmp_path, resuming):
     from reverse_api.cli import run_auto_capture
 
+    expected_mcp_run_id = "codex-run-1234" if resuming else "codex-run"
+    expected_har = tmp_path / "har" / expected_mcp_run_id / "recording.har"
+
     class FakeCodexAutoEngineer:
         def __init__(self, **_kwargs):
             self.cost_before = None
             self.mcp_run_id = "codex-run"
+            self.har_path = tmp_path / "har" / "codex-run" / "recording.har"
 
         def start_sync(self):
             pass
@@ -231,7 +235,12 @@ def test_auto_capture_records_selected_sdk_in_history(tmp_path, resuming):
             pass
 
         async def analyze_and_generate(self):
-            return {"script_path": str(tmp_path / "api_client.py"), "har_path": str(tmp_path / "resumed" / "recording.har"), "usage": {}}
+            assert self.mcp_run_id == expected_mcp_run_id
+            assert self.har_path == expected_har
+            if resuming:
+                assert self.mcp_run_id != "codex-run"
+                assert self.har_path.parent != tmp_path / "har" / "codex-run"
+            return {"script_path": str(tmp_path / "api_client.py"), "har_path": str(self.har_path), "usage": {}}
 
     config = {
         "sdk": "codex",
@@ -244,7 +253,8 @@ def test_auto_capture_records_selected_sdk_in_history(tmp_path, resuming):
         patch("reverse_api.cli.session_manager") as sessions,
         patch("reverse_api.cli.generate_run_id", return_value="codex-run"),
         patch("reverse_api.cli.get_timestamp", return_value="2026-11-02T00:00:00"),
-        patch("reverse_api.cli.get_har_dir", return_value=tmp_path / "har" / "codex-run"),
+        patch("reverse_api.cli.get_har_dir", side_effect=lambda run_id, output_dir: tmp_path / "har" / run_id),
+        patch("reverse_api.cli.time.time", return_value=1234),
         patch("reverse_api.codex_engineer.CodexAutoEngineer", side_effect=FakeCodexAutoEngineer),
         patch("reverse_api.cli._keep_session_cost"),
     ):
@@ -263,8 +273,8 @@ def test_auto_capture_records_selected_sdk_in_history(tmp_path, resuming):
         sessions.add_run.assert_called_once()
         assert sessions.add_run.call_args.kwargs["sdk"] == "codex"
     paths = sessions.update_run.call_args.kwargs["paths"]
-    assert paths["har_path"] == str(tmp_path / "resumed" / "recording.har")
-    assert paths["har_dir"] == str(tmp_path / "resumed")
+    assert paths["har_path"] == str(expected_har)
+    assert paths["har_dir"] == str(expected_har.parent)
 
 
 def test_engineer_uses_recorded_resumed_har_path(tmp_path):

@@ -38,4 +38,4 @@ The user can also change them interactively by running `reverse-api-engineer` an
 
 Language notes: C needs a POSIX toolchain with libcurl headers. PowerShell needs `pwsh` 7+.
 
-For Codex, model selection uses codex_model, then the per-run model, then gpt-6-luna. Empty or default selections also resolve to gpt-6-luna; they do not select the Codex CLI configured default. Choosing Codex in /settings also selects the required auto browser provider.
+For Codex agent runs, model selection uses the per-run --model override, then codex_model, then gpt-6-luna. A selected value of default also resolves to gpt-6-luna rather than the Codex CLI configured default. Choosing Codex in /settings also selects the required auto browser provider.
