@@ -232,6 +232,7 @@ class TestListAndShowCost:
             ({"estimated_cost_usd": 0.0}, 0.0),
             ({"cost": 0.13}, 0.13),
             ({"total_cost": 0.07}, 0.07),
+            ({"estimated_cost_usd": 0.42, "total_cost": 0.07, "cost": 0.13}, 0.42),
             ({}, None),
         ],
     )
@@ -247,6 +248,18 @@ class TestListAndShowCost:
         assert listed.exit_code == 0 and shown.exit_code == 0
         assert json.loads(listed.stdout)[0]["cost"] == cost
         assert json.loads(shown.stdout)["cost"] == cost
+
+    def test_the_tables_print_the_cost(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        run = {"run_id": "r1", "prompt": "jobs", "mode": "agent", "usage": {"estimated_cost_usd": 0.42}}
+        runner = CliRunner()
+        with patch("reverse_api.cli.session_manager") as sm:
+            sm.history = [run]
+            sm.get_run.return_value = run
+            listed = runner.invoke(list_runs, ["--full"])
+            shown = runner.invoke(show_run, ["r1"])
+        assert "$0.42" in listed.output
+        assert "$0.42" in shown.output
 
     @pytest.mark.parametrize(
         "usage",
