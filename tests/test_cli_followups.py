@@ -288,6 +288,14 @@ class TestSchemaV2Normalization:
         assert out["total_cost_usd"] == 0.42
         assert out["cache_read_tokens"] == 5
 
+    def test_normalize_usage_opencode_keys(self):
+        from reverse_api.cli import _normalize_usage
+
+        out = _normalize_usage({"cache_creation_tokens": 50, "cache_read_tokens": 100, "cost": 0.15, "estimated_cost_usd": 0.15})
+        assert out["cache_write_tokens"] == 50
+        assert out["cache_read_tokens"] == 100
+        assert out["total_cost_usd"] == 0.15
+
     def test_normalize_usage_empty(self):
         from reverse_api.cli import _normalize_usage
 

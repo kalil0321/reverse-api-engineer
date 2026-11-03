@@ -736,11 +736,14 @@ class OpenCodeEngineer(BaseEngineer):
             cache_read = cache.get("read", 0)
             cache_write = cache.get("write", 0)
 
-            if api_cost == 0 and (input_tokens > 0 or output_tokens > 0):
-                from .pricing import calculate_cost
+            # A zero API cost is estimated only for a model with known prices: free models
+            # (opencode/big-pickle) and local Ollama ones really cost nothing.
+            from .pricing import calculate_cost, get_model_pricing
 
+            model_id = self.MODEL_MAP.get(self.opencode_model, self.opencode_model)
+            if api_cost == 0 and (input_tokens > 0 or output_tokens > 0) and get_model_pricing(model_id) is not None:
                 calculated_cost = calculate_cost(
-                    model_id=self.opencode_model,
+                    model_id=model_id,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
                     cache_creation_tokens=cache_write,
@@ -758,6 +761,8 @@ class OpenCodeEngineer(BaseEngineer):
             self.usage_metadata["cache_read_tokens"] = self.usage_metadata.get("cache_read_tokens", 0) + cache_read
             self.usage_metadata["cache_creation_tokens"] = self.usage_metadata.get("cache_creation_tokens", 0) + cache_write
             self.usage_metadata["cost"] = self.usage_metadata.get("cost", 0) + cost
+            # The key the other engines use: --json usage, /history and /resume read it.
+            self.usage_metadata["estimated_cost_usd"] = self.usage_metadata["cost"]
 
         else:
             # Log unhandled part types for debugging
