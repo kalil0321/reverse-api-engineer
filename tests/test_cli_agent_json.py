@@ -35,6 +35,18 @@ EXPECTED_PAYLOAD_KEYS = {
 class TestBuildAgentPayload:
     """Stable shape for the `agent --json` payload."""
 
+    def test_resumed_har_path_takes_precedence_over_original_capture(self, tmp_path):
+        original = tmp_path / "har" / "abc123" / "recording.har"
+        resumed = tmp_path / "har" / "abc123-resumed" / "recording.har"
+        for path in (original, resumed):
+            path.parent.mkdir(parents=True)
+            path.write_text("{}")
+        with patch("reverse_api.cli.get_har_dir", return_value=original.parent):
+            payload = _build_agent_payload(
+                {"run_id": "abc123", "har_path": str(resumed)}, prompt="x", url=None
+            )
+        assert payload["har_path"] == str(resumed)
+
     def test_success_shape(self, tmp_path):
         client = tmp_path / "scripts" / "api_client.py"
         client.parent.mkdir()
@@ -140,6 +152,15 @@ class TestBuildAgentPayload:
 class TestAgentCommandJson:
     """`agent` click command's --json / --no-interactive behavior."""
 
+    def test_codex_model_override_reaches_capture(self):
+        with (
+            patch("reverse_api.cli.config_manager.get", side_effect=lambda key, default=None: {"sdk": "codex"}.get(key, default)),
+            patch("reverse_api.cli.run_agent_capture", return_value={"run_id": "codex-run"}) as capture,
+        ):
+            result = CliRunner().invoke(agent, ["--json", "-p", "capture weather", "--model", "gpt-6-luna"])
+        assert result.exit_code == 0, result.output
+        assert capture.call_args.kwargs["model"] == "gpt-6-luna"
+
     def test_json_without_prompt_exits_2(self):
         runner = CliRunner()
         result = runner.invoke(agent, ["--json"])
@@ -220,6 +241,30 @@ class TestShowJsonNotFound:
         assert payload["error_kind"] == "engine_failure"
         assert "error" in payload
         assert payload["run_id"] == "doesnotexist"
+
+    def test_show_json_maps_codex_usage_aliases(self, tmp_path):
+        run = {
+            "run_id": "codex123",
+            "prompt": "capture a public page",
+            "mode": "auto",
+            "model": "gpt-6-luna",
+            "sdk": "codex",
+            "usage": {"input_tokens": 100, "output_tokens": 8, "cache_read_tokens": 64},
+            "paths": {},
+        }
+        with (
+            patch("reverse_api.cli.session_manager") as sm,
+            patch("reverse_api.cli.config_manager") as cm,
+            patch("reverse_api.cli.get_base_output_dir", return_value=tmp_path),
+        ):
+            sm.get_run.return_value = run
+            cm.get.return_value = None
+            result = CliRunner().invoke(show_run, ["codex123", "--json"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout.strip())
+        assert payload["sdk"] == "codex"
+        assert payload["cache_read_input_tokens"] == 64
 
 
 # ---------------------------------------------------------------------------

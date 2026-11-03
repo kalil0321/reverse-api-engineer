@@ -49,6 +49,8 @@ This validates the prompt, URL, config and environment without opening a browser
 
 `would_run.agent_provider` in the output is the browser the run will use. `chrome-mcp` means the user's own Chrome with their logins; `auto` and `agent-browser` start a fresh browser without them. When the task needs the user's login and the provider is not `chrome-mcp`, ask before switching it (see [sessions](references/sessions.md)).
 
+The `codex` SDK reuses the local Codex CLI login. In the current RAE adapter, Codex agent capture requires `agent_provider: "auto"` so Playwright MCP records the HAR; it does not support `chrome-mcp` or `agent-browser` capture. `agent --dry-run` reports Codex login and browser-provider checks before opening a browser.
+
 For `chrome-mcp`, the `chrome-mcp:auto-connect` check covers the connection to the user's Chrome:
 
 - `ok`: Chrome is reachable. The user still has to accept Chrome's connection prompt when the run starts.

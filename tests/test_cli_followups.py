@@ -215,6 +215,125 @@ class TestEngineerCommandJson:
         assert result.exit_code == 0, result.output
 
 
+@pytest.mark.parametrize("resuming", [False, True])
+def test_auto_capture_records_selected_sdk_in_history(tmp_path, resuming):
+    from reverse_api.cli import run_auto_capture
+
+    expected_mcp_run_id = "codex-run-1234" if resuming else "codex-run"
+    expected_har = tmp_path / "har" / expected_mcp_run_id / "recording.har"
+
+    class FakeCodexAutoEngineer:
+        def __init__(self, **_kwargs):
+            self.cost_before = None
+            self.mcp_run_id = "codex-run"
+            self.har_path = tmp_path / "har" / "codex-run" / "recording.har"
+
+        def start_sync(self):
+            pass
+
+        def stop_sync(self):
+            pass
+
+        async def analyze_and_generate(self):
+            assert self.mcp_run_id == expected_mcp_run_id
+            assert self.har_path == expected_har
+            if resuming:
+                assert self.mcp_run_id != "codex-run"
+                assert self.har_path.parent != tmp_path / "har" / "codex-run"
+            return {"script_path": str(tmp_path / "api_client.py"), "har_path": str(self.har_path), "usage": {}}
+
+    config = {
+        "sdk": "codex",
+        "codex_model": "gpt-6-luna",
+        "output_language": "python",
+        "real_time_sync": False,
+    }
+    with (
+        patch("reverse_api.cli.config_manager.get", side_effect=lambda key, default=None: config.get(key, default)),
+        patch("reverse_api.cli.session_manager") as sessions,
+        patch("reverse_api.cli.generate_run_id", return_value="codex-run"),
+        patch("reverse_api.cli.get_timestamp", return_value="2026-11-02T00:00:00"),
+        patch("reverse_api.cli.get_har_dir", side_effect=lambda run_id, output_dir: tmp_path / "har" / run_id),
+        patch("reverse_api.cli.time.time", return_value=1234),
+        patch("reverse_api.codex_engineer.CodexAutoEngineer", side_effect=FakeCodexAutoEngineer),
+        patch("reverse_api.cli._keep_session_cost"),
+    ):
+        result = run_auto_capture(
+            prompt="capture a public page",
+            url="https://example.com",
+            agent_provider="auto",
+            interactive=False,
+            resume={"run_id": "codex-run", "sdk_session": {"id": "saved-session", "sdk": "codex"}} if resuming else None,
+        )
+
+    assert result["run_id"] == "codex-run"
+    if resuming:
+        sessions.add_run.assert_not_called()
+    else:
+        sessions.add_run.assert_called_once()
+        assert sessions.add_run.call_args.kwargs["sdk"] == "codex"
+    paths = sessions.update_run.call_args.kwargs["paths"]
+    assert paths["har_path"] == str(expected_har)
+    assert paths["har_dir"] == str(expected_har.parent)
+
+
+def test_engineer_uses_recorded_resumed_har_path(tmp_path):
+    from reverse_api.cli import run_engineer
+
+    resumed_har = tmp_path / "resumed" / "recording.har"
+    resumed_har.parent.mkdir()
+    resumed_har.write_text("{}")
+    saved = {
+        "run_id": "codex-run",
+        "prompt": "capture weather",
+        "paths": {"har_dir": str(tmp_path / "original"), "har_path": str(resumed_har)},
+    }
+    with (
+        patch("reverse_api.cli.session_manager") as sessions,
+        patch("reverse_api.cli.config_manager.get", side_effect=lambda key, default=None: {"sdk": "codex"}.get(key, default)),
+        patch("reverse_api.cli.run_reverse_engineering", return_value=None) as generate,
+    ):
+        sessions.get_run.return_value = saved
+        run_engineer("codex-run", interactive=False)
+    assert generate.call_args.kwargs["har_path"] == resumed_har
+
+
+def test_resumed_codex_capture_keeps_relative_output_har_absolute(tmp_path, monkeypatch):
+    from reverse_api.cli import run_auto_capture
+    from reverse_api.codex_engineer import CodexAutoEngineer
+
+    monkeypatch.chdir(tmp_path)
+    expected = tmp_path / "runs" / "har" / "codex-run-1234" / "recording.har"
+    observed = []
+
+    async def capture(engineer):
+        observed.append(engineer.har_path)
+        assert engineer.har_path == expected
+        assert str(expected) in engineer._get_active_prompts()[1]
+        return {"har_path": str(engineer.har_path), "usage": {}}
+
+    with (
+        patch(
+            "reverse_api.cli.config_manager.get",
+            side_effect=lambda key, default=None: {"sdk": "codex", "real_time_sync": False}.get(key, default),
+        ),
+        patch("reverse_api.cli.session_manager"),
+        patch("reverse_api.cli.time.time", return_value=1234),
+        patch("reverse_api.cli._keep_session_cost"),
+        patch.object(CodexAutoEngineer, "analyze_and_generate", capture),
+    ):
+        result = run_auto_capture(
+            prompt="capture weather",
+            output_dir="runs",
+            agent_provider="auto",
+            interactive=False,
+            resume={"run_id": "codex-run", "sdk_session": {"id": "saved-session", "sdk": "codex"}},
+        )
+
+    assert observed == [expected]
+    assert result["har_path"] == str(expected)
+
+
 class TestEngineerJsonMissingRunId:
     """`engineer --json` without RUN_ID must emit a JSON misuse payload, not
     Click's plain-text 'missing argument' error.
@@ -622,6 +741,49 @@ class TestAgentDryRun:
         payload = json.loads(result.stdout.strip())
         assert payload["would_run"]["sdk"] == "cursor"
         assert payload["would_run"]["model"] == "composer-2-custom"
+
+    def test_dry_run_codex_uses_cli_auth_and_default_model(self, tmp_path):
+        from reverse_api.cli import agent as agent_cmd
+
+        runner = CliRunner()
+        with (
+            patch("reverse_api.cli.config_manager") as cm,
+            patch("reverse_api.codex_engineer.codex_login_status", return_value=(True, "Codex CLI authenticated")),
+        ):
+            cm.get.side_effect = lambda key, default=None: {
+                "agent_provider": "auto",
+                "sdk": "codex",
+                "codex_model": None,
+                "output_dir": str(tmp_path),
+            }.get(key, default)
+            result = runner.invoke(agent_cmd, ["--dry-run", "-p", "capture", "-u", "https://openrouter.ai/rankings"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout.strip())
+        assert payload["status"] == "ok"
+        assert payload["would_run"]["sdk"] == "codex"
+        assert payload["would_run"]["model"] == "gpt-6-luna"
+        assert {"name": "sdk:codex", "status": "ok", "message": "Codex CLI authenticated"} in payload["checks"]
+
+    def test_dry_run_codex_requires_har_preserving_browser_provider(self, tmp_path):
+        from reverse_api.cli import agent as agent_cmd
+
+        runner = CliRunner()
+        with (
+            patch("reverse_api.cli.config_manager") as cm,
+            patch("reverse_api.codex_engineer.codex_login_status", return_value=(True, "Codex CLI authenticated")),
+        ):
+            cm.get.side_effect = lambda key, default=None: {
+                "agent_provider": "chrome-mcp",
+                "sdk": "codex",
+                "output_dir": str(tmp_path),
+            }.get(key, default)
+            result = runner.invoke(agent_cmd, ["--dry-run", "-p", "capture"])
+
+        assert result.exit_code == 1, result.output
+        payload = json.loads(result.stdout.strip())
+        assert payload["status"] == "error"
+        assert any(check["name"] == "sdk:codex:browser" and check["status"] == "error" for check in payload["checks"])
 
 
 class TestRootHelpMentionsScripted:

@@ -119,6 +119,7 @@ Settings live in `~/.reverse-api/config.json` and can be edited via `/settings` 
   "opencode_provider": "opencode",
   "copilot_model": "gpt-5",
   "cursor_model": "composer-2.5",
+  "codex_model": null,
   "output_dir": null,
   "output_language": "python",
   "real_time_sync": true,
@@ -127,7 +128,8 @@ Settings live in `~/.reverse-api/config.json` and can be edited via `/settings` 
 ```
 
 - **Models**: Sonnet 5.5, Opus 5.5 (most capable), Opus 4.6 and Haiku 5.5 (fastest). Sonnet 4.6 stays the default until you choose another; it and Haiku 4.5 are still accepted in config and by `--model`. For OpenCode see [models.dev](https://models.dev).
-- **SDK**: `claude` (default), `opencode`, `cursor`, or `copilot` (GitHub Copilot).
+- **SDK**: `claude` (default), `opencode`, `cursor`, `copilot` (GitHub Copilot), or `codex`.
+- **Codex SDK**: `sdk: "codex"` reuses the local Codex CLI login. On Windows, it prefers the Codex Desktop-bundled CLI and falls back to `codex` on `PATH`. `codex_model` is optional; RAE defaults to `gpt-6-luna`. Codex browser capture currently requires `agent_provider: "auto"`, which provides Playwright MCP and a HAR. The adapter supplies per-run MCP configuration and does not edit the global Codex config.
 - **Claude settings isolation**: Claude sessions don't load your Claude Code settings files, `CLAUDE.md`, hooks, plugins, permission rules or MCP servers, so your personal setup doesn't steer the agent. Organization-managed policy still applies, and Claude Code still reads its own state such as `~/.claude.json` and auto memory. If `~/.claude/settings.json` provides your authentication (`apiKeyHelper`, or Bedrock, Vertex or proxy variables under `env`), set `claude_setting_sources` to the layers to load, e.g. `["user"]` or `["user", "project", "local"]`. Each layer you list is loaded in full, including its hooks, plugins, permission rules and MCP servers.
 - **OpenCode setup**: with `sdk: "opencode"`, RAE reuses an existing server or downloads/starts `opencode-ai@latest` through `npx`; a global OpenCode installation is not required. Fresh configurations default to the free `opencode/big-pickle` model. `/settings` shows a loading spinner, then offers a searchable **OpenCode Provider / Model** picker populated from the server's connected, tool-capable catalog and marks free OpenCode options. Before creating a session, RAE validates the saved pair again and suggests currently available free models when configuration is invalid. Compatible older servers are reused with a version warning. Node.js 20+ is required for automatic startup. Password-protected servers use `OPENCODE_SERVER_PASSWORD` and optional `OPENCODE_SERVER_USERNAME`. Override startup with `OPENCODE_BASE_URL`, `RAE_OPENCODE_PACKAGE`, or `RAE_OPENCODE_AUTO_START=0`.
 - **Ollama through OpenCode**: choose provider `ollama` in `/settings`; RAE starts an installed Ollama daemon if needed, lists only installed models with tool calling and 64k+ context, and supplies OpenCode's provider config inline. Models are never downloaded silently. Override with `RAE_OLLAMA_BASE_URL` or `RAE_OLLAMA_AUTO_START=0`.

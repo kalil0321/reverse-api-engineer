@@ -120,6 +120,11 @@ class ModelChoice(click.Choice):
     def get_metavar(self, *args: Any, **kwargs: Any) -> str:
         return "[" + "|".join(self.current) + "]"
 
+    def convert(self, value: Any, param: click.Parameter | None, ctx: click.Context | None) -> Any:
+        if ctx is not None and ctx.command.name in {"agent", "engineer"} and config_manager.get("sdk", "claude") == "codex":
+            return click.STRING.convert(value, param, ctx)
+        return super().convert(value, param, ctx)
+
 
 def default_model_for_configured_sdk(sdk: str | None = None) -> str:
     """Return the configured default model id for the given SDK (or current config SDK)."""
@@ -130,6 +135,8 @@ def default_model_for_configured_sdk(sdk: str | None = None) -> str:
         return str(config_manager.get("copilot_model") or "gpt-5")
     if s == "cursor":
         return str(config_manager.get("cursor_model") or "composer-2.5")
+    if s == "codex":
+        return str(config_manager.get("codex_model") or "gpt-6-luna")
     return str(config_manager.get("claude_code_model") or "claude-sonnet-4-6")
 
 
@@ -453,11 +460,26 @@ def _build_dry_run_payload(
         "copilot": "GITHUB_COPILOT_TOKEN",
         "cursor": "CURSOR_API_KEY",
     }.get(sdk)
-    if sdk_env_var is None:
+    if sdk == "codex":
+        from .codex_engineer import codex_login_status
+
+        codex_ok, codex_message = codex_login_status()
+        checks.append({
+            "name": "sdk:codex",
+            "status": "ok" if codex_ok else "error",
+            "message": codex_message,
+        })
+        if agent_provider != "auto":
+            checks.append({
+                "name": "sdk:codex:browser",
+                "status": "error",
+                "message": "Codex agent capture requires agent_provider='auto' to save a Playwright HAR",
+            })
+    elif sdk_env_var is None:
         checks.append({
             "name": "sdk",
             "status": "error",
-            "message": f"unknown sdk {sdk!r}; expected 'claude', 'opencode', 'copilot', or 'cursor'",
+            "message": f"unknown sdk {sdk!r}; expected 'claude', 'opencode', 'copilot', 'cursor', or 'codex'",
         })
     elif not os.environ.get(sdk_env_var):
         checks.append({
@@ -582,14 +604,16 @@ def _build_dry_run_payload(
         "opencode": "opencode_model",
         "copilot": "copilot_model",
         "cursor": "cursor_model",
+        "codex": "codex_model",
     }.get(sdk, "claude_code_model")
     sdk_default_model = {
         "claude": "claude-sonnet-4-6",
         "opencode": "claude-opus-4-6",
         "copilot": "gpt-5",
         "cursor": "composer-2.5",
+        "codex": "gpt-6-luna",
     }.get(sdk, "claude-sonnet-4-6")
-    resolved_model = model or config_manager.get(sdk_model_key, sdk_default_model)
+    resolved_model = model or config_manager.get(sdk_model_key) or sdk_default_model
 
     return {
         "schema_version": AGENT_JSON_SCHEMA_VERSION,
@@ -650,7 +674,7 @@ def _build_agent_payload(
         error_kind = result["error_kind"]
     har_path = None
     if run_id:
-        candidate = get_har_dir(run_id, output_dir) / "recording.har"
+        candidate = Path(result["har_path"]) if result.get("har_path") else get_har_dir(run_id, output_dir) / "recording.har"
         har_path = str(candidate) if candidate.exists() else None
     return {
         "schema_version": AGENT_JSON_SCHEMA_VERSION,
@@ -855,6 +879,7 @@ def _handle_settings_action(mode_color: str = THEME_PRIMARY) -> bool:  # noqa: C
     choices = [
         Choice(title="Agent Provider", value="agent_provider"),
         Choice(title="Claude Code Model", value="claude_code_model"),
+        Choice(title="Codex Model", value="codex_model"),
         Choice(title="Copilot Model", value="copilot_model"),
         Choice(title="Cursor Model", value="cursor_model"),
         Choice(title="Cursor Web Search", value="cursor_web_search"),
@@ -906,6 +931,7 @@ def _handle_settings_action(mode_color: str = THEME_PRIMARY) -> bool:  # noqa: C
     elif action == "sdk":
         sdk_choices = [
             Choice(title="claude", value="claude"),
+            Choice(title="codex", value="codex"),
             Choice(title="copilot", value="copilot"),
             Choice(title="cursor", value="cursor"),
             Choice(title="opencode", value="opencode"),
@@ -924,8 +950,23 @@ def _handle_settings_action(mode_color: str = THEME_PRIMARY) -> bool:  # noqa: C
             ),
         ).ask()
         if sdk and sdk != "back":
-            config_manager.set("sdk", sdk)
+            if sdk == "codex":
+                config_manager.update({"sdk": sdk, "agent_provider": "auto"})
+                console.print(" [dim]Codex capture uses a fresh Playwright browser (agent_provider: auto)[/dim]")
+            else:
+                config_manager.set("sdk", sdk)
             console.print(f" [dim]updated[/dim] sdk: {sdk}\n")
+
+    elif action == "codex_model":
+        current = str(config_manager.get("codex_model") or "")
+        model = questionary.text(
+            "Codex model (blank uses GPT-6 Luna)",
+            default=current,
+        ).ask()
+        if model is not None:
+            selected = model.strip() or None
+            config_manager.set("codex_model", selected)
+            console.print(f" [dim]updated[/dim] codex model: {selected or 'gpt-6-luna'}\n")
 
     elif action == "output_language":
         lang_choices = [
@@ -1524,7 +1565,7 @@ def _session_browser_note(agent_provider: str, headless: bool) -> str | None:
     return None
 
 
-def run_auto_capture(
+def run_auto_capture(  # noqa: C901 - SDK/provider/session lifecycle dispatch
     prompt: str | None = None,
     url: str | None = None,
     model: str | None = None,
@@ -1619,16 +1660,32 @@ def run_auto_capture(
             url=url,
             model=model,
             mode=mode_label,
+            sdk=sdk,
             paths={"har_dir": str(get_har_dir(run_id, output_dir))},
         )
 
     try:
         output_language = config_manager.get("output_language", "python")
         from .auto_engineer import ClaudeAutoEngineer, CopilotAutoEngineer, OpenCodeAutoEngineer
+        from .codex_engineer import CodexAutoEngineer
         from .cursor_engineer import CursorAutoEngineer
 
-        engineer: ClaudeAutoEngineer | CopilotAutoEngineer | OpenCodeAutoEngineer | CursorAutoEngineer
-        if sdk == "opencode":
+        engineer: ClaudeAutoEngineer | CopilotAutoEngineer | OpenCodeAutoEngineer | CursorAutoEngineer | CodexAutoEngineer
+        if sdk == "codex":
+            engineer = CodexAutoEngineer(
+                run_id=run_id,
+                prompt=prompt,
+                codex_model=model or config_manager.get("codex_model", "default"),
+                output_dir=output_dir,
+                agent_provider=agent_provider,
+                enable_sync=config_manager.get("real_time_sync", False),
+                sdk=sdk,
+                output_language=output_language,
+                interactive=interactive,
+                headless=headless,
+                start_url=url,
+            )
+        elif sdk == "opencode":
             from .auto_engineer import OpenCodeAutoEngineer
 
             engineer = OpenCodeAutoEngineer(
@@ -1704,7 +1761,10 @@ def run_auto_capture(
         if resume:
             core.resume_session, core.cost_before = _resume_point(resume)
             # A new browser stretch records its own HAR instead of replacing the run's capture.
-            engineer.mcp_run_id = f"{run_id}-{int(time.time())}"
+            if hasattr(engineer, "mcp_run_id"):
+                engineer.mcp_run_id = f"{run_id}-{int(time.time())}"
+            if sdk == "codex":
+                engineer.har_path = (get_har_dir(engineer.mcp_run_id, output_dir) / "recording.har").resolve()
 
         if json_event_sink is not None:
             from .json_stream import attach_json_stream_to_engineer
@@ -1743,10 +1803,13 @@ def run_auto_capture(
         # Update session with results
         if result:
             usage = result.get("usage", {})
+            paths = {"script_path": result.get("script_path")}
+            if result.get("har_path"):
+                paths.update(har_path=str(result["har_path"]), har_dir=str(Path(result["har_path"]).parent))
             session_manager.update_run(
                 run_id=run_id,
                 usage=_run_totals(resume.get("usage") or {}, usage) if resume else usage,
-                paths={"script_path": result.get("script_path")},
+                paths=paths,
             )
             _keep_session_cost(run_id, core.cost_before, usage)
 
@@ -1755,6 +1818,15 @@ def run_auto_capture(
             "mode": mode_label,
             "script_path": (result or {}).get("script_path"),
             "usage": (result or {}).get("usage", {}),
+            **(
+                {
+                    "har_path": (result or {}).get("har_path"),
+                    "har_entries": (result or {}).get("har_entries", 0),
+                    "mcp_tool_calls": (result or {}).get("mcp_tool_calls", []),
+                }
+                if sdk == "codex"
+                else {}
+            ),
             **(
                 {"error": "interrupted"}
                 if interrupted
@@ -2010,7 +2082,7 @@ def run_engineer(
             # Detect where it was saved
             paths = run_data.get("paths", {})
             har_dir = Path(paths.get("har_dir", get_har_dir(run_id, None)))
-            har_path = har_dir / "recording.har"
+            har_path = Path(paths["har_path"]) if paths.get("har_path") else har_dir / "recording.har"
             if not har_path.exists() and not resume:
                 if run_data.get("mode") == "chrome-mcp":
                     message = (
@@ -2032,6 +2104,7 @@ def run_engineer(
         "opencode": resume_model or config_manager.get("opencode_model", DEFAULT_OPENCODE_MODEL),
         "copilot": resume_model or config_manager.get("copilot_model", "gpt-5"),
         "cursor": model or config_manager.get("cursor_model", "composer-2.5"),
+        "codex": resume_model or model or config_manager.get("codex_model") or "gpt-6-luna",
     }.get(sdk) or model or config_manager.get("claude_code_model", "claude-sonnet-4-6")
     on_session = _session_recorder(run_id, "engineer", sdk, session_model, output_dir, output_mode)
 
@@ -2090,6 +2163,26 @@ def run_engineer(
             cursor_model=_cm,
             cursor_web_search=bool(config_manager.get("cursor_web_search", True)),
             cursor_setting_sources=_cursor_src,
+            enable_sync=enable_sync,
+            additional_instructions=additional_instructions,
+            is_fresh=is_fresh,
+            output_language=output_language,
+            output_mode=output_mode,
+            interactive=interactive,
+            json_event_sink=json_event_sink,
+            resume_session=resume_session,
+            cost_before=cost_before,
+            on_session=on_session,
+        )
+    elif sdk == "codex":
+        result = run_reverse_engineering(
+            run_id=run_id,
+            har_path=har_path,
+            prompt=prompt,
+            model=session_model,
+            codex_model=session_model,
+            output_dir=output_dir,
+            sdk=sdk,
             enable_sync=enable_sync,
             additional_instructions=additional_instructions,
             is_fresh=is_fresh,
@@ -2456,8 +2549,12 @@ def show_run(run_id: str | None, as_json: bool) -> None:
     usage = run.get("usage", {})
     details["input_tokens"] = usage.get("input_tokens", 0)
     details["output_tokens"] = usage.get("output_tokens", 0)
-    details["cache_creation_input_tokens"] = usage.get("cache_creation_input_tokens", 0)
-    details["cache_read_input_tokens"] = usage.get("cache_read_input_tokens", 0)
+    details["cache_creation_input_tokens"] = usage.get(
+        "cache_creation_input_tokens", usage.get("cache_write_tokens", usage.get("cache_creation_tokens", 0))
+    )
+    details["cache_read_input_tokens"] = usage.get(
+        "cache_read_input_tokens", usage.get("cache_read_tokens", 0)
+    )
 
     # Artifact paths with existence
     har_dir = base_dir / "har" / rid
