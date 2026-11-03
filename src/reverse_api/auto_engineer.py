@@ -38,6 +38,7 @@ from .agent_browser import (
     print_agent_browser_setup_notices,
 )
 from .chrome_mcp import CHROME_DEVTOOLS_MCP_PACKAGE
+from .config import PLAYWRIGHT_MCP_PACKAGE
 from .engineer import ClaudeEngineer
 from .opencode_engineer import OpenCodeEngineer, debug_log, format_error
 from .repl.bridge import stream_options
@@ -206,7 +207,7 @@ class ClaudeAutoEngineer(ClaudeEngineer):
                 "args": args,
             }
         playwright_args = [
-            "rae-playwright-mcp@latest",
+            PLAYWRIGHT_MCP_PACKAGE,
             "run-mcp-server",
             "--run-id",
             self.mcp_run_id,
@@ -357,7 +358,7 @@ class ClaudeAutoEngineer(ClaudeEngineer):
                         "via agent_browser_npx_package / RAE_AGENT_BROWSER_PACKAGE, and rerun `reverse-api-engineer`.[/dim]"
                     )
                 else:
-                    self.ui.console.print("\n[dim]Make sure rae-playwright-mcp is installed: npm install -g rae-playwright-mcp[/dim]")
+                    self.ui.console.print(f"\n[dim]Make sure the Playwright MCP is available: npx {PLAYWRIGHT_MCP_PACKAGE}[/dim]")
             else:
                 self.ui.console.print("\n[dim]Make sure Claude Code CLI is installed: npm install -g @anthropic-ai/claude-code[/dim]")
             return None
@@ -423,7 +424,7 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
         cmd = [
             "npx",
             "-y",
-            "rae-playwright-mcp@latest",
+            PLAYWRIGHT_MCP_PACKAGE,
             "run-mcp-server",
             "--run-id",
             self.mcp_run_id,
@@ -711,7 +712,7 @@ class CopilotAutoEngineer:
             else:
                 pw_args = [
                     "-y",
-                    "rae-playwright-mcp@latest",
+                    PLAYWRIGHT_MCP_PACKAGE,
                     "run-mcp-server",
                     "--run-id",
                     self.mcp_run_id,

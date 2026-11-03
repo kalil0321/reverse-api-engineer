@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Claude SDK message buffer is raised to 32 MB, so a large screenshot no longer aborts a run.
 
 ### Security
+- Manual capture requires Playwright 1.64.1 or later, which bundles Chromium 156, and the lockfile pins it. Playwright 1.58 bundled Chromium 145, which lacks the fixes for the Chrome vulnerabilities exploited in 2026.
+- Agent runs start `rae-playwright-mcp@0.0.9` instead of whatever `@latest` resolves to, so a new publish of the MCP reaches users only through a rae release.
+- Manual capture's stealth Chromium no longer asks Chrome to turn off Site Isolation (`--disable-features=IsolateOrigins,site-per-process`); a later `--disable-features` flag already overrode that request.
 - Raise security minimums to aiohttp >=3.14.4, certifi >=2026.10.19, multidict >=6.9.1, OpenTelemetry API >=1.45.1, PyJWT >=2.15.0 and urllib3 >=2.8.0, and lock the patched versions. certifi drops the emSign root CAs whose intermediate keys were compromised.
 - Upgrade the Cursor bridge to `@cursor/sdk` 1.0.40 with Zod 4.6.7, fixing a Zod memory-exhaustion issue and removing the vulnerable undici dependency.
 - Upgrade the website to Next.js 16.4.3 to fix remote code execution, server-side request forgery, cache poisoning and denial-of-service vulnerabilities, and refresh Sharp, brace-expansion, source-map-js, undici and Zod to patched versions.

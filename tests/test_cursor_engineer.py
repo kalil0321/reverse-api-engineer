@@ -258,3 +258,13 @@ def test_cursor_reset_clears_started_calls(har_path: Path) -> None:
     eng._cursor_started_calls.add("stale-call-id")
     eng._cursor_reset_stream_buffers()
     assert eng._cursor_started_calls == set()
+
+
+def test_cursor_runs_the_pinned_playwright_mcp() -> None:
+    from types import SimpleNamespace
+
+    from reverse_api.cursor_engineer import CursorAutoEngineer
+
+    eng = SimpleNamespace(agent_provider="auto", headless=True, mcp_run_id="r1")
+    args = CursorAutoEngineer._cursor_mcp_servers(eng)["playwright"]["args"]  # type: ignore[arg-type]
+    assert args[:3] == ["-y", "rae-playwright-mcp@0.0.9", "run-mcp-server"]

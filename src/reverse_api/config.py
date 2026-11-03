@@ -8,6 +8,9 @@ from typing import Any
 DEFAULT_OPENCODE_PROVIDER = "opencode"
 DEFAULT_OPENCODE_MODEL = "big-pickle"
 
+# An exact version: npx resolves @latest on every run, so any new publish would reach users unreviewed.
+PLAYWRIGHT_MCP_PACKAGE = "rae-playwright-mcp@0.0.9"
+
 DEFAULT_CONFIG: dict[str, Any] = {
     "agent_provider": "chrome-mcp",  # "chrome-mcp" | "auto" (Playwright MCP) | "agent-browser"
     "agent_browser_notes": "",  # extra instructions merged into agent-browser prompt / RAE_AGENT_BROWSER_NOTES env

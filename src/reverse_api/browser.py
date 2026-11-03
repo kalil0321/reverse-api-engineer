@@ -334,7 +334,6 @@ class ManualBrowser:
         chrome_args = [
             "--start-maximized",
             "--disable-blink-features=AutomationControlled",
-            "--disable-features=IsolateOrigins,site-per-process",
             "--disable-infobars",
             "--disable-dev-shm-usage",
             "--disable-background-networking",
