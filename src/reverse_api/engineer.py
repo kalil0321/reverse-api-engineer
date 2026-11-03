@@ -434,7 +434,7 @@ def run_reverse_engineering(
         opencode_model: Model ID for OpenCode (e.g., "claude-sonnet-4-6")
         copilot_model: Model ID for Copilot (e.g., "gpt-5")
         cursor_model: Model id for Cursor SDK (e.g., "composer-2.5")
-        codex_model: Optional model id for the local Codex CLI; None uses its configured default.
+        codex_model: Optional Codex model; None falls back to model, then gpt-6-luna.
         cursor_web_search: When True, load extra Cursor setting layers so WebFetch/WebSearch and plugins apply.
         cursor_setting_sources: Optional explicit list (overrides cursor_web_search), e.g. ["project","user","all"].
         enable_sync: Enable real-time file syncing during engineering

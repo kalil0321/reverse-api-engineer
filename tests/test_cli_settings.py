@@ -29,6 +29,35 @@ def test_settings_stays_open_until_back():
     assert action.call_count == 3
 
 
+def test_selecting_codex_sets_compatible_browser_provider():
+    with (
+        patch.object(cli.questionary, "select", side_effect=[_answer("sdk"), _answer("codex")]),
+        patch.object(cli.config_manager, "update") as update,
+        patch.object(cli.config_manager, "set") as set_value,
+    ):
+        assert cli._handle_settings_action("magenta") is True
+    update.assert_called_once_with({"sdk": "codex", "agent_provider": "auto"})
+    set_value.assert_not_called()
+
+
+@pytest.mark.parametrize("command", ["agent", "engineer"])
+@pytest.mark.parametrize("model", ["gpt-6-luna", "custom-codex-model"])
+def test_codex_model_flag_accepts_sdk_model_ids(command, model):
+    import click
+
+    with patch.object(cli.config_manager, "get", return_value="codex"):
+        context = click.Context(getattr(cli, command))
+        assert cli.ModelChoice().convert(model, None, context) == model
+
+
+def test_claude_model_validation_still_rejects_codex_ids():
+    import click
+
+    with patch.object(cli.config_manager, "get", return_value="claude"):
+        with pytest.raises(click.BadParameter):
+            cli.ModelChoice().convert("gpt-6-luna", None, click.Context(cli.agent))
+
+
 def _answer(value):
     question = MagicMock()
     question.ask.return_value = value

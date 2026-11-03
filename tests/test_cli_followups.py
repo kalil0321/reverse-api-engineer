@@ -215,12 +215,14 @@ class TestEngineerCommandJson:
         assert result.exit_code == 0, result.output
 
 
-def test_auto_capture_records_selected_sdk_in_history(tmp_path):
+@pytest.mark.parametrize("resuming", [False, True])
+def test_auto_capture_records_selected_sdk_in_history(tmp_path, resuming):
     from reverse_api.cli import run_auto_capture
 
     class FakeCodexAutoEngineer:
         def __init__(self, **_kwargs):
             self.cost_before = None
+            self.mcp_run_id = "codex-run"
 
         def start_sync(self):
             pass
@@ -229,7 +231,7 @@ def test_auto_capture_records_selected_sdk_in_history(tmp_path):
             pass
 
         async def analyze_and_generate(self):
-            return {"script_path": str(tmp_path / "api_client.py"), "usage": {}}
+            return {"script_path": str(tmp_path / "api_client.py"), "har_path": str(tmp_path / "resumed" / "recording.har"), "usage": {}}
 
     config = {
         "sdk": "codex",
@@ -251,11 +253,39 @@ def test_auto_capture_records_selected_sdk_in_history(tmp_path):
             url="https://example.com",
             agent_provider="auto",
             interactive=False,
+            resume={"run_id": "codex-run", "sdk_session": {"id": "saved-session", "sdk": "codex"}} if resuming else None,
         )
 
     assert result["run_id"] == "codex-run"
-    sessions.add_run.assert_called_once()
-    assert sessions.add_run.call_args.kwargs["sdk"] == "codex"
+    if resuming:
+        sessions.add_run.assert_not_called()
+    else:
+        sessions.add_run.assert_called_once()
+        assert sessions.add_run.call_args.kwargs["sdk"] == "codex"
+    paths = sessions.update_run.call_args.kwargs["paths"]
+    assert paths["har_path"] == str(tmp_path / "resumed" / "recording.har")
+    assert paths["har_dir"] == str(tmp_path / "resumed")
+
+
+def test_engineer_uses_recorded_resumed_har_path(tmp_path):
+    from reverse_api.cli import run_engineer
+
+    resumed_har = tmp_path / "resumed" / "recording.har"
+    resumed_har.parent.mkdir()
+    resumed_har.write_text("{}")
+    saved = {
+        "run_id": "codex-run",
+        "prompt": "capture weather",
+        "paths": {"har_dir": str(tmp_path / "original"), "har_path": str(resumed_har)},
+    }
+    with (
+        patch("reverse_api.cli.session_manager") as sessions,
+        patch("reverse_api.cli.config_manager.get", side_effect=lambda key, default=None: {"sdk": "codex"}.get(key, default)),
+        patch("reverse_api.cli.run_reverse_engineering", return_value=None) as generate,
+    ):
+        sessions.get_run.return_value = saved
+        run_engineer("codex-run", interactive=False)
+    assert generate.call_args.kwargs["har_path"] == resumed_har
 
 
 class TestEngineerJsonMissingRunId:

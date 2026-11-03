@@ -27,7 +27,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Optional override: list of setting source ids, e.g. ["project","user","all"]. None uses cursor_web_search.
     "cursor_setting_sources": None,
     "copilot_model": "gpt-5",  # Model for Copilot SDK sessions
-    "codex_model": None,  # None uses the default model selected by the local Codex CLI
+    "codex_model": None,  # Falls back to the per-run model, then RAE's gpt-6-luna default
     "opencode_model": DEFAULT_OPENCODE_MODEL,
     "opencode_provider": DEFAULT_OPENCODE_PROVIDER,
     "opencode_auto_start": True,

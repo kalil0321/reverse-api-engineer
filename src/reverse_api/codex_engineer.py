@@ -58,7 +58,7 @@ def resolve_codex_command() -> list[str] | None:
 
 
 def _is_codex_desktop_command(command: list[str]) -> bool:
-    """Whether this command is the app-bundled CLI, which supports approval review."""
+    """Identify the Windows Desktop CLI that supports automatic approval review."""
     if sys.platform != "win32" or not command or not os.environ.get("LOCALAPPDATA"):
         return False
     root = (Path(os.environ["LOCALAPPDATA"]) / "OpenAI" / "Codex" / "bin").resolve()
@@ -108,6 +108,12 @@ class CodexEngineer(BaseEngineer):
         kwargs["model"] = configured_model
         kwargs["sdk"] = "codex"
         super().__init__(*args, **kwargs)
+        # Prompts and the browser subprocess run inside the output workspace,
+        # so relative paths from the caller must not be interpreted there again.
+        self.scripts_dir = self.scripts_dir.resolve()
+        self.har_path = self.har_path.resolve()
+        if self.existing_client_path is not None:
+            self.existing_client_path = self.existing_client_path.resolve()
         self.codex_model = configured_model
         self._active_codex_tools: dict[str, str] = {}
         self._mcp_tool_calls: list[str] = []
@@ -136,13 +142,11 @@ class CodexEngineer(BaseEngineer):
             raise RuntimeError("Codex CLI not found in PATH")
 
         args = [*command, "exec"]
-        if self.resume_session:
-            args.extend(["resume", self.resume_session])
         args.extend(["--json", "--ignore-user-config"])
         if _is_codex_desktop_command(command):
-            # This CLI mode routes requests through Codex's automatic reviewer
-            # and includes the workspace-write sandbox; it replaces --sandbox.
-            args.append("--approve-for-me")
+            # Keep Desktop's approval reviewer; the --sandbox flag conflicts
+            # with this mode, so select workspace scope through TOML instead.
+            args.extend(["--approve-for-me", "--config", 'sandbox_mode="workspace-write"'])
         else:
             args.extend(["--sandbox", "workspace-write"])
         args.extend(["--cd", str(self._workspace_cwd()), "--skip-git-repo-check"])
@@ -150,6 +154,9 @@ class CodexEngineer(BaseEngineer):
             args.extend(["--model", self.codex_model])
         if mcp_overrides:
             args.extend(mcp_overrides)
+        # Sandbox/cwd options belong to exec, not its resume subcommand.
+        if self.resume_session:
+            args.extend(["resume", self.resume_session])
         args.append(prompt)
         return args
 
@@ -195,8 +202,16 @@ class CodexEngineer(BaseEngineer):
         if event_type == "turn.completed":
             usage = event.get("usage")
             if isinstance(usage, dict):
+                # Codex input_tokens includes cached input; RAE's buckets are
+                # disjoint. Codex TokenUsage::non_cached_input uses this same
+                # subtraction: https://github.com/openai/codex/blob/main/codex-rs/protocol/src/protocol.rs
+                total_input = usage.get("input_tokens", 0)
+                cached_input = usage.get("cached_input_tokens", 0)
+                if isinstance(total_input, (int, float)) and isinstance(cached_input, (int, float)):
+                    self.usage_metadata["input_tokens"] = self.usage_metadata.get("input_tokens", 0) + max(
+                        0, int(total_input) - int(cached_input)
+                    )
                 for source, target in (
-                    ("input_tokens", "input_tokens"),
                     ("cached_input_tokens", "cache_read_tokens"),
                     ("output_tokens", "output_tokens"),
                 ):
@@ -271,7 +286,7 @@ class CodexEngineer(BaseEngineer):
 
         self._turn_error = None
         self._active_codex_tools.clear()
-        self._mcp_tool_calls.clear()
+        # Retain capture evidence across code-only follow-up turns.
         self.ui.header(self.run_id, self.prompt, self.codex_model, "codex", mode=mode)
         self.ui.start_analysis()
 
@@ -414,7 +429,29 @@ class CodexEngineer(BaseEngineer):
         if not opening:
             return {}
         prompt = opening if self.resume_session else f"{system_prompt}\n\n{user_message}"
-        return await self._run_codex(prompt)
+        return await self._run_conversation(prompt)
+
+    async def _run_conversation(
+        self, prompt: str, mcp_overrides: list[str] | None = None, mode: str = "engineer"
+    ) -> dict[str, Any] | None:
+        last_result = await self._run_codex(prompt, mcp_overrides, mode=mode)
+        if last_result is None:
+            return None
+        try:
+            while follow_up := await self._prompt_follow_up():
+                session_id = self.sdk_session_id or self.resume_session
+                if not session_id:
+                    self.ui.error("Codex did not report a session ID; cannot continue this conversation")
+                    return last_result
+                self.resume_session = session_id
+                self.message_store.save_prompt(follow_up)
+                result = await self._run_codex(follow_up, mcp_overrides, mode=mode)
+                if result is not None:
+                    last_result = result
+        except (asyncio.CancelledError, KeyboardInterrupt) as exc:
+            exc.partial_result = last_result  # type: ignore[attr-defined]
+            raise
+        return last_result
 
 
 class CodexAutoEngineer(CodexEngineer):
@@ -464,31 +501,25 @@ class CodexAutoEngineer(CodexEngineer):
             "\n\nDo not install packages or execute the generated client during this capture. "
             "Generate it from the captured traffic; it will be inspected and run separately. "
             "Avoid printing the full page body or full network log into the conversation. After identifying "
-            "the rankings GET request, parse its response in the browser and return only the first 15 rows "
-            "with the fields needed by the client. Do not assign a rank to unidentified zero-activity aggregate "
-            "rows; report if one is omitted, and fail closed on malformed nonzero rows. Use the native "
+            "the requested API calls, inspect their responses in the browser and return only the fields needed "
+            "to implement the user's request. Use the native "
             "file-edit/apply-patch capability to write "
             "the two requested files in the output directory; do not use Bash to inspect unrelated local files."
         )
         return system_prompt, user_message
 
     def _playwright_mcp_overrides(self) -> list[str]:
-        command_line = " ".join(
-            [
-                "npx -y",
-                RAE_PLAYWRIGHT_MCP_PACKAGE,
-                "--run-id",
-                self.mcp_run_id,
-                "--headless",
-                "--browser chrome",
-            ]
-        )
+        browser_args = ["-y", RAE_PLAYWRIGHT_MCP_PACKAGE, "--run-id", self.mcp_run_id]
+        if self.headless:
+            browser_args.append("--headless")
+        browser_args.extend(["--browser", "chrome"])
         if os.name == "nt":
+            command_line = "npx " + " ".join(browser_args)
             command, args = shutil.which("cmd.exe") or "cmd.exe", ["/d", "/s", "/c", command_line]
         else:
             command, args = (
                 shutil.which("npx") or "npx",
-                ["-y", RAE_PLAYWRIGHT_MCP_PACKAGE, "--run-id", self.mcp_run_id, "--headless", "--browser", "chrome"],
+                browser_args,
             )
         # HAR is written under <base output dir>/har/<run id>/recording.har.
         har_base = str(self.har_path.parent.parent)
@@ -512,4 +543,4 @@ class CodexAutoEngineer(CodexEngineer):
         if not opening:
             return {}
         prompt = opening if self.resume_session else f"{system_prompt}\n\n{user_message}"
-        return await self._run_codex(prompt, self._playwright_mcp_overrides(), mode="agent")
+        return await self._run_conversation(prompt, self._playwright_mcp_overrides(), mode="agent")

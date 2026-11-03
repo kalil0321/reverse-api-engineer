@@ -17,13 +17,13 @@ rae calls a model through the SDK selected in its config:
 | `opencode` | An OpenCode server rae starts or reuses. Defaults to a free model; can route to local models through Ollama |
 | `copilot` | GitHub Copilot credentials (`GITHUB_COPILOT_TOKEN`) |
 | `cursor` | `CURSOR_API_KEY` |
-| `codex` | Existing local Codex CLI login; Codex Desktop's bundled CLI is preferred when present, then `codex` on `PATH` |
+| `codex` | Existing local Codex CLI login; on Windows, Codex Desktop's bundled CLI is preferred when present, then `codex` on `PATH` |
 
 `agent --dry-run` reports which of these it can see. A missing env var is a warning, not an error, because some SDKs find credentials on their own. Codex defaults to `gpt-6-luna` unless `codex_model` or `--model` overrides it.
 
 ## Settings
 
-Settings live in `~/.reverse-api/config.json`. Only two have per-run flags on `agent`: `-o/--output-dir` and `-m/--model` (for the `claude` SDK). Change the others by editing that file, and only with the user's agreement since it affects every later run. Keys that matter most:
+Settings live in `~/.reverse-api/config.json`. Only two have per-run flags on `agent`: `-o/--output-dir` and `-m/--model` (for the `claude` and `codex` SDKs). Change the others by editing that file, and only with the user's agreement since it affects every later run. Keys that matter most:
 
 | Key | Values |
 |---|---|
@@ -37,3 +37,5 @@ Settings live in `~/.reverse-api/config.json`. Only two have per-run flags on `a
 The user can also change them interactively by running `reverse-api-engineer` and typing `/settings`.
 
 Language notes: C needs a POSIX toolchain with libcurl headers. PowerShell needs `pwsh` 7+.
+
+For Codex, model selection uses codex_model, then the per-run model, then gpt-6-luna. Empty or default selections also resolve to gpt-6-luna; they do not select the Codex CLI configured default. Choosing Codex in /settings also selects the required auto browser provider.

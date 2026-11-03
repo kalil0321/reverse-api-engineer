@@ -3,7 +3,8 @@
 import json
 import os
 import tomllib
-from unittest.mock import MagicMock, patch
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -58,6 +59,16 @@ def test_mcp_overrides_are_per_invocation_and_required(tmp_path):
     assert parsed["env"]["PLAYWRIGHT_MCP_SAVE_HAR_PATH"].endswith(suffix)
 
 
+def test_resume_keeps_exec_only_options_before_the_subcommand(tmp_path):
+    eng = make_engineer(tmp_path)
+    eng.resume_session = "thread-123"
+    with patch("reverse_api.codex_engineer.resolve_codex_command", return_value=["codex"]):
+        args = eng._build_exec_args("refine")
+    assert args[-3:] == ["resume", "thread-123", "refine"]
+    assert args.index("--sandbox") < args.index("resume")
+    assert args.index("--cd") < args.index("resume")
+
+
 def test_windows_prefers_codex_desktop_cli(tmp_path, monkeypatch):
     cli = tmp_path / "OpenAI" / "Codex" / "bin" / "desktop-build" / "codex.exe"
     cli.parent.mkdir(parents=True)
@@ -69,7 +80,7 @@ def test_windows_prefers_codex_desktop_cli(tmp_path, monkeypatch):
     assert codex_module.resolve_codex_command() == [str(cli)]
 
 
-def test_desktop_cli_uses_workspace_scoped_approval_review(tmp_path, monkeypatch):
+def test_desktop_cli_uses_explicit_writable_workspace(tmp_path, monkeypatch):
     cli = tmp_path / "OpenAI" / "Codex" / "bin" / "desktop-build" / "codex.exe"
     cli.parent.mkdir(parents=True)
     cli.touch()
@@ -80,6 +91,7 @@ def test_desktop_cli_uses_workspace_scoped_approval_review(tmp_path, monkeypatch
         args = eng._build_exec_args("browse public page")
 
     assert "--approve-for-me" in args
+    assert 'sandbox_mode="workspace-write"' in args
     assert "--sandbox" not in args
 
 
@@ -164,3 +176,116 @@ def test_auto_capture_requires_har_preserving_provider(tmp_path):
             verbose=False,
             interactive=False,
         )
+
+
+def test_unrelated_capture_has_no_rankings_or_first_fifteen_instructions(tmp_path):
+    eng = CodexAutoEngineer(run_id="weather", prompt="Fetch all 48 hourly weather records", output_dir=str(tmp_path), interactive=False)
+    _, prompt = eng._get_active_prompts()
+    assert "Fetch all 48 hourly weather records" in prompt
+    assert "rankings GET" not in prompt
+    assert "first 15" not in prompt
+
+
+@pytest.mark.parametrize("headless", [False, True])
+def test_browser_launch_honors_headless_on_both_platforms(tmp_path, monkeypatch, headless):
+    eng = CodexAutoEngineer(run_id="browser", prompt="Fetch weather", output_dir=str(tmp_path), headless=headless, interactive=False)
+    # Construct paths before mocking os.name: pathlib uses the real host type.
+    for platform in ("nt", "posix"):
+        with monkeypatch.context() as patcher:
+            patcher.setattr(codex_module.os, "name", platform)
+            args = " ".join(eng._playwright_mcp_overrides())
+        assert ("--headless" in args) is headless
+
+
+@pytest.mark.parametrize("auto", [False, True])
+def test_relative_paths_are_absolute_in_prompts_and_browser_environment(tmp_path, monkeypatch, auto):
+    monkeypatch.chdir(tmp_path)
+    if auto:
+        eng = CodexAutoEngineer(run_id="relative", prompt="Fetch weather", output_dir="runs", interactive=False)
+        _, prompt = eng._get_active_prompts()
+        assert str((tmp_path / "runs" / "har").resolve()).replace("\\", "\\\\") in " ".join(eng._playwright_mcp_overrides())
+    else:
+        eng = make_engineer(tmp_path, output_dir="runs", har_path=Path("runs/har/relative/recording.har"))
+        _, prompt = eng._build_prompts()
+    assert eng.scripts_dir.is_absolute()
+    assert eng.har_path.is_absolute()
+    assert str(eng.scripts_dir) in prompt
+    assert str(eng.har_path) in prompt
+
+
+@pytest.mark.parametrize("auto", [False, True])
+@pytest.mark.parametrize("resumed", [False, True])
+async def test_followups_resume_same_session_and_keep_latest_success(tmp_path, auto, resumed):
+    eng = (CodexAutoEngineer(run_id="turns", prompt="Fetch weather", output_dir=str(tmp_path)) if auto else make_engineer(tmp_path, interactive=True))
+    eng.resume_session = "thread-original" if resumed else None
+    messages = ["resume request", "refine", "try again", None] if resumed else ["refine", "try again", None]
+    eng._prompt_follow_up = AsyncMock(side_effect=messages)
+    eng.ui = MagicMock()
+    eng.message_store = MagicMock()
+    calls = []
+    results = [{"script_path": "first"}, {"script_path": "refined"}, None]
+
+    async def turn(prompt, *args, **kwargs):
+        calls.append((prompt, eng.resume_session))
+        eng._record_session("thread-original")
+        return results[len(calls) - 1]
+
+    eng._run_codex = turn
+    result = await eng.analyze_and_generate()
+    assert result == {"script_path": "refined"}
+    assert calls[1:] == [("refine", "thread-original"), ("try again", "thread-original")]
+    eng.message_store.save_prompt.assert_any_call("refine")
+
+
+def test_codex_usage_separates_cached_input_from_uncached_input(tmp_path):
+    eng = make_engineer(tmp_path)
+    for _ in range(2):
+        eng._handle_codex_event({"type": "turn.completed", "usage": {"input_tokens": 18542, "cached_input_tokens": 11776, "output_tokens": 5}})
+    assert eng.usage_metadata["input_tokens"] == 13532
+    assert eng.usage_metadata["cache_read_tokens"] == 23552
+    assert eng.usage_metadata["output_tokens"] == 10
+
+
+@pytest.mark.parametrize("relative", [False, True])
+async def test_capture_subprocess_artifacts_and_code_only_followup(tmp_path, monkeypatch, relative):
+    monkeypatch.chdir(tmp_path)
+    output = "runs with spaces" if relative else str(tmp_path / "runs with spaces")
+    eng = CodexAutoEngineer(run_id="process", prompt="Fetch weather", output_dir=output, interactive=False)
+    eng.ui = MagicMock()
+    eng.message_store = MagicMock()
+    child = tmp_path / "controlled_child.py"
+    child.write_text(
+        "import json, sys\n"
+        "from pathlib import Path\n"
+        "scripts, har = Path(sys.argv[1]), Path(sys.argv[2])\n"
+        "if sys.argv[3] == 'capture':\n"
+        "    scripts.mkdir(parents=True, exist_ok=True)\n"
+        "    (scripts / 'api_client.py').write_text('# generated client')\n"
+        "    har.parent.mkdir(parents=True, exist_ok=True)\n"
+        "    har.write_text(json.dumps({'log': {'entries': [{'request': {'method': 'GET'}}]}}))\n"
+        "    print(json.dumps({'type': 'item.started', 'item': {'type': 'mcp_tool_call', "
+        "'id': 'nav', 'server': 'playwright', 'tool': 'browser_navigate'}}))\n"
+        "print(json.dumps({'type': 'thread.started', 'thread_id': 'process-thread'}))\n"
+        "print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 20, 'cached_input_tokens': 10, 'output_tokens': 2}}))\n",
+        encoding="utf-8",
+    )
+    eng._build_exec_args = lambda prompt, overrides: [codex_module.sys.executable, str(child), str(eng.scripts_dir), str(eng.har_path), prompt]
+    first = await eng._run_codex("capture", eng._playwright_mcp_overrides(), mode="agent")
+    assert first is not None
+    assert first["har_entries"] == 1
+    assert Path(first["script_path"]).is_file()
+    assert Path(first["har_path"]).is_file()
+    assert not (tmp_path / "runs with spaces" / "runs with spaces").exists()
+    # A refinement can reuse the verified capture without calling browser MCP again.
+    eng.resume_session = "process-thread"
+    followup = await eng._run_codex("edit only", eng._playwright_mcp_overrides(), mode="agent")
+    assert followup is not None
+    assert followup["har_entries"] == 1
+    assert followup["usage"]["input_tokens"] == 20
+
+
+async def test_noninteractive_stops_after_one_turn(tmp_path):
+    eng = make_engineer(tmp_path)
+    eng._run_codex = AsyncMock(return_value={"script_path": "first"})
+    assert await eng.analyze_and_generate() == {"script_path": "first"}
+    eng._run_codex.assert_awaited_once()

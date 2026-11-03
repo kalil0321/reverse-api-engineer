@@ -120,6 +120,11 @@ class ModelChoice(click.Choice):
     def get_metavar(self, *args: Any, **kwargs: Any) -> str:
         return "[" + "|".join(self.current) + "]"
 
+    def convert(self, value: Any, param: click.Parameter | None, ctx: click.Context | None) -> Any:
+        if ctx is not None and ctx.command.name in {"agent", "engineer"} and config_manager.get("sdk", "claude") == "codex":
+            return click.STRING.convert(value, param, ctx)
+        return super().convert(value, param, ctx)
+
 
 def default_model_for_configured_sdk(sdk: str | None = None) -> str:
     """Return the configured default model id for the given SDK (or current config SDK)."""
@@ -669,7 +674,7 @@ def _build_agent_payload(
         error_kind = result["error_kind"]
     har_path = None
     if run_id:
-        candidate = get_har_dir(run_id, output_dir) / "recording.har"
+        candidate = Path(result["har_path"]) if result.get("har_path") else get_har_dir(run_id, output_dir) / "recording.har"
         har_path = str(candidate) if candidate.exists() else None
     return {
         "schema_version": AGENT_JSON_SCHEMA_VERSION,
@@ -945,7 +950,11 @@ def _handle_settings_action(mode_color: str = THEME_PRIMARY) -> bool:  # noqa: C
             ),
         ).ask()
         if sdk and sdk != "back":
-            config_manager.set("sdk", sdk)
+            if sdk == "codex":
+                config_manager.update({"sdk": sdk, "agent_provider": "auto"})
+                console.print(" [dim]Codex capture uses a fresh Playwright browser (agent_provider: auto)[/dim]")
+            else:
+                config_manager.set("sdk", sdk)
             console.print(f" [dim]updated[/dim] sdk: {sdk}\n")
 
     elif action == "codex_model":
@@ -1794,10 +1803,13 @@ def run_auto_capture(  # noqa: C901 - SDK/provider/session lifecycle dispatch
         # Update session with results
         if result:
             usage = result.get("usage", {})
+            paths = {"script_path": result.get("script_path")}
+            if result.get("har_path"):
+                paths.update(har_path=str(result["har_path"]), har_dir=str(Path(result["har_path"]).parent))
             session_manager.update_run(
                 run_id=run_id,
                 usage=_run_totals(resume.get("usage") or {}, usage) if resume else usage,
-                paths={"script_path": result.get("script_path")},
+                paths=paths,
             )
             _keep_session_cost(run_id, core.cost_before, usage)
 
@@ -2070,7 +2082,7 @@ def run_engineer(
             # Detect where it was saved
             paths = run_data.get("paths", {})
             har_dir = Path(paths.get("har_dir", get_har_dir(run_id, None)))
-            har_path = har_dir / "recording.har"
+            har_path = Path(paths["har_path"]) if paths.get("har_path") else har_dir / "recording.har"
             if not har_path.exists() and not resume:
                 if run_data.get("mode") == "chrome-mcp":
                     message = (
