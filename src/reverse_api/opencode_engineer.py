@@ -7,6 +7,7 @@ TypeScript SDK documentation.
 import asyncio
 import json
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,9 @@ from .opencode_ui import OpenCodeUI
 
 # Enable debug mode with OPENCODE_DEBUG=1
 DEBUG = os.environ.get("OPENCODE_DEBUG", "0") == "1"
+
+# Retry messages that waiting cannot fix: OpenCode retries them until the prompt request times out.
+OUT_OF_CREDIT = re.compile(r"credit|billing|insufficient|usage exceeded|exceeded your current quota|payment required", re.IGNORECASE)
 
 
 def debug_log(msg: str) -> None:
@@ -246,8 +250,12 @@ class OpenCodeEngineer(BaseEngineer):
                     "parts": [{"type": "text", "text": combined_prompt}],
                 }
 
-                prompt_r = await client.post(f"/session/{self._session_id}/message", json=prompt_body)
-                prompt_r.raise_for_status()
+                try:
+                    prompt_r = await client.post(f"/session/{self._session_id}/message", json=prompt_body)
+                    prompt_r.raise_for_status()
+                except httpx.HTTPError:
+                    if not (event_task.done() and self._last_error):  # else the stream already said why it stopped
+                        raise
 
                 # Wait for events to complete
                 try:
@@ -434,6 +442,10 @@ class OpenCodeEngineer(BaseEngineer):
                                 attempt = status.get("attempt", 1)
                                 message = status.get("message", "")
                                 self.opencode_ui.session_retry(attempt, message)
+                                if OUT_OF_CREDIT.search(message):
+                                    self._last_error = f"The provider refused the request: {message}"
+                                    await self._abort_session(client)
+                                    return
                             elif status_type == "busy":
                                 import time
 
@@ -668,6 +680,14 @@ class OpenCodeEngineer(BaseEngineer):
                                     return
         except Exception as e:
             debug_log(f"Error checking session: {e}")
+
+    async def _abort_session(self, client: httpx.AsyncClient) -> None:
+        """Stops OpenCode's work on the session, which also ends the pending prompt request."""
+        try:
+            r = await client.post(f"/session/{self._session_id}/abort")
+            debug_log(f"Abort: HTTP {r.status_code}")
+        except Exception as e:
+            debug_log(f"Abort failed: {e}")
 
     def _is_ours(self, session_id: object) -> bool:
         """The run's session or one of its subagents'."""

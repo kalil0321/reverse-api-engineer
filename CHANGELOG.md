@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README: the `agent --json` usage fields are `total_cost_usd` and the cache token counts, not `total_cost`.
 - OpenCode runs follow their subagents: a subagent's tool calls show, its cost counts, and its permission requests are approved, so the run no longer waits forever on one.
 - An OpenCode step delivered twice counts its tokens and cost once.
+- An OpenCode run that its provider refuses for lack of credit or quota stops at once with the provider's message, instead of retrying until the request times out after 10 minutes.
 - `show` reports the cache token counts of Copilot, Cursor and OpenCode runs, which name them differently from Claude.
 - `/history` shows the cost of OpenCode runs recorded before this release.
 
