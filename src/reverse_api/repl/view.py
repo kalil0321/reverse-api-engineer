@@ -23,7 +23,7 @@ from rich.text import Text
 
 from .. import __version__
 from ..theme import MODE_COLORS
-from ..utils import predates_effort
+from ..utils import predates_effort, recorded_cost
 from .logo import LOGO_COLS, logo_rows
 from .style import (
     AMBER,
@@ -157,7 +157,7 @@ def run_summary(run: dict[str, Any]) -> str:
     when = str(run.get("timestamp", ""))[5:16].replace("T", " ")
     prompt = " ".join(str(run.get("prompt") or "").split())
     prompt = prompt if len(prompt) <= 44 else prompt[:43] + "…"
-    cost = (run.get("usage") or {}).get("estimated_cost_usd") or 0
+    cost = recorded_cost(run.get("usage")) or 0
     return f"{when}  {prompt:<44}  " + (money(cost) if cost else "")
 
 
@@ -567,7 +567,7 @@ class LedgerView:
     def run_details(self, run: dict[str, Any]) -> None:
         """A past run picked in /history: when and how it ran, what it cost, where its client is."""
         usage = run.get("usage") or {}
-        cost = usage.get("estimated_cost_usd") or 0
+        cost = recorded_cost(usage) or 0
         tokens = (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
         when = str(run.get("timestamp", ""))[:16].replace("T", " ")
         facts = " · ".join(x for x in (when, model_label(run.get("model")) if run.get("model") else "", run.get("mode") or "") if x)

@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OpenCode runs on free or local models (`opencode/big-pickle`, Ollama) report a cost of $0. When OpenCode reported no cost, rae priced every unknown model as Claude Sonnet 4.6; it now estimates only for models with known prices, and short names such as `opus` are priced as the model they map to.
 - OpenCode runs report their cost and cache writes in `--json` usage (`total_cost_usd`, `cache_write_tokens`) and their cost in `/history` and `/resume`.
 - README: the `agent --json` usage fields are `total_cost_usd` and the cache token counts, not `total_cost`.
+- OpenCode runs follow their subagents: a subagent's tool calls show, its cost counts, and its permission requests are approved, so the run no longer waits forever on one.
+- An OpenCode step delivered twice counts its tokens and cost once.
+- `show` reports the cache token counts of Copilot, Cursor and OpenCode runs, which name them differently from Claude.
+- `/history` shows the cost of OpenCode runs recorded before this release.
 
 ### Security
 - Raise security minimums to aiohttp >=3.14.4, certifi >=2026.10.19, multidict >=6.9.1, OpenTelemetry API >=1.45.1, PyJWT >=2.15.0 and urllib3 >=2.8.0, and lock the patched versions. certifi drops the emSign root CAs whose intermediate keys were compromised.

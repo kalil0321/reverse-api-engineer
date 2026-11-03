@@ -142,6 +142,7 @@ class OpenCodeEngineer(BaseEngineer):
         self._assistant_message_ids: set[str] = set()
         self._message_roles: dict[str, str] = {}
         self._pending_text_parts: dict[str, list[dict[str, Any]]] = {}
+        self._child_sessions: set[str] = set()  # subagents run in sessions opened under ours, at any depth
 
         # Read OpenCode server authentication from environment variables
         self.opencode_password = os.environ.get("OPENCODE_SERVER_PASSWORD")
@@ -408,6 +409,11 @@ class OpenCodeEngineer(BaseEngineer):
                     elif event_type == "message.part.updated":
                         await self._handle_part_update(properties, seen_parts)
 
+                    elif event_type in ("session.created", "session.updated"):
+                        info = properties.get("info", {})
+                        if info.get("id") and info.get("parentID") and self._is_ours(info["parentID"]):
+                            self._child_sessions.add(str(info["id"]))
+
                     elif event_type == "session.idle":
                         event_sid = properties.get("sessionID")
                         debug_log(f"session.idle: sessionID={event_sid}, our session={self._session_id}")
@@ -462,7 +468,8 @@ class OpenCodeEngineer(BaseEngineer):
 
                         debug_log(f"{event_type}: id={permission_id}, type={perm_type}, title={perm_title}")
 
-                        if perm_session == self._session_id and permission_id:
+                        # A subagent's request goes unanswered otherwise, and the run waits on it forever.
+                        if self._is_ours(perm_session) and permission_id:
                             # Show permission request in UI
                             self.opencode_ui.permission_requested(perm_type, perm_title)
 
@@ -472,12 +479,12 @@ class OpenCodeEngineer(BaseEngineer):
                             try:
                                 if is_v2:
                                     perm_response = await client.post(
-                                        f"/api/session/{self._session_id}/permission/{permission_id}/reply",
+                                        f"/api/session/{perm_session}/permission/{permission_id}/reply",
                                         json={"reply": "always"},
                                     )
                                 else:
                                     perm_response = await client.post(
-                                        f"/session/{self._session_id}/permissions/{permission_id}",
+                                        f"/session/{perm_session}/permissions/{permission_id}",
                                         json={"response": "always"},  # Legacy OpenCode permission API
                                     )
                                 debug_log(f"Permission response: {perm_response.status_code}")
@@ -662,6 +669,10 @@ class OpenCodeEngineer(BaseEngineer):
         except Exception as e:
             debug_log(f"Error checking session: {e}")
 
+    def _is_ours(self, session_id: object) -> bool:
+        """The run's session or one of its subagents'."""
+        return session_id == self._session_id or session_id in self._child_sessions
+
     async def _handle_part_update(self, properties: dict, seen_parts: set) -> None:
         """Handle message.part.updated events."""
         part = properties.get("part", {})
@@ -673,8 +684,9 @@ class OpenCodeEngineer(BaseEngineer):
 
         debug_log(f"Part update: type={part_type}, session={part_session}, our={self._session_id}")
 
-        # Only process parts for our session
-        if part_session != self._session_id:
+        # A subagent's tool calls and usage belong to the run; its text is the subagent talking to the agent.
+        subagent_part = part_session in self._child_sessions and part_type in ("tool", "step-finish")
+        if part_session != self._session_id and not subagent_part:
             debug_log("Skipping part for other session")
             return
 
@@ -725,6 +737,11 @@ class OpenCodeEngineer(BaseEngineer):
 
         elif part_type == "step-finish":
             debug_log("Handling step-finish part")
+            # A part delivered again must not count its tokens and cost twice.
+            if part_id and part_id in seen_parts:
+                return
+            if part_id:
+                seen_parts.add(part_id)
             # Extract usage stats
             api_cost = part.get("cost", 0)
             tokens = part.get("tokens", {})
