@@ -500,6 +500,7 @@ class TestOpenCodeEngineerHandlePartUpdate:
         eng.opencode_ui.tool_start.assert_called_once_with("Bash", {"command": "ls"})
         eng.opencode_ui.update_text.assert_not_called()
         assert eng.usage_metadata["cost"] == pytest.approx(0.2)
+        assert (eng.usage_metadata["input_tokens"], eng.usage_metadata["output_tokens"]) == (1000, 500)
 
     @pytest.mark.asyncio
     async def test_usage_from_an_unrelated_session_is_not_counted(self, tmp_path):
@@ -768,8 +769,39 @@ class TestOpenCodeEngineerStreamEvents:
 
         assert eng._child_sessions == {"ses_child", "ses_grandchild"}
         assert eng.usage_metadata["cost"] == pytest.approx(0.2)
+        assert (eng.usage_metadata["input_tokens"], eng.usage_metadata["output_tokens"]) == (10, 5)
         mock_client.post.assert_awaited_once_with("/api/session/ses_child/permission/per_1/reply", json={"reply": "always"})
         eng.opencode_ui.permission_approved.assert_called_once_with("bash")
+
+    @pytest.mark.asyncio
+    async def test_a_subagent_refused_for_lack_of_credit_stops_the_run(self, tmp_path):
+        eng = self._make_engineer(tmp_path)
+        refusal = {"type": "retry", "attempt": 1, "message": "Insufficient credits"}
+        events = [
+            {"type": "session.created", "properties": {"info": {"id": "ses_child", "parentID": "session_abc"}}},
+            {"type": "session.status", "properties": {"sessionID": "ses_child", "status": refusal}},
+            {"type": "session.idle", "properties": {"sessionID": "session_abc"}},
+        ]
+        mock_response = AsyncMock()
+
+        async def mock_aiter_lines():
+            for event in events:
+                yield "data: " + json.dumps(event)
+
+        mock_response.aiter_lines = mock_aiter_lines
+        stream = AsyncMock()
+        stream.__aenter__ = AsyncMock(return_value=mock_response)
+        stream.__aexit__ = AsyncMock(return_value=False)
+        mock_client = AsyncMock()
+        mock_client.stream = MagicMock(return_value=stream)
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=200))
+
+        await eng._stream_events(mock_client)
+
+        assert eng._last_error == "The provider refused the request: Insufficient credits"
+        aborted = sorted(c.args[0] for c in mock_client.post.await_args_list)
+        assert aborted == ["/session/ses_child/abort", "/session/session_abc/abort"]
+        eng.opencode_ui.session_status.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_todo_updated_event(self, tmp_path):

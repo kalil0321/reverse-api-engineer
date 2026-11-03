@@ -496,8 +496,7 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
                     "parts": [{"type": "text", "text": active_prompt}],
                 }
 
-                prompt_r = await client.post(f"/session/{self._session_id}/message", json=prompt_body)
-                prompt_r.raise_for_status()
+                await self._send_prompt(client, prompt_body, event_task)
 
                 # Wait for events to complete
                 try:

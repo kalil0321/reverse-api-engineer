@@ -250,12 +250,7 @@ class OpenCodeEngineer(BaseEngineer):
                     "parts": [{"type": "text", "text": combined_prompt}],
                 }
 
-                try:
-                    prompt_r = await client.post(f"/session/{self._session_id}/message", json=prompt_body)
-                    prompt_r.raise_for_status()
-                except httpx.HTTPError:
-                    if not (event_task.done() and self._last_error):  # else the stream already said why it stopped
-                        raise
+                await self._send_prompt(client, prompt_body, event_task)
 
                 # Wait for events to complete
                 try:
@@ -437,16 +432,16 @@ class OpenCodeEngineer(BaseEngineer):
                         status = properties.get("status", {})
                         status_type = status.get("type", "idle")
                         debug_log(f"session.status: sessionID={event_sid}, status={status_type}")
-                        if event_sid == self._session_id:
-                            if status_type == "retry":
-                                attempt = status.get("attempt", 1)
-                                message = status.get("message", "")
-                                self.opencode_ui.session_retry(attempt, message)
-                                if OUT_OF_CREDIT.search(message):
-                                    self._last_error = f"The provider refused the request: {message}"
-                                    await self._abort_session(client)
-                                    return
-                            elif status_type == "busy":
+                        # A subagent refused for lack of credit leaves the run waiting on it just the same.
+                        if status_type == "retry" and self._is_ours(event_sid):
+                            message = status.get("message", "")
+                            self.opencode_ui.session_retry(status.get("attempt", 1), message)
+                            if OUT_OF_CREDIT.search(message):
+                                self._last_error = f"The provider refused the request: {message}"
+                                await self._abort_sessions(client, {str(event_sid), str(self._session_id)})
+                                return
+                        elif event_sid == self._session_id:
+                            if status_type == "busy":
                                 import time
 
                                 self._busy_time = time.time()
@@ -681,13 +676,23 @@ class OpenCodeEngineer(BaseEngineer):
         except Exception as e:
             debug_log(f"Error checking session: {e}")
 
-    async def _abort_session(self, client: httpx.AsyncClient) -> None:
-        """Stops OpenCode's work on the session, which also ends the pending prompt request."""
+    async def _abort_sessions(self, client: httpx.AsyncClient, session_ids: set[str]) -> None:
+        """Stops OpenCode's work on these sessions; stopping the run's own one ends the pending prompt request."""
+        for sid in sorted(session_ids):
+            try:
+                r = await client.post(f"/session/{sid}/abort")
+                debug_log(f"Abort {sid}: HTTP {r.status_code}")
+            except Exception as e:
+                debug_log(f"Abort {sid} failed: {e}")
+
+    async def _send_prompt(self, client: httpx.AsyncClient, body: dict[str, Any], event_task: asyncio.Task[None]) -> None:
+        """Posts the prompt, which OpenCode answers only once the session stops."""
         try:
-            r = await client.post(f"/session/{self._session_id}/abort")
-            debug_log(f"Abort: HTTP {r.status_code}")
-        except Exception as e:
-            debug_log(f"Abort failed: {e}")
+            r = await client.post(f"/session/{self._session_id}/message", json=body)
+            r.raise_for_status()
+        except httpx.HTTPError:
+            if not (event_task.done() and self._last_error):  # else the stream already said why it stopped
+                raise
 
     def _is_ours(self, session_id: object) -> bool:
         """The run's session or one of its subagents'."""
