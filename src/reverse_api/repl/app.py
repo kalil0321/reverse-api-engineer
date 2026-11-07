@@ -561,9 +561,11 @@ class Session:
         cfg = self.cli.config_manager
         current = cfg.get("opencode_model") if cfg.get("opencode_provider") == provider_id else ""
         items = [(model_id, title, "") for model_id, title in self.cli.opencode_model_choices(catalog, provider_id, current or "")]
-        self.st.picker = Picker(
-            f"{provider_id} model", items, current, lambda model_id: self.save_opencode(provider_id, model_id), search=True, hint="type to filter"
-        )
+        default = str((catalog.get("default") or {}).get(provider_id) or "") if isinstance(catalog.get("default"), dict) else ""
+        ids = [model_id for model_id, _, _ in items]
+        index = ids.index(current) if current in ids else ids.index(default) if default in ids else 0  # enter keeps what is set
+        save = lambda model_id: self.save_opencode(provider_id, model_id)  # noqa: E731
+        self.st.picker = Picker(f"{provider_id} model", items, current, save, index, search=True, hint="type to filter")
         self.invalidate()
 
     def pick_ollama_model(self) -> None:
@@ -652,8 +654,13 @@ class Session:
         self.view.command("/resume", run_id)
         if st.running and not self.bridge.stopping:
             self.view.notice("a run is in progress · esc stops it")
-        elif run is None or not self.cli.resumable(run):
-            self.view.notice(f"run {run_id} has no saved session to resume" if run else f"no run {run_id}")
+        elif run is None:
+            self.view.notice(f"no run {run_id}")
+        elif not self.cli.resumable(run):
+            # Its conversation can still be read; there is just no session to continue it in.
+            if not self.replay(run_id, run):
+                self.view.run_details(run)
+            self.view.notice(f"run {run_id} saved no session, so it cannot continue · /history re-engineers it")
         elif st.running or st.waiting:
             # The open conversation only waits for a follow-up, or is already closing: end it, then switch.
             self.after_run = lambda: self.reopen(run_id, run)

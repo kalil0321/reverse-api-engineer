@@ -160,6 +160,7 @@ class TestPathHelpers:
         with patch("reverse_api.utils.get_base_output_dir", return_value=tmp_path):
             path = get_messages_path("run123")
             assert path == tmp_path / "messages" / "run123.jsonl"
+            assert not path.parent.exists(), "resolving the path creates nothing; the first write does"
 
     def test_get_messages_path_empty_run_id_raises(self):
         """Empty run_id raises ValueError."""

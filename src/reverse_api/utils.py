@@ -603,7 +603,6 @@ def get_messages_path(run_id: str, output_dir: str | None = None) -> Path:
     except (OSError, RuntimeError) as e:
         raise ValueError(f"Invalid path for run_id {run_id}: {e}") from e
 
-    messages_dir.mkdir(parents=True, exist_ok=True)
     return messages_path
 
 

@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A blank line parts the conversation from the input bar.
 
 ### Removed
-- `/messages`: `/resume` shows a past run's whole conversation and `/history` its details.
+- `/messages`: `/resume` shows a past run's whole conversation, also for a run that saved no session and so cannot continue, and `/history` its details.
 
 ### Fixed
 - `/effort` on a Claude model without the setting (Haiku 4.5) says that model has none, instead of calling effort a Claude setting.
@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Steps name the tools of OpenCode, Copilot and Cursor (`bash`, `read`, `apply_patch`, `playwright-ses_…_browser_navigate`, Cursor's `mcp` wrapper…) the way they name Claude Code's, and a tool without its own wording shows its name and main argument instead of raw JSON.
 - The agent's task list shows as one plan per batch of changes, whatever the SDK calls it: Claude Code's current `TaskCreate` and `TaskUpdate` (which the session showed as separate steps, never as a list), `TodoWrite`, OpenCode's `todowrite`, Cursor's `updateTodos`, `write_todos`, `update_todos` and `update_plan`.
 - Long errors, notices, prompts and folder paths wrap under their own text instead of at the left edge.
-- In the session, an engineer run ends with one line naming its copy in `./scripts`, instead of the plain terminal's "decoding complete" lines repeating the client card.
+- In the session, an engineer run ends with one line naming its local copy (`./scripts`, or `./docs` for documentation, which also gets a line of its own), instead of the plain terminal's "decoding complete" lines repeating the client card.
 - `agent --json` and `engineer --json` report `status: error` (`engine_failure`) when the run ends without writing its client, instead of `ok` with a `script_path` that does not exist.
 - Playwright MCP prompt: `browser_run_code` is now `browser_run_code_unsafe`, and the nonexistent `browser_scroll` tool is no longer listed.
 - The Claude SDK message buffer is raised to 32 MB, so a large screenshot no longer aborts a run.

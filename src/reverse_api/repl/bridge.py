@@ -209,6 +209,7 @@ class Bridge:
         self.plan: dict[str, dict[str, Any]] = {}  # the agent's tasks by id, in the order it made them
         self.plan_new: list[str] = []  # tasks TaskCreate made whose id its result has not given yet
         self.plan_made = 0  # TaskCreate calls so far, so each waiting task gets its own key
+        self.plan_updates: list[tuple[str, dict[str, Any] | None]] = []  # each TaskUpdate's task as it was, until its result
         self.plan_changed = False
         self.plan_shown: list[dict[str, Any]] | None = None
 
@@ -227,6 +228,8 @@ class Bridge:
             self.plan_changed = True
         elif name == "TaskUpdate":
             task_id = str(args.get("taskId"))
+            before = self.plan.get(task_id)
+            self.plan_updates.append((task_id, dict(before) if before is not None else None))
             if task_id in self.plan and args.get("status") == "deleted":
                 self.plan.pop(task_id)
                 self.plan_changed = True
@@ -245,6 +248,11 @@ class Bridge:
                 self.plan_changed = True
             elif found and key in self.plan:
                 self.plan = {(found.group(1) if k == key else k): v for k, v in self.plan.items()}
+        elif name == "TaskUpdate" and self.plan_updates:
+            task_id, before = self.plan_updates.pop(0)
+            if failed and before is not None:
+                self.plan[task_id] = before  # back in its place, or at the end if the call had deleted it
+                self.plan_changed = True
         elif name == "TaskList" and not failed:
             rows = re.findall(r"^#(\w+) \[([\w-]+)\] (.+)$", output, re.MULTILINE)
             if rows:
@@ -266,6 +274,12 @@ class Bridge:
             self.plan_shown = items
             self.view.plan(items)
             self.invalidate()
+
+    def docs_ready(self, path: Path) -> None:
+        """A documentation run's result, which gets no client card."""
+        self.flush_card()
+        self.view.docs_ready(path)
+        self.invalidate()
 
     def copied(self, folder: Path) -> None:
         """A finished run's copy in the working directory, where the user looks for it."""

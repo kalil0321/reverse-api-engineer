@@ -520,6 +520,10 @@ class LedgerView:
             mark = Text.from_markup(f"[{HAIRLINE}]└[/] [{DIM}]{label}[/]")
             self.out(Padding(hanging(mark, Text.from_markup(f"[{INK_SOFT}]{link(str(path), path)}[/]"), len(label) + 2), (0, 0, 0, INDENT)))
 
+    def docs_ready(self, path: Path) -> None:
+        body = Text.from_markup(f"[bold {INK}]{link(path.name, path)}[/] [italic {PINK}]documentation ready[/]")
+        self.out(Padding(hanging(Text("*", style=self.st.accent), body, 1), (0, 0, 0, 1)))
+
     def copied(self, folder: Path) -> None:
         mark = Text("copied to", style=DIM)
         self.out(Padding(hanging(mark, Text.from_markup(f"[{INK_SOFT}]{link(str(folder), folder)}[/]"), len("copied to")), (0, 0, 0, 3)))

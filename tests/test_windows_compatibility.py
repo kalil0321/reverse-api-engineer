@@ -81,6 +81,7 @@ def test_unicode_persistence_under_legacy_locale(tmp_path, legacy_locale, encodi
     assert SessionManager(history_path).get_run("test")["prompt"] == UNICODE_TEXT
 
     store = MessageStore("test", str(tmp_path))
+    store.messages_path.parent.mkdir(parents=True)
     store.messages_path.write_text(json.dumps({"type": "prompt", "content": UNICODE_TEXT}, ensure_ascii=False) + "\n", encoding="utf-8")
     store.save_thinking(UNICODE_TEXT)
     assert [m["content"] for m in store.load()] == [UNICODE_TEXT, UNICODE_TEXT]
@@ -108,6 +109,7 @@ def test_invalid_utf8_config_and_history_recover(tmp_path):
 
 def test_corrupt_message_record_preserves_surrounding_history(tmp_path):
     store = MessageStore("mixed-history", str(tmp_path))
+    store.messages_path.parent.mkdir(parents=True)
     first = json.dumps({"type": "prompt", "content": "中文"}, ensure_ascii=False).encode()
     last = json.dumps({"type": "thinking", "content": "🐍"}, ensure_ascii=False).encode()
     store.messages_path.write_bytes(first + b'\n{"content":"caf\xe9"}\ninvalid json\n' + last + b"\n")

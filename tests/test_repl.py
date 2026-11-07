@@ -162,6 +162,17 @@ class TestLedgerUI:
         text = plain(t)
         assert text.count("Find the API") == 1 and "○ Find the API" in text and "› Write the client" in text
 
+    def test_a_failed_task_update_takes_back_its_change(self, session):
+        _st, t, view, b = session
+        ui = LedgerUI(b)
+        ui.tool_start("TaskCreate", {"subject": "Find the API", "description": "x"})
+        ui.tool_result("TaskCreate", False, "Task #1 created successfully: Find the API")
+        ui.tool_start("TaskUpdate", {"taskId": "1", "status": "completed"})
+        ui.tool_result("TaskUpdate", True, "Task #1 is blocked by #2")
+        ui.thinking("still on it")
+        view.flush_live()
+        assert "○ Find the API" in plain(t) and "✓ Find the API" not in plain(t)
+
     def test_a_task_list_catches_a_resumed_run_up(self, session):
         _st, t, view, b = session
         ui = LedgerUI(b)
@@ -847,6 +858,25 @@ class TestSettings:
         pick(session.st, None)
         assert config.get("output_language") == "python" and session.st.picker.title.startswith("settings")
 
+    def test_opencode_models_open_on_the_configured_one(self, settings_session):
+        session, config = settings_session
+        config.update({"opencode_provider": "google", "opencode_model": "z-current"})
+        catalog = {
+            "default": {"google": "a-default"},
+            "providers": [
+                {
+                    "id": "google",
+                    "models": {
+                        "a-default": {"status": "active", "capabilities": {"toolcall": True}},
+                        "z-current": {"status": "active", "capabilities": {"toolcall": True}},
+                    },
+                }
+            ],
+        }
+        session.pick_opencode_model(catalog, "google")
+        p = session.st.picker
+        assert p.items[p.index][0] == "z-current", "enter keeps the model that is set"
+
     def test_opencode_models_come_from_its_server_and_can_be_searched(self, settings_session, monkeypatch):
         from reverse_api import cli
         from reverse_api.repl import app
@@ -1016,7 +1046,36 @@ def test_an_engineer_run_in_the_session_names_only_its_copy(session, tmp_path, m
         cli.run_engineer("a1")
     assert printed.getvalue() == "", "the classic end-of-run lines stay out of the session"
     joined = "".join(line.strip() for line in plain(t).splitlines())
-    assert joined.startswith("copied to") and joined.endswith("scripts/quotes") and (tmp_path / "scripts" / "quotes" / "api_client.py").exists()
+    assert joined.startswith("copied to") and joined.endswith(str(Path("scripts") / "quotes"))
+    assert (tmp_path / "scripts" / "quotes" / "api_client.py").exists()
+
+
+@pytest.mark.parametrize("sync", [False, True])
+def test_a_documentation_run_in_the_session_says_it_is_ready(session, tmp_path, monkeypatch, sync):
+    from reverse_api import cli
+
+    _st, t, _view, b = session
+    out, har = tmp_path / "out", tmp_path / "har"
+    out.mkdir()
+    har.mkdir()
+    (out / "openapi.yaml").write_text("openapi: 3.1.0\n")
+    (har / "recording.har").write_text("{}")
+    monkeypatch.chdir(tmp_path)
+    history = MagicMock()
+    history.get_run.return_value = {"prompt": "quotes", "paths": {"har_dir": str(har)}}
+    config = MagicMock()
+    config.get.side_effect = lambda key, default=None: {"real_time_sync": sync}.get(key, default)
+    printed = io.StringIO()
+    monkeypatch.setattr(cli, "session_manager", history)
+    monkeypatch.setattr(cli, "config_manager", config)
+    monkeypatch.setattr(cli, "generate_folder_name", lambda prompt, sdk=None: "quotes")
+    monkeypatch.setattr(cli, "console", Console(file=printed))
+    monkeypatch.setattr(bridge_mod, "_bridge", b)
+    with patch.object(cli, "run_reverse_engineering", return_value={"script_path": str(out / "openapi.yaml"), "usage": {}}):
+        cli.run_engineer("a1", output_mode="docs")
+    text = plain(t)
+    assert printed.getvalue() == "" and "openapi.yaml documentation ready" in text
+    assert ("copied to" in text) is not sync
 
 
 def test_a_long_workspace_path_wraps_under_itself(session, monkeypatch):
@@ -1511,6 +1570,17 @@ class TestResume:
             store.return_value.load.return_value = []
             session.run_command("/resume a1")
         assert session.st.queue == []
+
+    def test_a_run_without_a_session_shows_its_conversation_and_why_it_cannot_continue(self, app_session):
+        session, history = app_session
+        history.get_run.return_value = {"run_id": "old1", "prompt": "jobs", "timestamp": "2026-10-01T10:00:00"}
+        log = [{"type": "prompt", "content": "all jobs", "timestamp": "2026-10-01T10:00:00"}]
+        with patch("reverse_api.repl.app.MessageStore") as store, patch.object(session, "work") as work:
+            store.return_value.load.return_value = log
+            session.run_command("/resume old1")
+        work.assert_not_called()
+        text = plain(session.transcript)
+        assert "› all jobs" in text and "run old1 saved no session, so it cannot continue" in text
 
     def test_a_log_that_cannot_be_read_falls_back_to_the_runs_details(self, app_session):
         session, history = app_session

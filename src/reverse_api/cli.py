@@ -1729,8 +1729,10 @@ def run_engineer(
 
             from .repl.bridge import active
 
-            # The session's card already names the client; there only the copy is news.
+            # The session's card already names a client; there only docs and the copy are news.
             if (session := active()) is not None:
+                if output_mode == "docs":
+                    session.docs_ready(Path(result["script_path"]))
                 session.copied(local_dir.resolve())
             elif output_mode == "docs":
                 console.print(" [dim]>[/dim] [white]documentation complete[/white]")
@@ -1740,7 +1742,13 @@ def run_engineer(
                 console.print(" [dim]>[/dim] [white]decoding complete[/white]")
                 console.print(f" [dim]>[/dim] [white]{result['script_path']}[/white]")
                 console.print(f" [dim]>[/dim] [white]copied to ./scripts/{local_dir.name}[/white]\n")
-        elif not _in_session():
+        elif _in_session():
+            if output_mode == "docs":
+                from .repl.bridge import active
+
+                if (session := active()) is not None:
+                    session.docs_ready(Path(result["script_path"]))
+        else:
             # With sync enabled, just show completion
             if output_mode == "docs":
                 console.print(" [dim]>[/dim] [white]documentation complete[/white]")
