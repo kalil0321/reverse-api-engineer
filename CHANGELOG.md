@@ -12,10 +12,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Headed chrome-mcp runs check Chrome auto-connect (`DevToolsActivePort` plus an open port) before launching and fail with setup steps and `error_kind: config_invalid` instead of starting the agent. `agent --dry-run` reports the same check as an error.
 - `engineer <run_id>` on a run without a HAR stops before starting a model session: chrome-mcp runs get an explanation and `error_kind: misuse` with exit code 2, other runs name the missing HAR path.
 - Pin `chrome-devtools-mcp` to the 1.12 line and update the chrome-mcp prompt for its `pageId` tool arguments; the agent now opens its own tab.
-- `/resume` shows the run's latest steps before it waits for the follow-up; `ctrl+o` unfolds the earlier ones.
+- `/resume` replays the run's conversation the way it looked live (prompts, steps, the agent's messages, the client card) before it waits for the follow-up, and switches from a conversation that only waits for one instead of asking for `/new` first.
+- `/settings` opens inside the session: one list with every setting and its value, enter flips a toggle or opens its choices, long lists filter as you type, and each change shows as `◇ setting  old → new`. OpenCode's providers and models load behind a list that keeps keystrokes from starting a run. The classic settings screen is gone.
+- `/help` says what rae does and lists the modes (the current one marked), every command and every key.
+- Lists and the command menu go around: down on the last item moves to the first, up on the first to the last.
+- A blank line parts the conversation from the input bar.
+
+### Removed
+- `/messages`: `/resume` shows a past run's whole conversation and `/history` its details.
 
 ### Fixed
 - `/effort` on a Claude model without the setting (Haiku 4.5) says that model has none, instead of calling effort a Claude setting.
+- A second `esc` while a run wraps up no longer cuts its cleanup short, which left the Claude CLI behind with a "Loop … that handles pid … is closed" warning and a false "interrupted".
+- An OpenCode catalog request that times out names the error instead of ending its message on a colon.
+- Resuming a run whose Claude Code session is gone says so once, in plain words, instead of the SDK's "returned an error result … (exit code: 1)" followed by advice to install Claude Code. That advice now only appears when Claude Code is missing.
+- A Claude error such as "Not logged in" shows once, not as an agent message, then an error, then "Agent analysis produced no result."
+- The session no longer offers to resume runs made in rae desktop: they need the app's browser, captured traffic and secret masking, so `/resume` says to continue them there.
+- Steps name the tools of rae desktop, OpenCode, Copilot and Cursor (`bash`, `read`, `apply_patch`, `playwright-ses_…_browser_navigate`, Cursor's `mcp` wrapper…) the way they name Claude Code's. A tool without its own wording shows its name and main argument instead of raw JSON, and a todo tool shows the plan instead of a step.
+- Long errors, notices and prompts wrap under their own text instead of at the left edge.
 - `agent --json` and `engineer --json` report `status: error` (`engine_failure`) when the run ends without writing its client, instead of `ok` with a `script_path` that does not exist.
 - Playwright MCP prompt: `browser_run_code` is now `browser_run_code_unsafe`, and the nonexistent `browser_scroll` tool is no longer listed.
 - The Claude SDK message buffer is raised to 32 MB, so a large screenshot no longer aborts a run.

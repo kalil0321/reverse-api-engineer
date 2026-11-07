@@ -338,9 +338,7 @@ class ClaudeAutoEngineer(ClaudeEngineer):
             return {**(last_result or {}), "error": "interrupted"}
 
         except Exception as e:
-            error_msg = str(e)
-            self.ui.error(error_msg)
-            self.message_store.save_error(error_msg)
+            error_msg = self._report_failure(e)
 
             if "buffer size" in error_msg.lower() or "1048576" in error_msg or "exceeded maximum buffer" in error_msg.lower():
                 self.ui.console.print("\n[yellow]Screenshot too large (exceeds 1MB limit)[/yellow]")
@@ -359,8 +357,6 @@ class ClaudeAutoEngineer(ClaudeEngineer):
                     )
                 else:
                     self.ui.console.print(f"\n[dim]Make sure the Playwright MCP is available: npx {PLAYWRIGHT_MCP_PACKAGE}[/dim]")
-            else:
-                self.ui.console.print("\n[dim]Make sure Claude Code CLI is installed: npm install -g @anthropic-ai/claude-code[/dim]")
             return None
 
         return None

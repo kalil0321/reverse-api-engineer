@@ -5,6 +5,7 @@ import io
 import threading
 from concurrent.futures import Future
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
@@ -65,8 +66,50 @@ class TestDescribe:
         assert describe("ToolSearch", {"query": "select:x"}) is None
         assert describe("AskUserQuestion", {}) is None
 
+    def test_other_sdks_names_read_as_claude_codes(self):
+        assert short_name("playwright-ses_43d6fa4a1ffe79iFCdR35sKO3F_browser_navigate") == "browser_navigate"
+        assert short_name("chrome-devtools-browser_snapshot") == "browser_snapshot"
+        assert describe(short_name("bash"), {"command": "ls"})[:2] == ("run", "ls")
+        assert describe(short_name("read"), {"filePath": "/runs/har/x/recording.har"})[:2] == ("read", "recording.har")
+        assert describe(short_name("create"), {"path": "/x/api_client.py", "file_text": "x = 1"})[:2] == ("write", "api_client.py")
+        assert describe(short_name("glob"), {"globPattern": "**/*.py"})[:2] == ("search", "**/*.py")
+        assert describe(short_name("Agent"), {"description": "Extract HAR API endpoints"})[:2] == ("subagent", "Extract HAR API endpoints")
+        assert describe("mcp", {"providerIdentifier": "playwright", "toolName": "browser_navigate", "args": {"url": "https://a.dev"}})[:2] == (
+            "navigate",
+            "https://a.dev",
+        )
+        patch_text = "*** Begin Patch\n*** Add File: /x/api_client.py\n+a\n*** Update File: /x/README.md\n*** End Patch"
+        assert describe("apply_patch", {"patchText": patch_text})[:2] == ("edit", "api_client.py +1")
+        for todo_tool in ("TodoWrite", "todowrite", "updateTodos"):
+            assert describe(short_name(todo_tool), {"todos": []}) is None, "a todo list shows as the plan"
+
+    def test_rae_desktop_tools(self):
+        assert describe("traffic_overview", {})[:2] == ("overview", "captured traffic")
+        assert describe("get_flow", {"id": "eaaa2798-b3f", "part": "both"})[:2] == ("request", "eaaa2798-b3f both")
+        assert describe("replay_flow", {"id": "93ee", "url": "http://x/items?page=3", "method": "GET"})[:3] == ("replay", "93ee · method, url", "run")
+        assert describe("wait_for_flows", {"after_seq": 284, "timeout_s": 3})[:2] == ("wait", "requests after 284")
+        assert describe("browser_scroll", {"direction": "down", "pages": 5})[:2] == ("scroll", "down")
+
+    def test_a_tool_without_wording_shows_its_name_and_main_argument_never_json(self):
+        from reverse_api.repl.view import VERB_COL
+
+        assert describe("readLints", {"paths": ["/x/api_client.py"]})[:2] == ("lint", "api_client.py")
+        verb, target = describe("get_console_message", {"msgid": 3})[:2]
+        assert (verb, target) == ("get", "console message · 3")
+        verb, target = describe("someVeryLongToolName", {"options": {"deep": True}})[:2]
+        assert len(verb) <= VERB_COL and "{" not in target
+
 
 class TestLedgerUI:
+    def test_a_todo_tool_shows_its_plan_once(self, session):
+        st, t, _view, b = session
+        ui = LedgerUI(b)
+        todos = [{"content": "Find the API", "status": "in_progress", "activeForm": "Finding the API"}]
+        ui.tool_start("updateTodos", {"todos": todos})
+        ui.todo_updated(todos)  # Cursor reports its todo tool's list again
+        text = plain(t)
+        assert text.count("Finding the API") == 1 and "updateTodos" not in text and st.step == 0
+
     def test_steps_receipts_and_code(self, session, tmp_path):
         st, t, _view, b = session
         ui = LedgerUI(b)
@@ -463,6 +506,46 @@ class TestCommands:
         session.run_command("/commands")
         assert "› /help" in plain(session.transcript) and "unknown command" not in plain(session.transcript)
 
+    def test_help_says_what_rae_does_and_lists_modes_commands_and_keys(self, app_session):
+        from reverse_api.repl.app import COMMANDS, KEYS, MODES
+
+        session, _history = app_session
+        session.run_command("/help")
+        text = plain(session.transcript)
+        assert "turns a website into an API client" in text and "reverseapi.dev/docs" in text
+        for name in [*MODES, *COMMANDS, *(key for key, _ in KEYS)]:
+            assert name in text, name
+        assert "/messages" not in text
+
+    def test_messages_is_gone(self, app_session):
+        session, _history = app_session
+        session.run_command("/messages abc123")
+        assert "unknown command /messages" in plain(session.transcript)
+        session.buf.text = "/me"
+        assert session.palette_items() == []
+
+    def test_lists_go_around_from_either_end(self, app_session):
+        from reverse_api.repl.app import around
+
+        session, _history = app_session
+        session.open_picker("choose a mode", [("a", "a", ""), ("b", "b", ""), ("c", "c", "")], "c", lambda value: None)
+        session.move_in_picker(1)
+        assert session.st.picker.index == 0
+        session.move_in_picker(-1)
+        assert session.st.picker.index == 2
+        assert around(-1, 4) == 3 and around(4, 4) == 0 and around(3, 0) == 0
+
+    def test_a_blank_line_parts_the_conversation_from_the_bar(self, app_session):
+        session, _history = app_session
+        def last_rows() -> list[str]:
+            shown = "".join(text for _, text, *_ in session.transcript_view(MagicMock(render_info=None)))
+            return [row.rstrip() for row in shown.split("\n")][-3:]
+
+        session.view.notice("the last line")
+        assert last_rows()[1:] == ["   the last line", ""]
+        session.view.out("")
+        assert last_rows() == ["", "   the last line", ""], "a line already blank is not doubled"
+
     def test_the_menu_finds_commands_by_alias(self, app_session):
         session, _history = app_session
         session.buf.text = "/qu"
@@ -535,7 +618,7 @@ class TestCommands:
         text = plain(session.transcript)
         assert "› /history" in text and "abc123def456" in text and "sonnet 5.5" in text
         assert "$0.42 · 10.0k tokens · api_client.py" in text
-        assert [value for value, _, _ in session.st.picker.items] == ["engineer", "messages", ""]
+        assert [value for value, _, _ in session.st.picker.items] == ["engineer", ""]
 
     def test_history_with_no_runs(self, app_session):
         session, history = app_session
@@ -543,8 +626,10 @@ class TestCommands:
         session.run_command("/history")
         assert session.st.picker is None and "no runs yet" in plain(session.transcript)
 
-    def test_messages_log_in_the_ledger_colors(self, app_session):
-        session, _history = app_session
+    def test_a_resumed_run_shows_the_agents_messages_whole(self, app_session):
+        session, history = app_session
+        history.get_run.return_value = {"run_id": "abc123", "prompt": "all jobs", "sdk_session": {"id": "s", "mode": "agent"}}
+        long_message = "The jobs come from a **GraphQL** call. " + "Each page holds twenty jobs and a cursor. " * 8 + "The end."
         log = [
             {"type": "prompt", "content": "all jobs", "timestamp": "2026-10-25T15:47:18"},
             {
@@ -553,37 +638,252 @@ class TestCommands:
                 "timestamp": "2026-10-25T15:47:20",
             },
             {"type": "tool_result", "content": {"name": "Bash", "is_error": True, "output": "Traceback"}, "timestamp": "2026-10-25T15:47:21"},
-            {"type": "thinking", "content": "The jobs come from a GraphQL call.", "timestamp": "2026-10-25T15:47:22"},
-            {"type": "result", "content": {"script_path": "/x/api_client.py"}, "timestamp": "2026-10-25T15:48:00"},
+            {"type": "thinking", "content": long_message, "timestamp": "2026-10-25T15:47:22"},
         ]
-        with patch("reverse_api.repl.app.MessageStore") as store:
+        with patch("reverse_api.repl.app.MessageStore") as store, patch.object(session, "work"):
             store.return_value.load.return_value = log
-            session.run_command("/messages abc123")
+            session.run_command("/resume abc123")
         text = plain(session.transcript)
-        assert "› /messages abc123" in text
-        assert "navigate" in text and "example.com" in text and "failed" in text and "GraphQL" in text and "api_client.py" in text
+        assert "› all jobs" in text and "01  navigate  https://example.com" in text and "Traceback" in text
+        assert "GraphQL" in text and "**" not in text and "The end." in text, "the agent's message is shown whole"
+        assert "+" not in text.split("The end.")[1], "nothing is folded away"
 
-    def test_settings_leave_full_screen_and_reload_after(self, app_session):
-        from reverse_api import cli
-
-        session, _history = app_session
-        session.app = MagicMock()
-        session.run_command("/settings")
-        session.app.exit.assert_called_once()
-        job = session.take_classic_job()
-        assert job is not None and session.take_classic_job() is None
-        with patch.object(cli, "handle_settings") as settings:
-            job()
-        settings.assert_called_once()
-        cli.config_manager.load.assert_called_once()
+    def test_an_older_log_without_tool_results_still_ends_on_its_client_card(self, app_session, tmp_path):
+        session, history = app_session
+        client = tmp_path / "api_client.py"
+        client.write_text("import requests\n")
+        history.get_run.return_value = {
+            "run_id": "a1",
+            "prompt": "quotes",
+            "usage": {"estimated_cost_usd": 0.23},
+            "sdk_session": {"id": "s", "mode": "agent"},
+        }
+        verify = {"name": "mcp__verification__report_client_verified", "input": {"summary": "ok"}}
+        log = [
+            {"type": "prompt", "content": "quotes", "timestamp": "2026-11-01T19:14:19"},
+            {"type": "tool_start", "content": verify, "timestamp": "2026-11-01T19:17:20"},
+            {"type": "result", "content": {"script_path": str(client)}, "timestamp": "2026-11-01T19:17:26"},
+        ]
+        with patch("reverse_api.repl.app.MessageStore") as store, patch.object(session, "work"):
+            store.return_value.load.return_value = log
+            session.run_command("/resume a1")
+        assert "api_client.py ready" in plain(session.transcript)
+        assert not session.bridge.verified
 
     def test_classic_screens_wait_for_a_running_agent(self, app_session):
         session, _history = app_session
         session.app = MagicMock()
         session.st.running = True
-        session.run_command("/settings")
+        session.classic(lambda: None)
         session.app.exit.assert_not_called()
         assert session.take_classic_job() is None
+
+
+class FakeConfig:
+    """A config_manager over a dict, so settings can be changed and read back."""
+
+    def __init__(self, **values: Any) -> None:
+        from reverse_api.config import DEFAULT_CONFIG
+
+        self.config = {**DEFAULT_CONFIG, **values}
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self.config.get(key, default)
+
+    def set(self, key: str, value: Any) -> None:
+        self.config[key] = value
+
+    def update(self, values: dict[str, Any]) -> None:
+        self.config.update(values)
+
+    def load(self) -> None:
+        pass
+
+
+@pytest.fixture
+def settings_session(monkeypatch):
+    from reverse_api import cli
+    from reverse_api.repl.app import Session
+
+    config = FakeConfig(sdk="claude", claude_code_model="claude-sonnet-5-5")
+    monkeypatch.setattr(cli, "config_manager", config)
+    monkeypatch.setattr(cli, "session_manager", MagicMock())
+    session = Session()
+    session.app = MagicMock()
+    monkeypatch.setattr(session, "call_soon", lambda fn: fn())
+    return session, config
+
+
+class TestSettings:
+    def test_settings_open_in_the_session_with_each_value(self, settings_session):
+        session, _config = settings_session
+        session.run_command("/settings")
+        p = session.st.picker
+        assert p is not None and p.title.startswith("settings")
+        assert ("sdk", "sdk", "claude") in p.items and ("real_time_sync", "real-time sync", "on") in p.items
+        assert ("claude_code_model", "claude model", "sonnet 5.5") in p.items
+        session.app.exit.assert_not_called()  # the session stays on screen
+
+    def test_a_choice_changes_in_place_and_comes_back_to_the_list(self, settings_session):
+        session, config = settings_session
+        session.run_command("/settings")
+        pick(session.st, "sdk")
+        assert [v for v, _, _ in session.st.picker.items] == ["claude", "copilot", "cursor", "opencode"]
+        pick(session.st, "opencode")
+        assert config.get("sdk") == "opencode" and session.st.sdk == "opencode"
+        assert "◇ sdk  claude → opencode" in plain(session.transcript)
+        p = session.st.picker
+        assert p.title.startswith("settings") and p.items[p.index][0] == "sdk"
+
+    def test_a_toggle_flips_at_once(self, settings_session):
+        session, config = settings_session
+        session.run_command("/settings")
+        pick(session.st, "real_time_sync")
+        assert config.get("real_time_sync") is False and "real-time sync  on → off" in plain(session.transcript)
+        assert session.st.picker.title.startswith("settings")
+
+    def test_typing_a_filter_highlights_the_first_match(self, settings_session):
+        session, _config = settings_session
+        session.run_command("/settings")
+        session.st.picker.index = 3
+        session.buf.text = "out"
+        p = session.st.picker
+        assert session.picker_items(p)[p.index][0] == "output_language"
+
+    def test_a_typed_value_is_saved(self, settings_session):
+        session, config = settings_session
+        session.run_command("/settings")
+        pick(session.st, "copilot_model")
+        assert session.st.picker.typed and session.st.picker.hint
+        session.buf.text = "gpt-4.1-mini"
+        session.choose()
+        assert config.get("copilot_model") == "gpt-4.1-mini" and session.buf.text == ""
+
+    def test_the_default_output_directory_is_none(self, settings_session):
+        session, config = settings_session
+        config.set("output_dir", "/data/rae")
+        session.run_command("/settings")
+        pick(session.st, "output_dir")
+        pick(session.st, "")
+        assert config.get("output_dir") is None
+
+    def test_esc_in_a_choice_goes_back_to_the_list(self, settings_session):
+        session, config = settings_session
+        session.run_command("/settings")
+        pick(session.st, "output_language")
+        pick(session.st, None)
+        assert config.get("output_language") == "python" and session.st.picker.title.startswith("settings")
+
+    def test_opencode_models_come_from_its_server_and_can_be_searched(self, settings_session, monkeypatch):
+        from reverse_api import cli
+        from reverse_api.repl import app
+
+        session, config = settings_session
+
+        class Inline:
+            def __init__(self, target, **kwargs):
+                self.target = target
+
+            def start(self):
+                self.target()
+
+        catalog = {
+            "default": {"google": "gemini-3-flash"},
+            "providers": [
+                {"id": "opencode", "name": "OpenCode Zen", "models": {"big-pickle": {"status": "active", "capabilities": {"toolcall": True}}}},
+                {
+                    "id": "google",
+                    "name": "Google",
+                    "models": {
+                        "gemini-3-flash": {"status": "active", "capabilities": {"toolcall": True}},
+                        "gemini-3-pro": {"status": "active", "capabilities": {"toolcall": True}},
+                    },
+                },
+            ],
+        }
+        monkeypatch.setattr(app.threading, "Thread", Inline)
+        monkeypatch.setattr(cli, "_load_opencode_catalog_for_settings", AsyncMock(return_value=catalog))
+        session.run_command("/settings")
+        pick(session.st, "opencode")
+        p = session.st.picker
+        assert p.search and [v for v, _, _ in p.items] == ["opencode", "google", "ollama"]
+        session.buf.text = "goo"
+        assert [v for v, _, _ in session.picker_items(p)] == ["google"]
+        session.choose()
+        assert session.buf.text == "" and [v for v, _, _ in session.st.picker.items] == ["gemini-3-flash", "gemini-3-pro"]
+        pick(session.st, "gemini-3-pro")
+        assert (config.get("opencode_provider"), config.get("opencode_model")) == ("google", "gemini-3-pro")
+        assert "opencode provider / model  opencode / big-pickle → google / gemini-3-pro" in plain(session.transcript)
+        assert session.st.picker.title.startswith("settings")
+
+    def test_typing_while_opencode_loads_is_no_prompt_and_esc_gives_up_on_it(self, settings_session, monkeypatch):
+        from reverse_api import cli
+        from reverse_api.repl import app
+
+        session, _config = settings_session
+        loads = []
+
+        class Later:
+            def __init__(self, target, **kwargs):
+                loads.append(target)
+
+            def start(self):
+                pass
+
+        monkeypatch.setattr(app.threading, "Thread", Later)
+        monkeypatch.setattr(cli, "_load_opencode_catalog_for_settings", AsyncMock(return_value={"providers": []}))
+        session.run_command("/settings")
+        pick(session.st, "opencode")
+        loading = session.st.picker
+        assert loading.items == [("", "loading…", "")]
+        session.buf.text = "open"
+        session.choose()
+        assert session.st.picker is loading and not session.st.running
+        pick(session.st, None)
+        loads[0]()  # the catalog arrives after esc
+        assert session.st.picker.title.startswith("settings")
+
+    @pytest.fixture
+    def inline_threads(self, monkeypatch):
+        from reverse_api.repl import app
+
+        class Inline:
+            def __init__(self, target, **kwargs):
+                self.target = target
+
+            def start(self):
+                self.target()
+
+        monkeypatch.setattr(app.threading, "Thread", Inline)
+
+    def test_a_password_protected_opencode_says_which_variable_to_set(self, settings_session, inline_threads, monkeypatch):
+        import httpx2 as httpx
+
+        from reverse_api import cli
+
+        session, _config = settings_session
+        request = httpx.Request("GET", "http://127.0.0.1:4096/config/providers")
+        denied = httpx.HTTPStatusError("unauthorized", request=request, response=httpx.Response(401, request=request))
+        monkeypatch.setattr(cli, "_load_opencode_catalog_for_settings", AsyncMock(side_effect=denied))
+        session.run_command("/settings")
+        pick(session.st, "opencode")
+        assert "OPENCODE_SERVER_PASSWORD" in plain(session.transcript)
+        assert session.st.picker.title.startswith("settings")
+
+    def test_ollama_lists_the_installed_models_that_fit(self, settings_session, inline_threads, monkeypatch):
+        from reverse_api import cli
+        from reverse_api.ollama_runtime import OllamaModel, OllamaStatus
+
+        session, config = settings_session
+        model = OllamaModel(name="qwen3:8b", size=5_000_000_000, capabilities=("completion", "tools"), context_length=131_072, parameter_size="8B")
+        monkeypatch.setattr(cli, "_load_opencode_catalog_for_settings", AsyncMock(return_value={"providers": []}))
+        monkeypatch.setattr("reverse_api.ollama_runtime.ensure_ollama_models", AsyncMock(return_value=OllamaStatus(base_url="", models=(model,))))
+        session.run_command("/settings")
+        pick(session.st, "opencode")
+        pick(session.st, "ollama")
+        assert session.st.picker.items == [("qwen3:8b", "qwen3:8b", "8B · 128k context")]
+        pick(session.st, "qwen3:8b")
+        assert (config.get("opencode_provider"), config.get("opencode_model")) == ("ollama", "qwen3:8b")
 
     def test_a_failing_classic_screen_reports_and_returns(self, app_session):
         session, _history = app_session
@@ -617,6 +917,20 @@ def test_a_long_step_stays_on_one_line_at_any_width(session, monkeypatch):
         LedgerUI(b).tool_start("Bash", {"command": "python /var/folders/bp/4wpy6h8d7s9f9btrd1sbplx40000gn/T/tmp1w10rt4r/api_client.py --limit 5"})
         lines = [line for line in plain(t).splitlines() if line.strip()]
         assert len(lines) == 1 and len(lines[0]) <= cols, (cols, lines)
+
+
+def test_long_errors_notices_and_prompts_wrap_under_their_own_text(session, monkeypatch):
+    from reverse_api.repl import transcript, view
+
+    _st, t, ledger, _b = session
+    monkeypatch.setattr(view, "width", lambda: 60)
+    monkeypatch.setattr(transcript, "width", lambda: 60, raising=False)
+    words = "Claude Code no longer has this run's conversation on this machine · start a new run"
+    for show, indent in ((ledger.error, 5), (ledger.notice, 3), (ledger.user, 3)):
+        t.clear()
+        show(words)
+        lines = [line for line in plain(t).splitlines() if line.strip()]
+        assert len(lines) > 1 and all(line.startswith(" " * indent) for line in lines[1:]), lines
 
 
 class Loop:
@@ -865,17 +1179,51 @@ class TestResume:
         session.show_run("a1")
         assert "resume" not in [v for v, _, _ in session.st.picker.items]
 
-    def test_a_resumed_run_shows_where_it_stopped(self, app_session):
+    def test_a_resumed_run_replays_its_conversation(self, app_session, tmp_path):
         session, history = app_session
-        history.get_run.return_value = {"run_id": "a1", "prompt": "jobs", "sdk_session": {"id": "s", "mode": "agent"}}
-        log = [{"type": "thinking", "content": f"step {i:02d}", "timestamp": f"2026-10-25T15:47:{i:02d}"} for i in range(30)]
-        with patch("reverse_api.repl.app.MessageStore") as store, patch.object(session, "work"):
+        client = tmp_path / "api_client.py"
+        client.write_text("import requests\n\n\nclass Quotes:\n    pass\n")
+        history.get_run.return_value = {
+            "run_id": "a1",
+            "prompt": "quotes",
+            "model": "claude-haiku-4-5",
+            "sdk": "claude",
+            "usage": {"input_tokens": 8000, "output_tokens": 400, "cache_read_input_tokens": 10000, "estimated_cost_usd": 0.23},
+            "paths": {"script_path": str(client)},
+            "sdk_session": {"id": "s", "mode": "agent"},
+        }
+        verify = "mcp__verification__report_client_verified"
+        log = [
+            {"type": "prompt", "content": "brief <mission>all quotes on quotes.toscrape.com</mission>", "timestamp": "2026-11-01T19:14:19"},
+            {
+                "type": "tool_start",
+                "content": {"name": "mcp__chrome-devtools__navigate_page", "input": {"url": "https://quotes.toscrape.com/scroll"}},
+                "timestamp": "2026-11-01T19:14:25",
+            },
+            {"type": "thinking", "content": "The quotes come from **GET /api/quotes**.", "timestamp": "2026-11-01T19:16:36"},
+            {"type": "tool_start", "content": {"name": verify, "input": {"summary": "fetched 10 quotes"}}, "timestamp": "2026-11-01T19:17:20"},
+            {"type": "tool_result", "content": {"name": verify, "is_error": False, "output": "recorded"}, "timestamp": "2026-11-01T19:17:20"},
+            {"type": "result", "content": {"script_path": str(client)}, "timestamp": "2026-11-01T19:17:26"},
+        ]
+        with patch("reverse_api.repl.app.MessageStore") as store, patch.object(session, "work") as work:
             store.return_value.load.return_value = log
             session.run_command("/resume a1")
         text = plain(session.transcript)
-        assert "step 29" in text and "step 06" in text and "step 05" not in text
-        assert "+6 earlier lines · ctrl+o full output" in text
-        assert session.st.running
+        assert "› all quotes on quotes.toscrape.com" in text and "brief" not in text
+        assert "navigate" in text and "quotes.toscrape.com/scroll" in text and "GET /api/quotes" in text
+        assert "api_client.py ready" in text and "$0.23" in text and "haiku 4.5" in text and "3m07s" in text
+        assert "18.4k tokens" in text, "cache tokens count, as on the live card"
+        # The replay draws the past run's numbers without making them this session's.
+        assert session.st.cost == 0 and session.st.step == 0 and not session.bridge.verified
+        assert session.st.running and session.st.verb == "reopening"
+        work.assert_called_once()
+
+    def test_a_runs_duration_leaves_out_the_days_it_was_set_aside(self):
+        from reverse_api.repl.app import run_duration
+
+        stamps = ["2026-11-01T19:14:19", "2026-11-01T19:16:19", "2026-11-04T10:00:00", "2026-11-04T10:01:00"]
+        assert run_duration([{"timestamp": s} for s in stamps]) == 180
+        assert run_duration([{"timestamp": "bad"}]) == 0
 
     def test_a_runs_messages_are_read_from_its_own_folder(self, app_session):
         from reverse_api.repl.app import run_output_dir
@@ -889,31 +1237,133 @@ class TestResume:
         with patch("reverse_api.repl.app.MessageStore") as store, patch.object(session, "work"):
             store.return_value.load.return_value = []
             session.run_command("/resume a1")
-            session.run_command("/messages a1")
-        assert store.call_args_list == [call("a1", "/data/rae"), call("a1", "/data/rae")]
+        assert store.call_args_list == [call("a1", "/data/rae")]
 
-    def test_an_opencode_resume_prints_where_it_stopped_before_its_prompt(self, app_session):
+    def test_an_opencode_resume_replays_in_the_plain_terminal_before_its_prompt(self, app_session):
+        import io
+
+        from rich.console import Console
+
         session, history = app_session
         history.get_run.return_value = {"run_id": "a1", "prompt": "jobs", "sdk_session": {"id": "s", "mode": "agent", "sdk": "opencode"}}
         log = [{"type": "thinking", "content": "the jobs come from GraphQL", "timestamp": "2026-10-25T15:47:00"}]
         with patch("reverse_api.repl.app.MessageStore") as store, patch.object(session, "classic") as classic:
             store.return_value.load.return_value = log
             session.run_command("/resume a1")
-        reopen = classic.call_args.args[0]
-        with patch.object(session.cli, "console") as console, patch.object(session.cli, "resume_run") as resume_run:
-            reopen()
-        printed = console.print.call_args.args[0]
-        assert "GraphQL" in "".join(str(row) for row in printed.renderables)
+        buf = io.StringIO()
+        with patch.object(session.cli, "console", Console(file=buf, width=120)), patch.object(session.cli, "resume_run") as resume_run:
+            classic.call_args.args[0]()
+        assert "GraphQL" in buf.getvalue()
         resume_run.assert_called_once_with("a1")
 
-    def test_resume_waits_for_an_open_run(self, app_session):
+    def test_resume_switches_from_a_conversation_that_waits(self, app_session):
         session, history = app_session
         history.get_run.return_value = {"run_id": "a1", "prompt": "jobs", "sdk_session": {"id": "s", "mode": "agent"}}
         session.st.waiting = True
+        with (
+            patch("reverse_api.repl.app.MessageStore") as store,
+            patch.object(session, "work") as work,
+            patch.object(session, "call_soon", side_effect=lambda fn: fn()),
+        ):
+            store.return_value.load.return_value = []
+            session.run_command("/resume a1")
+            assert session.bridge.follow_ups.get_nowait() is None and session.st.verb == "wrapping up"
+            work.assert_not_called()
+            session.finish({})  # the open conversation has wrapped up
+        work.assert_called_once()
+        assert "a run is open" not in plain(session.transcript)
+
+    def test_resume_waits_for_a_run_in_progress(self, app_session):
+        session, history = app_session
+        history.get_run.return_value = {"run_id": "a1", "prompt": "jobs", "sdk_session": {"id": "s", "mode": "agent"}}
+        session.st.running = True
         with patch.object(session, "work") as work:
             session.run_command("/resume a1")
         work.assert_not_called()
-        assert "a run is open" in plain(session.transcript)
+        assert session.after_run is None and "a run is in progress · esc stops it" in plain(session.transcript)
+
+    def test_a_run_made_in_rae_desktop_is_continued_there(self, app_session):
+        session, history = app_session
+        desktop = {"run_id": "d1", "prompt": "quotes", "mode": "desktop-browse", "sdk_session": {"id": "s", "mode": "desktop-browse"}}
+        history.get_run.return_value = desktop
+        with patch.object(session, "work") as work:
+            session.run_command("/resume d1")
+        work.assert_not_called()
+        assert "run d1 was made in rae desktop" in plain(session.transcript)
+        history.history = [desktop]
+        history.get_history.return_value = [desktop]
+        session.run_command("/resume")
+        assert session.st.picker is None, "the picker lists only runs this session can continue"
+
+    def test_the_cli_does_not_reopen_a_desktop_run_without_its_tools(self, monkeypatch):
+        from reverse_api import cli
+
+        history = MagicMock()
+        history.get_run.return_value = {"run_id": "d1", "mode": "desktop-capture", "sdk_session": {"id": "s", "mode": "engineer"}}
+        monkeypatch.setattr(cli, "session_manager", history)
+        with patch.object(cli, "run_engineer") as engineer, patch.object(cli, "run_auto_capture") as agent:
+            assert cli.resume_run("d1") is None
+        engineer.assert_not_called()
+        agent.assert_not_called()
+
+    def test_a_failure_the_engine_reported_is_not_repeated(self, app_session):
+        session, _history = app_session
+
+        def failed():
+            session.bridge.ui().error("Not logged in · Please run /login")
+            return {"error": "Agent analysis produced no result."}
+
+        session.work(failed)
+        session.worker.join(5)
+        text = plain(session.transcript)
+        assert text.count("Not logged in") == 1 and "produced no result" not in text
+
+    def test_an_error_in_an_earlier_turn_does_not_hide_how_the_run_ends(self, app_session):
+        session, _history = app_session
+        session.bridge.ui().error("rate limited")
+        session.bridge.follow_ups.put("try again")
+        assert asyncio.run(session.bridge.follow_up()) == "try again"
+        session.finish({"error": "cursor bridge exited with code 3"})
+        assert "cursor bridge exited with code 3" in plain(session.transcript)
+
+    def test_a_resume_asked_for_while_a_run_wraps_up_comes_before_a_queued_prompt(self, app_session):
+        session, _history = app_session
+        reopened, started = [], []
+        session.st.running, session.st.queue = True, ["follow-up text"]
+        session.after_run = lambda: reopened.append(True)
+        with patch.object(session, "call_soon", side_effect=lambda fn: fn()), patch.object(session, "start", side_effect=started.append):
+            session.finish({})
+        assert reopened == [True] and started == [] and session.after_run is None
+        assert session.st.queue == ["follow-up text"], "the resumed conversation takes it as its next message"
+
+    def test_new_and_quit_drop_a_pending_resume(self, app_session):
+        session, _history = app_session
+        session.after_run = lambda: None
+        session.run_command("/new")
+        assert session.after_run is None
+        session.after_run = lambda: None
+        session.quit()
+        assert session.after_run is None
+
+    def test_esc_while_a_run_wraps_up_drops_the_queued_prompts(self, app_session):
+        session, _history = app_session
+        session.st.running, session.bridge.stopping, session.st.queue = True, True, ["next"]
+        session.stop()
+        assert session.st.queue == [] and "still wrapping up" in plain(session.transcript)
+
+    def test_a_second_esc_does_not_cut_a_closing_run_short(self, app_session):
+        session, _history = app_session
+        bridge = session.bridge
+        bridge.loop, bridge.task = MagicMock(), MagicMock(done=MagicMock(return_value=False))
+        session.st.waiting = True
+        session.stop()  # ends the conversation that waited for a follow-up
+        session.stop()
+        bridge.loop.call_soon_threadsafe.assert_not_called()
+        session.st.running, session.st.waiting, bridge.stopping = True, False, False
+        session.stop()  # a working run is cancelled once, however often esc is pressed
+        session.stop()
+        assert bridge.loop.call_soon_threadsafe.call_count == 1
+        assert "cannot be stopped" not in plain(session.transcript)
 
 
 class TestEntry:

@@ -483,6 +483,7 @@ class TestClaudeEngineerAnalyzeAndGenerate:
         mock = MagicMock(spec=AssistantMessage)
         mock.content = content or []
         mock.usage = None
+        mock.error = None
         return mock
 
     def _make_tool_use_block(self, name="Read", tool_input=None):
@@ -550,6 +551,94 @@ class TestClaudeEngineerAnalyzeAndGenerate:
 
             result = await eng.analyze_and_generate()
             assert result is None
+
+    @pytest.mark.asyncio
+    async def test_claude_codes_error_notice_is_shown_once(self, tmp_path):
+        """A failed call comes as an assistant notice and then an error result with the same words."""
+        eng = self._make_engineer(tmp_path)
+        eng.ui = MagicMock()
+        notice = self._make_assistant_message([self._make_text_block("Not logged in · Please run /login")])
+        notice.error = "authentication_failed"
+        failed = self._make_result_message(is_error=True, result_text="Not logged in · Please run /login")
+        client = AsyncMock()
+
+        async def receive():
+            yield notice
+            yield failed
+
+        client.receive_response = receive
+        assert await eng._process_streaming_response(client) is None
+        eng.ui.error.assert_called_once_with("Not logged in · Please run /login")
+        eng.ui.thinking.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_notice_claude_code_recovers_from_is_no_error(self, tmp_path):
+        eng = self._make_engineer(tmp_path)
+        eng.ui = MagicMock()
+        notice = self._make_assistant_message([self._make_text_block("Rate limited, retrying")])
+        notice.error = "rate_limit"
+        done = self._make_result_message(is_error=False)
+        done.usage, done.total_cost_usd = None, None
+        client = AsyncMock()
+
+        async def receive():
+            yield notice
+            yield done
+
+        client.receive_response = receive
+        assert await eng._process_streaming_response(client) is not None
+        eng.ui.error.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_an_error_result_without_text_shows_claude_codes_notice(self, tmp_path):
+        eng = self._make_engineer(tmp_path)
+        eng.ui = MagicMock()
+        notice = self._make_assistant_message([self._make_text_block("Credit balance is too low")])
+        notice.error = "billing_error"
+        failed = self._make_result_message(is_error=True, result_text=None)
+        client = AsyncMock()
+
+        async def receive():
+            yield notice
+            yield failed
+
+        client.receive_response = receive
+        assert await eng._process_streaming_response(client) is None
+        eng.ui.error.assert_called_once_with("Credit balance is too low")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("resume", [None, "gone-session"])
+    async def test_a_failure_reads_in_claude_codes_words_without_the_install_hint(self, tmp_path, resume):
+        from claude_agent_sdk import ResultError
+
+        eng = self._make_engineer(tmp_path)
+        eng.ui = MagicMock()
+        eng.resume_session = resume
+        words = "No conversation found with session ID: gone-session"
+        error = ResultError(f"Claude Code returned an error result: {words}", data={"is_error": True, "result": words}, exit_code=1)
+        with patch("reverse_api.engineer.ClaudeSDKClient") as sdk:
+            sdk.return_value.__aenter__ = AsyncMock(side_effect=error)
+            sdk.return_value.__aexit__ = AsyncMock(return_value=False)
+            assert await eng.analyze_and_generate() is None
+        shown = eng.ui.error.call_args.args[0]
+        assert "exit code" not in shown and "returned an error result" not in shown
+        assert ("no longer has this run's conversation" in shown) if resume else shown == words
+        assert eng.message_store.save_error.called is not bool(resume), "a resume that cannot start leaves the run's log alone"
+        printed = " ".join(str(c.args[0]) for c in eng.ui.console.print.call_args_list if c.args)
+        assert "npm install" not in printed
+
+    @pytest.mark.asyncio
+    async def test_a_missing_claude_code_says_how_to_install_it(self, tmp_path):
+        from claude_agent_sdk import CLINotFoundError
+
+        eng = self._make_engineer(tmp_path)
+        eng.ui = MagicMock()
+        with patch("reverse_api.engineer.ClaudeSDKClient") as sdk:
+            sdk.return_value.__aenter__ = AsyncMock(side_effect=CLINotFoundError())
+            sdk.return_value.__aexit__ = AsyncMock(return_value=False)
+            assert await eng.analyze_and_generate() is None
+        printed = " ".join(str(c.args[0]) for c in eng.ui.console.print.call_args_list if c.args)
+        assert "npm install -g @anthropic-ai/claude-code" in printed
 
     @pytest.mark.asyncio
     async def test_result_error_none_message(self, tmp_path):
@@ -650,6 +739,7 @@ class TestClaudeEngineerAnalyzeAndGenerate:
 
         async def mock_receive():
             raise KeyboardInterrupt
+            yield  # an async generator, like the SDK's stream
 
         mock_client.receive_response = mock_receive
 

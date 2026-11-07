@@ -15,7 +15,6 @@ from typing import IO, Any, Protocol, TextIO
 import click
 import questionary
 import setproctitle
-from questionary import Choice
 from rich.console import Console
 from rich.markup import escape
 
@@ -26,9 +25,6 @@ from .session import SessionManager
 from .tui import (
     ERROR_CTA,
     RETIRED_MODEL_IDS,
-    THEME_DIM,
-    THEME_PRIMARY,
-    THEME_SECONDARY,
     get_model_choices,
 )
 from .utils import (
@@ -57,58 +53,6 @@ setproctitle.setthreadtitle("reverse-api-engineer")
 console = Console()
 config_manager = ConfigManager(get_config_path())
 session_manager = SessionManager(get_history_path())
-
-
-def _format_ollama_size(size: int) -> str:
-    if size < 1024:
-        return "cloud"
-    return f"{size / (1024**3):.1f} GB"
-
-
-def _select_ollama_model_for_settings() -> str | None:
-    """Discover installed agent-capable Ollama models and let the user choose."""
-
-    from .ollama_runtime import OllamaSetupError, ensure_ollama_models
-
-    try:
-        status = asyncio.run(ensure_ollama_models())
-    except OllamaSetupError as e:
-        console.print(f" [yellow]error:[/yellow] {escape(str(e))}\n")
-        return None
-
-    models = status.compatible_models
-    if not models:
-        console.print(" [yellow]error:[/yellow] no installed Ollama model supports tools with at least 64k context")
-        console.print(" [dim]Pull a compatible model explicitly, then retry. RAE will not download multi-GB models silently.[/dim]\n")
-        return None
-    if len(models) == 1:
-        console.print(f" [dim]using the only compatible Ollama model: {models[0].name}[/dim]")
-        return models[0].name
-
-    choices = [
-        Choice(
-            title=(
-                f"{model.name}  ({model.parameter_size or 'unknown'}, {_format_ollama_size(model.size)}, "
-                f"{model.context_length // 1024}k context)"
-            ),
-            value=model.name,
-        )
-        for model in models
-    ]
-    choices.append(Choice(title="back", value="back"))
-    selected = questionary.select(
-        " > ollama model",
-        choices=choices,
-        pointer=">",
-        qmark="",
-        style=questionary.Style(
-            [
-                ("pointer", f"fg:{THEME_SECONDARY} bold"),
-                ("highlighted", f"fg:{THEME_SECONDARY} bold"),
-            ]
-        ),
-    ).ask()
-    return None if selected in {None, "back"} else str(selected)
 
 
 class ModelChoice(click.Choice):
@@ -153,109 +97,43 @@ async def _load_opencode_catalog_for_settings() -> dict:
         return await get_opencode_model_catalog(client)
 
 
-def _select_opencode_pair_for_settings(mode_color: str = THEME_PRIMARY) -> tuple[str, str] | None:
-    """Select a valid tool-capable provider/model pair from the live OpenCode catalog."""
+def opencode_provider_choices(catalog: dict) -> list[tuple[str, str]]:
+    """(provider id, title) for each provider with a tool-capable model, plus ollama for local models."""
+    from .opencode_runtime import opencode_model_is_selectable
+
+    choices = []
+    for provider in catalog.get("providers", []):
+        if not isinstance(provider, dict):
+            continue
+        models = provider.get("models")
+        if not (provider.get("id") and isinstance(models, dict) and any(opencode_model_is_selectable(m) for m in models.values())):
+            continue
+        provider_id, name = str(provider["id"]), str(provider.get("name") or "")
+        choices.append((provider_id, f"{provider_id} — {name}" if name and name != provider_id else provider_id))
+    if "ollama" not in {provider_id for provider_id, _ in choices}:
+        choices.append(("ollama", "ollama — installed local models"))
+    return choices
+
+
+def opencode_model_choices(catalog: dict, provider_id: str, current_model: str = "") -> list[tuple[str, str]]:
+    """(model id, title) for a provider's tool-capable models, the current and default ones first."""
     from .opencode_runtime import opencode_model_is_free, opencode_model_is_selectable
 
-    try:
-        with console.status(" Loading OpenCode providers and models...", spinner="dots"):
-            catalog = asyncio.run(_load_opencode_catalog_for_settings())
-    except Exception as e:
-        response = getattr(e, "response", None)
-        if getattr(response, "status_code", None) == 401:
-            console.print(
-                " [yellow]error:[/yellow] OpenCode authentication failed. "
-                "Set OPENCODE_SERVER_PASSWORD (and OPENCODE_SERVER_USERNAME when customized).\n"
-            )
-        else:
-            console.print(f" [yellow]error:[/yellow] could not load OpenCode providers and models: {escape(str(e))}\n")
-        return None
-
-    providers = [provider for provider in catalog.get("providers", []) if isinstance(provider, dict)]
-    raw_defaults = catalog.get("default")
-    defaults = raw_defaults if isinstance(raw_defaults, dict) else {}
-    selectable = []
-    for provider in providers:
-        models = provider.get("models")
-        if provider.get("id") and isinstance(models, dict) and any(opencode_model_is_selectable(model) for model in models.values()):
-            selectable.append(provider)
-
-    style = questionary.Style(
-        [
-            ("pointer", f"fg:{mode_color} bold"),
-            ("highlighted", f"fg:{mode_color} bold"),
-        ]
-    )
-    current_provider = config_manager.get("opencode_provider", "")
-    provider_choices = []
-    for provider in selectable:
-        provider_id = str(provider["id"])
-        provider_name = str(provider.get("name") or "")
-        title = (
-            f"{provider_id} — {provider_name}"
-            if provider_name and provider_name != provider_id
-            else provider_id
-        )
-        provider_choices.append(Choice(title=title, value=provider_id))
-    provider_ids = {str(provider["id"]) for provider in selectable}
-    if "ollama" not in provider_ids:
-        provider_choices.append(Choice(title="ollama — installed local models", value="ollama"))
-        provider_ids.add("ollama")
-    provider_choices.append(Choice(title="back", value="back"))
-    provider_id = questionary.select(
-        " > opencode provider",
-        choices=provider_choices,
-        default=current_provider if current_provider in provider_ids else None,
-        pointer=">",
-        qmark="",
-        style=style,
-        use_search_filter=True,
-        use_jk_keys=False,
-    ).ask()
-    if provider_id is None or provider_id == "back":
-        return None
-    if provider_id == "ollama":
-        model_id = _select_ollama_model_for_settings()
-        return ("ollama", model_id) if model_id else None
-
-    provider = next(item for item in selectable if item.get("id") == provider_id)
-    models = provider["models"]
-    current_model = config_manager.get("opencode_model", "") if provider_id == current_provider else ""
+    provider = next((p for p in catalog.get("providers", []) if isinstance(p, dict) and p.get("id") == provider_id), {})
+    raw_models, raw_defaults = provider.get("models"), catalog.get("default")
+    models: dict[str, Any] = raw_models if isinstance(raw_models, dict) else {}
+    defaults: dict[str, Any] = raw_defaults if isinstance(raw_defaults, dict) else {}
     default_model = str(defaults.get(provider_id) or "")
-    model_ids = [str(model_id) for model_id, model in models.items() if opencode_model_is_selectable(model)]
-    model_ids.sort(key=lambda model_id: (model_id not in {current_model, default_model}, model_id))
-    model_choices = []
+    selectable = [str(m) for m, model in models.items() if opencode_model_is_selectable(model)]
+    model_ids = sorted(selectable, key=lambda m: (m not in {current_model, default_model}, m))
+    choices = []
     for model_id in model_ids:
         model = models[model_id]
-        model_name = str(model.get("name") or "")
-        title = f"{model_id} — {model_name}" if model_name and model_name != model_id else model_id
-        markers = []
-        if opencode_model_is_free(provider_id, model_id, model):
-            markers.append("free")
-        if model_id == default_model:
-            markers.append("default")
-        if markers:
-            title += f"  ({', '.join(markers)})"
-        model_choices.append(Choice(title=title, value=model_id))
-    model_choices.append(Choice(title="back", value="back"))
-    selected_default = None
-    if current_model in model_ids:
-        selected_default = current_model
-    elif default_model in model_ids:
-        selected_default = default_model
-    model_id = questionary.select(
-        " > opencode model",
-        choices=model_choices,
-        default=selected_default,
-        pointer=">",
-        qmark="",
-        style=style,
-        use_search_filter=True,
-        use_jk_keys=False,
-    ).ask()
-    if model_id is None or model_id == "back":
-        return None
-    return str(provider_id), str(model_id)
+        name = str(model.get("name") or "")
+        title = f"{model_id} — {name}" if name and name != model_id else model_id
+        markers = (["free"] if opencode_model_is_free(provider_id, model_id, model) else []) + (["default"] if model_id == default_model else [])
+        choices.append((model_id, title + (f"  ({', '.join(markers)})" if markers else "")))
+    return choices
 
 
 # Schema version for --json outputs. Wrappers can query it via
@@ -821,313 +699,6 @@ def open_session(
     from .repl.app import run_session
 
     run_session(mode=mode, model=model, first=(prompt, run) if prompt and run else None, runner=runner)
-
-
-def handle_settings(mode_color: str = THEME_PRIMARY) -> None:
-    """Keep the settings menu open until the user explicitly goes back."""
-    while _handle_settings_action(mode_color):
-        pass
-
-
-def _handle_settings_action(mode_color: str = THEME_PRIMARY) -> bool:  # noqa: C901 — one branch per settings menu entry; split when next touched
-    """Display and manage settings with improved layout and descriptions."""
-    from rich.table import Table
-
-    console.print()
-
-    # Create a table for current configuration
-    config_table = Table(show_header=False, box=None, padding=(0, 1))
-    config_table.add_column(style="dim", justify="left")
-    config_table.add_column(style=mode_color, justify="left")
-
-    # Sort config items alphabetically by key
-    for k, v in sorted(config_manager.config.items()):
-        display_val = str(v) if v is not None else "default"
-        # Make the key more readable
-        key_display = k.replace("_", " ").title()
-        config_table.add_row(key_display, display_val)
-
-    # Display in a clean format
-    console.print(" [bold white]Settings[/bold white] [dim]Current Configuration[/dim]")
-    console.print(config_table)
-    console.print()
-
-    # Settings menu (sorted alphabetically)
-    choices = [
-        Choice(title="Agent Provider", value="agent_provider"),
-        Choice(title="Claude Code Model", value="claude_code_model"),
-        Choice(title="Copilot Model", value="copilot_model"),
-        Choice(title="Cursor Model", value="cursor_model"),
-        Choice(title="Cursor Web Search", value="cursor_web_search"),
-        Choice(title="OpenCode Provider / Model", value="opencode_pair"),
-        Choice(title="Output Directory", value="output_dir"),
-        Choice(title="Output Language", value="output_language"),
-        Choice(title="Real-time Sync", value="real_time_sync"),
-        Choice(title="SDK", value="sdk"),
-        Choice(title="Back", value="back"),
-    ]
-
-    action = questionary.select(
-        "    ",  # Add padding via the question prompt
-        choices=choices,
-        pointer=">",
-        qmark="",
-        style=questionary.Style(
-            [
-                ("pointer", f"fg:{mode_color} bold"),
-                ("highlighted", f"fg:{mode_color} bold"),
-                ("selected", "fg:white"),
-                ("question", ""),  # Hide the question text styling
-            ]
-        ),
-    ).ask()
-
-    if action is None or action == "back":
-        return False  # Exit settings to main prompt
-
-    if action == "claude_code_model":
-        model_choices = [Choice(title=c["name"].lower(), value=c["value"]) for c in get_model_choices()]
-        model_choices.append(Choice(title="back", value="back"))
-        model = questionary.select(
-            "",
-            choices=model_choices,
-            pointer=">",
-            qmark="",
-            style=questionary.Style(
-                [
-                    ("pointer", f"fg:{mode_color} bold"),
-                    ("highlighted", f"fg:{mode_color} bold"),
-                ]
-            ),
-        ).ask()
-        if model and model != "back":
-            config_manager.set("claude_code_model", model)
-            console.print(f" [dim]updated[/dim] {model}\n")
-
-    elif action == "sdk":
-        sdk_choices = [
-            Choice(title="claude", value="claude"),
-            Choice(title="copilot", value="copilot"),
-            Choice(title="cursor", value="cursor"),
-            Choice(title="opencode", value="opencode"),
-            Choice(title="back", value="back"),
-        ]
-        sdk = questionary.select(
-            "",
-            choices=sdk_choices,
-            pointer=">",
-            qmark="",
-            style=questionary.Style(
-                [
-                    ("pointer", f"fg:{mode_color} bold"),
-                    ("highlighted", f"fg:{mode_color} bold"),
-                ]
-            ),
-        ).ask()
-        if sdk and sdk != "back":
-            config_manager.set("sdk", sdk)
-            console.print(f" [dim]updated[/dim] sdk: {sdk}\n")
-
-    elif action == "output_language":
-        lang_choices = [
-            Choice(title="python", value="python"),
-            Choice(title="javascript", value="javascript"),
-            Choice(title="typescript", value="typescript"),
-            Choice(title="go", value="go"),
-            Choice(title="java", value="java"),
-            Choice(title="csharp", value="csharp"),
-            Choice(title="php", value="php"),
-            Choice(title="ruby", value="ruby"),
-            Choice(title="c", value="c"),
-            Choice(title="powershell", value="powershell"),
-            Choice(title="back", value="back"),
-        ]
-        lang = questionary.select(
-            "",
-            choices=lang_choices,
-            pointer=">",
-            qmark="",
-            style=questionary.Style(
-                [
-                    ("pointer", f"fg:{mode_color} bold"),
-                    ("highlighted", f"fg:{mode_color} bold"),
-                ]
-            ),
-        ).ask()
-        if lang and lang != "back":
-            config_manager.set("output_language", lang)
-            console.print(f" [dim]updated[/dim] output language: {lang}\n")
-
-    elif action == "agent_provider":
-        provider_choices = [
-            Choice(title="chrome-mcp (your Chrome via Chrome DevTools MCP, default)", value="chrome-mcp"),
-            Choice(title="auto (Playwright MCP, records a HAR)", value="auto"),
-            Choice(title="agent-browser (Vercel CLI via shell/Bash)", value="agent-browser"),
-            Choice(title="back", value="back"),
-        ]
-        provider = questionary.select(
-            "",
-            choices=provider_choices,
-            pointer=">",
-            qmark="",
-            style=questionary.Style(
-                [
-                    ("pointer", f"fg:{mode_color} bold"),
-                    ("highlighted", f"fg:{mode_color} bold"),
-                ]
-            ),
-        ).ask()
-        if provider and provider != "back":
-            config_manager.set("agent_provider", provider)
-            console.print(f" [dim]updated[/dim] agent provider: {provider}")
-            if provider == "agent-browser":
-                console.print()
-                console.print(
-                    " [dim]Browsing runs through Vercel's agent-browser CLI (not an MCP shim).[/dim]"
-                )
-                console.print(
-                    " [dim]On first agent run RAE installs the CLI with `npm install -g <pin>` when "
-                    "`agent-browser` is missing (you’ll see a banner), then reuses the global shim.[/dim]"
-                )
-                console.print(
-                    " [dim]Pin via `agent_browser_npx_package` in config or `RAE_AGENT_BROWSER_PACKAGE` env.[/dim]"
-                )
-                console.print(
-                    " [dim]Extra operator hints (cloud backends, corp proxy…): "
-                    "`agent_browser_notes` or `RAE_AGENT_BROWSER_NOTES`.[/dim]"
-                )
-                console.print(
-                    " [dim]Chrome download: `agent-browser install` once (add `--with-deps` on Linux).[/dim]"
-                )
-                console.print()
-            elif provider == "chrome-mcp":
-                console.print()
-                console.print(" [dim]chrome devtools mcp setup:[/dim]")
-                console.print(" [dim] 1. open chrome (version 146 or newer)[/dim]")
-                console.print(" [dim] 2. go to chrome://inspect/#remote-debugging[/dim]")
-                console.print(' [dim] 3. click "Enable auto-connect"[/dim]')
-                console.print(" [dim] 4. node.js v20.19+ required[/dim]")
-                console.print()
-                console.print(" [dim]the agent will connect to your real chrome browser.[/dim]")
-                console.print(" [dim]existing sessions, cookies, and auth will be available.[/dim]")
-                console.print(" [dim]avoid browsing sensitive sites while the agent is active.[/dim]")
-            console.print()
-
-    elif action == "opencode_pair":
-        pair = _select_opencode_pair_for_settings(mode_color)
-        if pair is not None:
-            provider_id, model_id = pair
-            config_manager.update({"opencode_provider": provider_id, "opencode_model": model_id})
-            console.print(f" [dim]updated[/dim] opencode: {provider_id}/{model_id}\n")
-
-    elif action == "copilot_model":
-        current = config_manager.get("copilot_model", "gpt-5")
-        new_model = questionary.text(
-            " > copilot model",
-            default=current or "gpt-5",
-            instruction="(e.g., 'gpt-5', 'gpt-4.1')",
-            qmark="",
-            style=questionary.Style(
-                [
-                    ("question", f"fg:{THEME_SECONDARY}"),
-                    ("instruction", f"fg:{THEME_DIM} italic"),
-                ]
-            ),
-        ).ask()
-        if new_model is not None:
-            new_model = new_model.strip()
-            if not new_model:
-                console.print(" [yellow]error:[/yellow] copilot model cannot be empty\n")
-            else:
-                config_manager.set("copilot_model", new_model)
-                console.print(f" [dim]updated[/dim] copilot model: {new_model}\n")
-
-    elif action == "cursor_model":
-        current = config_manager.get("cursor_model", "composer-2.5")
-        new_model = questionary.text(
-            " > cursor model",
-            default=current or "composer-2.5",
-            instruction="(e.g., 'composer-2.5', 'composer-2' — see Cursor SDK docs)",
-            qmark="",
-            style=questionary.Style(
-                [
-                    ("question", f"fg:{THEME_SECONDARY}"),
-                    ("instruction", f"fg:{THEME_DIM} italic"),
-                ]
-            ),
-        ).ask()
-        if new_model is not None:
-            new_model = new_model.strip()
-            if not new_model:
-                console.print(" [yellow]error:[/yellow] cursor model cannot be empty\n")
-            else:
-                config_manager.set("cursor_model", new_model)
-                console.print(f" [dim]updated[/dim] cursor model: {new_model}\n")
-
-    elif action == "cursor_web_search":
-        pick = questionary.select(
-            "",
-            choices=[
-                Choice(title="On — WebFetch/WebSearch + plugins/team settings", value=True),
-                Choice(title="Off — project + user Cursor settings only", value=False),
-                Choice(title="back", value="back"),
-            ],
-            pointer=">",
-            qmark="",
-            style=questionary.Style(
-                [
-                    ("pointer", f"fg:{mode_color} bold"),
-                    ("highlighted", f"fg:{mode_color} bold"),
-                ]
-            ),
-        ).ask()
-        if pick is not None and pick != "back":
-            config_manager.set("cursor_web_search", pick)
-            console.print(f" [dim]updated[/dim] cursor web search: {'on' if pick else 'off'}\n")
-
-    elif action == "real_time_sync":
-        current = config_manager.get("real_time_sync", True)
-        sync_choices = [
-            Choice(title="Enabled", value=True),
-            Choice(title="Disabled", value=False),
-            Choice(title="Back", value="back"),
-        ]
-        sync = questionary.select(
-            "",
-            choices=sync_choices,
-            pointer=">",
-            qmark="",
-            style=questionary.Style(
-                [
-                    ("pointer", f"fg:{mode_color} bold"),
-                    ("highlighted", f"fg:{mode_color} bold"),
-                ]
-            ),
-        ).ask()
-        if sync is not None and sync != "back":
-            config_manager.set("real_time_sync", sync)
-            status = "enabled" if sync else "disabled"
-            console.print(f"    [dim]updated[/dim] real-time sync: {status}\n")
-
-    elif action == "output_dir":
-        current = config_manager.get("output_dir")
-        new_dir = questionary.text(
-            " > output directory",
-            default=current or "",
-            instruction="(Enter for default ~/.reverse-api/runs)",
-            qmark="",
-            style=questionary.Style(
-                [
-                    ("question", f"fg:{THEME_SECONDARY}"),
-                    ("instruction", f"fg:{THEME_DIM} italic"),
-                ]
-            ),
-        ).ask()
-        if new_dir is not None:
-            config_manager.set("output_dir", new_dir if new_dir.strip() else None)
-            console.print(" [dim]updated[/dim] output directory\n")
-
-    return True
 
 
 @main.command(
@@ -2181,6 +1752,14 @@ def resumable(run: dict[str, Any] | None) -> bool:
     return bool(((run or {}).get("sdk_session") or {}).get("id"))
 
 
+def made_in_desktop(run: dict[str, Any] | None) -> bool:
+    """A run of rae desktop: only the app has its browser and captured traffic, and the sandbox that masks its secrets."""
+    return str((run or {}).get("mode") or "").startswith("desktop-")
+
+
+DESKTOP_RESUME = "run {} was made in rae desktop · continue it there, where its browser and captured traffic are"
+
+
 def _session_sdk(resume: dict[str, Any] | None) -> str | None:
     """The SDK a resumed run's session belongs to; sessions saved before the SDK was recorded were Claude's."""
     if not resume:
@@ -2249,6 +1828,9 @@ def resume_run(run_id: str) -> dict[str, Any] | None:
     run = session_manager.get_run(run_id)
     if run is None or not resumable(run):
         console.print(f" [dim]run {escape(run_id)} has no saved session to resume[/dim]")
+        return None
+    if made_in_desktop(run):
+        console.print(f" [dim]{escape(DESKTOP_RESUME.format(run_id))}[/dim]")
         return None
     session = run["sdk_session"]
     model = session.get("model") or run.get("model") or None

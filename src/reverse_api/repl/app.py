@@ -18,6 +18,7 @@ import time
 import warnings
 from collections.abc import Callable
 from concurrent.futures import Future
+from datetime import datetime
 from pathlib import Path
 from typing import IO, Any, cast
 from urllib.parse import urlparse
@@ -38,14 +39,16 @@ from prompt_toolkit.layout.processors import AfterInput, ConditionalProcessor
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.output import create_output
 from prompt_toolkit.styles import Style
-from rich.console import Console, Group, RenderableType
+from rich.console import Console, RenderableType
 from rich.text import Text
 
 from ..messages import MessageStore
-from .bridge import Bridge, activate, describe, first_line, short_name
+from ..utils import recorded_cost
+from . import settings
+from .bridge import Bridge, LedgerUI, activate, first_line, short_name, usage_tokens
 from .style import DIM, INK, SKY, THEME, height, width
 from .transcript import Raw, Transcript, TranscriptControl, TranscriptWriter
-from .view import EFFORTS, LedgerView, Picker, SessionState, model_label, run_summary, strip_markdown
+from .view import EFFORTS, LedgerView, Picker, SessionState, model_label, run_summary
 
 MODES = {
     "agent": "the agent browses the site and writes the client",
@@ -66,20 +69,37 @@ COMMANDS = {
     "/effort": "how hard the agent thinks",
     "/mode": "choose the mode",
     "/settings": "all settings",
-    "/history": "past runs, to look at or re-engineer",
-    "/resume": "continue a past run's conversation",
-    "/messages": "what the agent did in a past run",
+    "/history": "past runs: their details, resume or re-engineer",
+    "/resume": "a past run's conversation, to continue it",
     "/output": "everything from this session, unfolded",
     "/open": "open the latest client",
     "/clear": "clear the conversation and start over",
-    "/help": "keys and commands",
+    "/help": "what rae does, its modes, commands and keys",
     "/exit": "quit rae",
 }
+KEYS = (
+    ("enter", "send · answers the run that waits for a follow-up"),
+    ("esc", "stop the run · close a list"),
+    ("↑ ↓", "earlier prompts · move in a list, around from either end"),
+    ("tab", "complete a command"),
+    ("shift+tab", "next mode"),
+    ("ctrl+e", "next effort"),
+    ("ctrl+o", "everything from this session, unfolded"),
+    ("pageup pagedown", "scroll, as does the mouse wheel · end jumps to the latest"),
+    ("click", "open a file or a URL"),
+    ("ctrl+c", "stop the run · clear the bar · quit"),
+    ("ctrl+d", "quit"),
+)
 ALIASES = {"/quit": "/exit", "/commands": "/help"}
 HISTORY_RUNS = 20
 # Commands that open a picker are echoed once a choice shows something, not when the picker opens.
-PICKER_COMMANDS = {"/model", "/effort", "/mode", "/history", "/messages", "/resume"}
+PICKER_COMMANDS = {"/model", "/effort", "/mode", "/history", "/resume", "/settings"}
 URL_IN_PROMPT = re.compile(r"https?://([^/\s]+)|\b((?:[\w-]+\.)+(?:com|io|co|ch|de|fr|uk|org|net|dev|ai|app|so|sh|eu|jobs))\b")
+
+
+def around(index: int, count: int) -> int:
+    """A list's index that goes around: past the last item to the first, before the first to the last."""
+    return index % count if count else 0
 
 
 def file_path(target: str) -> str:
@@ -117,29 +137,27 @@ def run_output_dir(run: dict[str, Any] | None) -> str | None:
     return str(Path(har_dir).parent.parent) if har_dir else None
 
 
-def run_log(run_id: str, output_dir: str | None = None) -> list[tuple[str, str, str, str]]:
-    """A past run's saved messages as (clock, verb, text, kind) rows, for /messages and /resume."""
-    entries: list[tuple[str, str, str, str]] = []
-    for msg in MessageStore(run_id, output_dir).load():
-        kind, content, clock = msg.get("type"), msg.get("content"), str(msg.get("timestamp", ""))[11:19]
-        if kind == "prompt":
-            # The first prompt of a run is the engine's full brief; the user's words are its mission.
-            mission = re.search(r"<mission>(.*?)</mission>", str(content), re.DOTALL)
-            entries.append((clock, "prompt", first_line(mission.group(1) if mission else content, 200), "user"))
-        elif kind == "tool_start" and isinstance(content, dict):
-            found = describe(short_name(str(content.get("name", ""))), content.get("input") or {})
-            if found:
-                entries.append((clock, found[0], found[1], found[2]))
-        elif kind == "tool_result" and isinstance(content, dict) and content.get("is_error"):
-            entries.append((clock, "failed", first_line(content.get("output") or "the tool returned an error", 200), "error"))
-        elif kind == "thinking":
-            entries.append((clock, "says", first_line(strip_markdown(str(content)), 200), "say"))
-        elif kind == "error":
-            entries.append((clock, "error", first_line(content, 200), "error"))
-        elif kind == "result":
-            script = content.get("script_path") if isinstance(content, dict) else None
-            entries.append((clock, "done", Path(script).name if script else "finished", "done"))
-    return entries
+def user_words(prompt: Any) -> str:
+    """What the user asked: the mission inside an engine's brief, else the message itself."""
+    text = str(prompt or "")
+    mission = re.search(r"<mission>(.*?)</mission>", text, re.DOTALL)
+    words = (mission.group(1) if mission else text).strip()
+    return words if len(words) <= 500 else first_line(words, 200)
+
+
+RUN_PAUSE = 600  # seconds between two messages past which the run was waiting or set aside, not working
+
+
+def run_duration(messages: list[dict[str, Any]]) -> float:
+    """Seconds a run worked: the time between its saved messages, without the long pauses of a resumed run."""
+    stamps = []
+    for msg in messages:
+        try:
+            stamps.append(datetime.fromisoformat(str(msg.get("timestamp"))))
+        except ValueError:
+            continue
+    gaps = ((later - earlier).total_seconds() for earlier, later in zip(stamps, stamps[1:], strict=False))
+    return sum(gap for gap in gaps if 0 <= gap <= RUN_PAUSE)
 
 
 class InputLexer(Lexer):
@@ -183,6 +201,7 @@ class Session:
         self.loop: asyncio.AbstractEventLoop | None = None
         self.real_out, self.real_err = sys.stdout, sys.stderr
         self.classic_job: Callable[[], None] | None = None
+        self.after_run: Callable[[], None] | None = None  # what starts once the open run has wrapped up
         self.first: tuple[str, Callable[[], Any]] | None = None  # a run a subcommand handed over
         # Per mode, how a subcommand's options (--headless, --output-dir...) start each prompt: runner(prompt, model).
         self.runners: dict[str, Callable[[str, str | None], Any]] = {}
@@ -199,7 +218,10 @@ class Session:
             self.app.invalidate()
 
     def _reset_palette(self, _buf: Buffer) -> None:
-        self.st.palette_index = 0  # typing narrows the menu, so the first match is the one enter runs
+        # Typing narrows the menu or a searchable list, so the first match is the one enter picks.
+        self.st.palette_index = 0
+        if self.st.picker is not None and self.st.picker.search:
+            self.st.picker.index = 0
 
     def _captured(self, raw: Raw) -> None:
         self.view.out(raw)
@@ -254,19 +276,39 @@ class Session:
         items = [(c, d) for c, d in COMMANDS.items() if c.startswith(typed) or c in aliased]
         return sorted(items, key=lambda item: item[0] != ALIASES.get(typed, typed))
 
+    def picker_items(self, p: Picker) -> list[tuple[str, str, str]]:
+        """The picker's items, narrowed to what is typed in the bar when it searches."""
+        typed = self.buf.text.strip().lower()
+        if not (p.search and typed):
+            return p.items
+        return [item for item in p.items if typed in f"{item[0]} {item[1]} {item[2]}".lower()]
+
     def choose(self) -> None:
-        """Enter on an open picker: its highlighted item, or for an agent's question, whatever was typed meanwhile."""
+        """Enter on an open picker: its highlighted item, or what was typed for a question or a typed value."""
         p, self.st.picker = self.st.picker, None
         if p is None:
             return
-        if p.question and self.buf.text.strip():
+        if (p.question or p.typed) and self.buf.text.strip():
             answer = self.buf.text.strip()
             self.buf.reset()
             p.on_pick(answer)
         elif p.multi and p.chosen:
             p.on_pick(", ".join(value for value, _, _ in p.items if value in p.chosen))
         else:
-            p.on_pick(p.items[p.index][0])
+            items = self.picker_items(p)
+            if not items:
+                self.st.picker = p  # nothing matches what was typed: keep the list open
+                return
+            if p.search:
+                self.buf.reset()
+            p.on_pick(items[min(p.index, len(items) - 1)][0])
+
+    def move_in_picker(self, step: int) -> None:
+        p = self.st.picker
+        if p is not None:
+            # A filtered list can be shorter than the index the full one left.
+            count = len(self.picker_items(p))
+            p.index = around(min(p.index, count - 1) + step, count)
 
     def toggle(self) -> None:
         """Space on a several-answers question: adds or removes the highlighted option."""
@@ -325,6 +367,7 @@ class Session:
         if cmd == "/exit":
             self.quit()
         elif cmd == "/new":
+            self.after_run = None  # a /resume asked for while a run wrapped up no longer applies
             if st.waiting:
                 self.end_run()
             elif st.running:
@@ -332,8 +375,7 @@ class Session:
             else:
                 view.notice("ready · describe the API you want")
         elif cmd == "/help":
-            view.notice("enter sends · esc stops a run · shift+tab mode · ctrl+e effort · ctrl+o full output · ctrl+d quits")
-            view.notice("pageup/pagedown or the mouse wheel scroll · end jumps to the latest · click a file or URL to open it")
+            view.help(MODES, COMMANDS, KEYS)
         elif cmd == "/model":
             if st.sdk != "claude":
                 view.command(cmd)
@@ -341,12 +383,9 @@ class Session:
             else:
                 from ..tui import get_model_choices
 
-                choices = [(c["value"], model_label(c["value"]), c["name"].split("[")[-1].rstrip("]").lower()) for c in get_model_choices()]
                 current = st.next_model
-                if current and current not in [value for value, _, _ in choices]:
-                    choices.insert(0, (current, model_label(current), "current"))  # e.g. the Sonnet 4.6 default
                 title = "choose the collector's model" if st.mode == "collector" else "choose a model"
-                self.open_picker(title, choices, current, self.set_model)
+                self.open_picker(title, settings.choices("claude_code_model", get_model_choices(), current), current, self.set_model)
         elif cmd == "/effort" and not st.has_effort:
             view.command(cmd)
             view.notice(st.no_effort_reason)
@@ -373,22 +412,173 @@ class Session:
                 st.last_client, st.client_name, st.host, st.run_id = None, "", "", None
                 self.bridge.cost_base = 0.0
         elif cmd == "/settings":
-            self.classic(lambda: self.cli.handle_settings(), then=self.reload_settings, pause=False)
+            self.open_settings()
         elif cmd == "/history":
             self.pick_run(cmd, "past runs", self.show_run)
         elif cmd == "/resume":
             if arg:
                 self.resume(arg)
             else:
-                self.pick_run(cmd, "resume a run", self.resume, keep=self.cli.resumable, empty="no run can be resumed yet · runs from now on can")
-        elif cmd == "/messages":
-            if arg:
-                self.show_messages(arg)
-            else:
-                self.pick_run(cmd, "whose messages", self.show_messages)
+                self.pick_run(cmd, "resume a run", self.resume, keep=self.can_resume, empty="no run can be resumed yet · runs from now on can")
         else:
             view.notice(f"unknown command {cmd} · / lists them")
         self.invalidate()
+
+    # settings
+
+    def open_settings(self, at: str | None = None) -> None:
+        """Every setting with its value; enter changes the highlighted one and comes back here."""
+        cfg = self.cli.config_manager
+        items = [(key, label, settings.shown(cfg, key)) for key, label, _ in settings.SETTINGS]
+        index = next((i for i, (key, _, _) in enumerate(items) if key == at), 0)
+        title = "settings · enter changes one, esc closes"
+        self.st.picker = Picker(title, items, None, self.change_setting, index, search=True, hint="type to filter")
+        self.invalidate()
+
+    def change_setting(self, key: str | None) -> None:
+        if key is None:
+            return
+        cfg, kind, label = self.cli.config_manager, settings.KINDS[key], settings.LABELS[key]
+
+        def picked(value: str | None) -> None:
+            if value is not None:
+                self.save_setting(key, None if key == "output_dir" and not value else value)  # "" is the default folder
+            self.open_settings(key)
+
+        if kind == "toggle":
+            self.save_setting(key, not cfg.get(key, True))
+            self.open_settings(key)
+        elif kind == "choice":
+            from ..tui import get_model_choices
+
+            current = cfg.get(key)
+            items = settings.choices(key, get_model_choices(), current)
+            index = next((i for i, (value, _, _) in enumerate(items) if value == current), 0)
+            self.st.picker = Picker(label, items, current, picked, index, search=True, hint="type to filter")
+        elif kind == "text":
+            items = list(settings.SUGGESTIONS.get(key, ()))
+            hint = "type a path, or pick the default below" if key == "output_dir" else "type a model id, or pick one below"
+            current = cfg.get(key) or ""
+            index = next((i for i, (value, _, _) in enumerate(items) if value == current), 0)
+            self.st.picker = Picker(label, items, current, picked, index, typed=True, hint=hint)
+        else:
+            self.pick_opencode()
+
+    def save_setting(self, key: str, value: Any, values: dict[str, Any] | None = None) -> None:
+        """Saves a setting, or the config ``values`` behind it, and notes the change in the conversation."""
+        cfg = self.cli.config_manager
+        values = values or {key: value}
+        if all(cfg.get(k) == v for k, v in values.items()):
+            return
+        old = settings.shown(cfg, key)
+        cfg.update(values)
+        self.reload_settings()
+        self.view.event(settings.LABELS[key], old, settings.shown(cfg, key), "from the next run" if self.st.run_open else "")
+        if key == "agent_provider" and value in settings.NOTES:
+            self.view.notice(settings.NOTES[value])
+
+    def loading(self, title: str) -> Picker:
+        """A list that only says something loads, so typing meanwhile is not sent as a prompt; esc goes back."""
+
+        def picked(value: str | None) -> None:
+            if value is None:
+                self.open_settings("opencode")
+            else:
+                self.st.picker = p  # enter while loading: keep waiting
+
+        p = Picker(title, [("", "loading…", "")], None, picked)
+        self.st.picker = p
+        self.invalidate()
+        return p
+
+    def when_loaded(self, p: Picker, then: Callable[[], None]) -> None:
+        """From a loading thread: go on only while its loading list is open; esc gave up on it otherwise."""
+
+        def go() -> None:
+            if self.st.picker is p:
+                self.buf.reset()  # what was typed while it loaded would filter the list that replaces it
+                then()
+
+        self.call_soon(go)
+
+    def settings_failed(self, message: str) -> None:
+        self.view.notice(message)
+        self.open_settings("opencode")
+
+    def pick_opencode(self) -> None:
+        """OpenCode's providers and models come from its server, which may have to start first."""
+        p = self.loading("opencode provider · starting opencode and reading its models")
+
+        def load() -> None:
+            try:
+                catalog = asyncio.run(self.cli._load_opencode_catalog_for_settings())
+            except Exception as exc:  # noqa: BLE001  # shown in the conversation, the settings stay open
+                denied = getattr(getattr(exc, "response", None), "status_code", None) == 401
+                message = "opencode authentication failed · set OPENCODE_SERVER_PASSWORD" if denied else f"could not load opencode models: {exc}"
+                self.when_loaded(p, lambda: self.settings_failed(message))
+                return
+            self.when_loaded(p, lambda: self.pick_opencode_provider(catalog))
+
+        threading.Thread(target=load, name="rae-opencode-catalog", daemon=True).start()
+
+    def pick_opencode_provider(self, catalog: dict[str, Any]) -> None:
+        cfg = self.cli.config_manager
+        items = [(provider_id, title, "") for provider_id, title in self.cli.opencode_provider_choices(catalog)]
+
+        def picked(provider_id: str | None) -> None:
+            if provider_id is None:
+                self.open_settings("opencode")
+            elif provider_id == "ollama":
+                self.pick_ollama_model()
+            else:
+                self.pick_opencode_model(catalog, provider_id)
+
+        current = cfg.get("opencode_provider")
+        index = next((i for i, (value, _, _) in enumerate(items) if value == current), 0)
+        self.st.picker = Picker("opencode provider", items, current, picked, index, search=True, hint="type to filter")
+        self.invalidate()
+
+    def pick_opencode_model(self, catalog: dict[str, Any], provider_id: str) -> None:
+        cfg = self.cli.config_manager
+        current = cfg.get("opencode_model") if cfg.get("opencode_provider") == provider_id else ""
+        items = [(model_id, title, "") for model_id, title in self.cli.opencode_model_choices(catalog, provider_id, current or "")]
+        self.st.picker = Picker(
+            f"{provider_id} model", items, current, lambda model_id: self.save_opencode(provider_id, model_id), search=True, hint="type to filter"
+        )
+        self.invalidate()
+
+    def pick_ollama_model(self) -> None:
+        p = self.loading("ollama model · looking for installed models")
+
+        def load() -> None:
+            from ..ollama_runtime import ensure_ollama_models
+
+            try:
+                models = asyncio.run(ensure_ollama_models()).compatible_models
+            except Exception as exc:  # noqa: BLE001  # shown in the conversation, the settings stay open
+                message = f"ollama: {exc}"
+                self.when_loaded(p, lambda: self.settings_failed(message))
+                return
+            if not models:
+                none = "no installed ollama model supports tools with at least 64k context · pull one, then retry"
+                self.when_loaded(p, lambda: self.settings_failed(none))
+                return
+            items = [(m.name, m.name, f"{m.parameter_size or '?'} · {m.context_length // 1024}k context") for m in models]
+            current = self.cli.config_manager.get("opencode_model")
+
+            def show() -> None:
+                save = lambda name: self.save_opencode("ollama", name)  # noqa: E731
+                self.st.picker = Picker("ollama model", items, current, save, search=True, hint="type to filter")
+                self.invalidate()
+
+            self.when_loaded(p, show)
+
+        threading.Thread(target=load, name="rae-ollama-models", daemon=True).start()
+
+    def save_opencode(self, provider_id: str, model_id: str | None) -> None:
+        if model_id:
+            self.save_setting("opencode", None, {"opencode_provider": provider_id, "opencode_model": model_id})
+        self.open_settings("opencode")
 
     def reload_settings(self) -> None:
         cfg = self.cli.config_manager
@@ -424,69 +614,114 @@ class Session:
             self.view.notice(f"no run {run_id}")
             return
         self.view.run_details(run)
-        actions = [("resume", "resume", "continue its conversation")] if self.cli.resumable(run) else []
-        actions += [
-            ("engineer", "re-engineer", "write its client again from the capture"),
-            ("messages", "messages", "what the agent did, step by step"),
-            ("", "back", ""),
-        ]
+        actions = [("resume", "resume", "continue its conversation")] if self.can_resume(run) else []
+        actions += [("engineer", "re-engineer", "write its client again from the capture"), ("", "back", "")]
 
         def act(value: str | None) -> None:
             if value == "resume":
                 self.resume(run_id)
             elif value == "engineer":
                 self.reengineer(run_id)
-            elif value == "messages":
-                self.show_messages(run_id)
 
         self.open_picker(f"run {run_id}", actions, None, act)
         self.invalidate()
 
-    def show_messages(self, run_id: str) -> None:
-        self.view.command("/messages", run_id)
-        entries = run_log(run_id, run_output_dir(self.cli.session_manager.get_run(run_id)))
-        if not entries:
-            self.view.notice(f"no messages for run {run_id}")
-        else:
-            self.view.message_log(entries)
-        self.invalidate()
+    def can_resume(self, run: dict[str, Any]) -> bool:
+        return self.cli.resumable(run) and not self.cli.made_in_desktop(run)
 
     def resume(self, run_id: str) -> None:
         """Reopen a past run's SDK session; the next message in the bar continues its conversation."""
         st = self.st
         run = self.cli.session_manager.get_run(run_id)
         self.view.command("/resume", run_id)
-        if st.running or st.waiting:
-            self.view.notice("a run is open · /new ends it first")
+        if st.running and not self.bridge.stopping:
+            self.view.notice("a run is in progress · esc stops it")
         elif run is None or not self.cli.resumable(run):
             self.view.notice(f"run {run_id} has no saved session to resume" if run else f"no run {run_id}")
-        elif run["sdk_session"].get("sdk") == "opencode":
-            # OpenCode runs still use the classic screen, which asks for the next message there.
-            self.view.run_details(run)
-            entries = self.show_past(run_id, run)
+        elif self.cli.made_in_desktop(run):
+            self.view.notice(self.cli.DESKTOP_RESUME.format(run_id))
+        elif st.running or st.waiting:
+            # The open conversation only waits for a follow-up, or is already closing: end it, then switch.
+            self.after_run = lambda: self.reopen(run_id, run)
+            if st.waiting:
+                self.end_run()
+        else:
+            self.reopen(run_id, run)
+        self.invalidate()
 
-            def reopen() -> None:
-                if entries:  # the plain terminal does not show the session's transcript
-                    self.cli.console.print(Group(*self.view.log_rows(entries)))
+    def reopen(self, run_id: str, run: dict[str, Any]) -> None:
+        st = self.st
+        start = len(self.transcript.full)
+        if not self.replay(run_id, run):
+            self.view.run_details(run)
+        if run["sdk_session"].get("sdk") == "opencode":
+            # OpenCode runs still use the classic screen, which asks for the next message there.
+            replayed = self.transcript.full[start:]
+
+            def classic_resume() -> None:
+                self.print_items(replayed, self.cli.console)  # the plain terminal does not show the transcript
                 self.cli.resume_run(run_id)
 
-            self.classic(reopen)
+            self.classic(classic_resume)
         else:
-            self.view.run_details(run)
-            self.show_past(run_id, run)
             self.view.gap()
             st.host, st.client_name = host_in(str(run.get("prompt") or "")), ""
             st.started, st.running, st.verb, st.kind = time.time(), True, "reopening", "other"
             self.work(lambda: self.cli.resume_run(run_id))
         self.invalidate()
 
-    def show_past(self, run_id: str, run: dict[str, Any]) -> list[tuple[str, str, str, str]]:
-        """What the run did so far, so a resumed conversation picks up in view."""
-        entries = run_log(run_id, run_output_dir(run))
-        if entries:
-            self.view.gap()
-            self.view.message_log(entries, latest=True)
-        return entries
+    def replay(self, run_id: str, run: dict[str, Any]) -> bool:
+        """Draws a run's saved conversation the way it looked live, so a resumed one picks up in view."""
+        messages = MessageStore(run_id, run_output_dir(run)).load()
+        if not messages:
+            return False
+        st, b, ui = self.st, self.bridge, LedgerUI(self.bridge)
+        saved = (st.step, st.tokens, st.cost, st.started, st.run_model, st.run_sdk, st.run_effort, st.kind, st.verb, st.host, st.client_name)
+        # A conversation that waits for a follow-up keeps its own client card and folder.
+        bridge_saved = (b.verified, b.workspace, b.pending_card)
+        b.verified, b.pending_card = False, None
+        # The client card reads the run's own numbers, not this session's.
+        usage = run.get("usage") or {}
+        st.step, st.tokens, st.cost = 0, usage_tokens(usage), recorded_cost(usage) or 0.0
+        st.started = time.time() - run_duration(messages)
+        st.run_model, st.run_sdk, st.run_effort = run.get("model"), run.get("sdk"), None
+        script = (run.get("paths") or {}).get("script_path")
+        b.workspace = (Path(script).parent, None) if script else None
+        # Older logs kept no tool results; there the agent's report of a working client stands for its confirmation.
+        logged_results = any(msg.get("type") == "tool_result" for msg in messages)
+        try:
+            for msg in messages:
+                kind, content = msg.get("type"), msg.get("content")
+                if kind == "prompt":
+                    b.flush_card()
+                    self.view.user(user_words(content))
+                elif kind == "tool_start" and isinstance(content, dict):
+                    name = str(content.get("name", ""))
+                    ui.tool_start(name, content.get("input") or {})
+                    if not logged_results and short_name(name) == "report_client_verified":
+                        ui.tool_result(name)
+                elif kind == "tool_result" and isinstance(content, dict):
+                    ui.tool_result(str(content.get("name", "")), bool(content.get("is_error")), content.get("output"))
+                elif kind == "thinking":
+                    ui.thinking(str(content or ""))
+                    self.view.flush_live()  # past messages appear whole, not typed out
+                elif kind == "todos" and isinstance(content, list):
+                    ui.todo_updated(content)
+                elif kind == "error":
+                    b.flush_card()
+                    self.view.error(str(content))
+                elif kind == "result" and isinstance(content, dict) and content.get("script_path"):
+                    ui.success(str(content["script_path"]))
+            b.flush_card()
+        finally:
+            st.step, st.tokens, st.cost, st.started, st.run_model, st.run_sdk, st.run_effort, st.kind, st.verb, st.host, st.client_name = saved
+            b.verified, b.workspace, b.pending_card = bridge_saved
+        return True
+
+    @staticmethod
+    def print_items(items: list[Any], console: Console) -> None:
+        for item in items:
+            console.print(Text.from_ansi(item.text) if isinstance(item, Raw) else item)
 
     def reengineer(self, run_id: str) -> None:
         if self.st.running or self.st.waiting:
@@ -570,6 +805,7 @@ class Session:
 
     def work(self, fn: Callable[[], Any]) -> None:
         """Run an engine in a worker thread; its UI calls stream into the conversation through the bridge."""
+        self.bridge.failed = False
 
         def target() -> None:
             result: Any = None
@@ -590,6 +826,7 @@ class Session:
         so a prompt sent meanwhile is queued for after it instead of racing its cleanup."""
         st = self.st
         st.waiting, st.running, st.verb, st.kind = False, True, "wrapping up", "other"
+        self.bridge.stopping = True
         self.bridge.follow_ups.put(None)
 
     def finish(self, result: Any) -> None:
@@ -603,16 +840,23 @@ class Session:
         if isinstance(result, dict) and result.get("error") and not result.get("error_reported"):
             if result["error"] in ("interrupted", "Agent analysis cancelled."):
                 self.view.interrupted()
-            else:
+            elif not self.bridge.failed:
                 self.view.error(str(result["error"]))
-        self.bridge.task = None
+        self.bridge.task, self.bridge.stopping = None, False
         while not self.bridge.follow_ups.empty():
             self.bridge.follow_ups.get_nowait()
         st.run_model = st.run_sdk = st.run_effort = None
+        st.waiting = False
+        after, self.after_run = self.after_run, None
+        if after is not None:
+            # A run asked for while this one wrapped up, such as /resume; it takes the queued prompts as its messages.
+            st.running = False
+            self.call_soon(after)
+            self.invalidate()
+            return
         # Take the queued prompt before going idle: a prompt typed in between would otherwise start
         # its own run alongside it.
         nxt = st.queue.pop(0) if st.queue else None
-        st.waiting = False
         if nxt is None:
             st.running = False
         else:
@@ -624,7 +868,7 @@ class Session:
             self.call_soon(start_next)
         self.invalidate()
 
-    def classic(self, fn: Callable[[], Any], then: Callable[[], None] | None = None, pause: bool = True) -> None:
+    def classic(self, fn: Callable[[], Any], pause: bool = True) -> None:
         """Leave full screen and run fn in the plain terminal on the main thread, then come back.
 
         The classic screens prompt with questionary, which runs its own event loop, and manual
@@ -645,8 +889,6 @@ class Session:
                 pass
             except Exception as exc:  # noqa: BLE001  # a failing classic screen must not end the session
                 self.view.error(str(exc) or type(exc).__name__)
-            if then:
-                then()
 
         self.classic_job = job
         if self.app is not None:
@@ -654,6 +896,12 @@ class Session:
 
     def stop(self) -> None:
         st = self.st
+        if st.running and self.bridge.stopping:
+            # Already on its way out: stopping it again would cut its cleanup short. Nothing queued starts after it.
+            st.queue.clear()
+            self.after_run = None
+            self.view.notice("still wrapping up · it ends as soon as its cleanup does")
+            return
         if st.running:
             st.queue.clear()
             if not self.bridge.cancel():
@@ -691,6 +939,7 @@ class Session:
     def quit(self) -> None:
         self.classic_job = None
         self.st.queue.clear()  # nothing new starts on the way out
+        self.after_run = None
         if self.st.running:
             self.bridge.cancel()
         if self.st.waiting:
@@ -705,6 +954,8 @@ class Session:
         st = self.st
         self.view.tick()
         lines = self.view.header_rows(theta=time.time() * 0.35) + self.transcript.lines()
+        if lines and any(text.strip() for _, text, *_ in lines[-1]):
+            lines.append([])  # a blank line between the conversation and the bar
         rows = window.render_info.window_height if window.render_info else height() - 5
         st.scroll = max(0, min(st.scroll, len(lines) - rows))
         end = len(lines) - st.scroll
@@ -727,11 +978,13 @@ class Session:
             p = st.picker
             if p is None:
                 return FormattedText([])
+            items = self.picker_items(p)
+            p.index = min(p.index, max(0, len(items) - 1))
             rows = [
                 ((("◉ " if value in p.chosen else "○ ") if p.multi and value else "") + label, desc, i == p.index, value == p.current)
-                for i, (value, label, desc) in enumerate(p.items)
+                for i, (value, label, desc) in enumerate(items)
             ]
-            return view.menu(rows, title=p.title)
+            return view.menu(rows, title=p.title, empty="nothing matches what you typed")
 
         transcript_window: Window = Window(wrap_lines=False)
         transcript_window.content = TranscriptControl(lambda: self.transcript_view(transcript_window), self.scroll)
@@ -740,13 +993,18 @@ class Session:
         def text_window(fn: Callable[[], Any]) -> Window:
             return Window(FormattedTextControl(fn), dont_extend_height=True)
 
+        picker_hinted = Condition(lambda: bool(st.picker and st.picker.hint))
         placeholder = ConditionalProcessor(
             AfterInput("describe the API you want, e.g. all open jobs on jobs.ashbyhq.com/openai", style=f"fg:{DIM} italic"),
-            filter=Condition(lambda: not buf.text and not st.waiting and st.question is None),
+            filter=Condition(lambda: not buf.text and not st.waiting and st.question is None) & ~picker_hinted,
+        )
+        picker_hint = ConditionalProcessor(
+            AfterInput(lambda: st.picker.hint if st.picker else "", style=f"fg:{DIM} italic"),
+            filter=Condition(lambda: not buf.text) & picker_hinted,
         )
         follow_hint = ConditionalProcessor(
             AfterInput("a follow-up for this run, or /new", style=f"fg:{DIM} italic"),
-            filter=Condition(lambda: not buf.text and st.waiting and st.question is None),
+            filter=Condition(lambda: not buf.text and st.waiting and st.question is None) & ~picker_hinted,
         )
         layout = Layout(
             HSplit(
@@ -758,7 +1016,7 @@ class Session:
                         [
                             Window(FormattedTextControl(lambda: FormattedText(view.marker())), dont_extend_width=True, dont_extend_height=True),
                             Window(
-                                BufferControl(buffer=buf, lexer=InputLexer(st), input_processors=[placeholder, follow_hint]),
+                                BufferControl(buffer=buf, lexer=InputLexer(st), input_processors=[placeholder, follow_hint, picker_hint]),
                                 dont_extend_height=True,
                                 wrap_lines=True,
                             ),
@@ -805,11 +1063,11 @@ class Session:
 
         @kb.add("up", filter=palette_open)
         def _(event: KeyPressEvent) -> None:
-            st.palette_index = max(0, st.palette_index - 1)
+            st.palette_index = around(st.palette_index - 1, len(self.palette_items()))
 
         @kb.add("down", filter=palette_open)
         def _(event: KeyPressEvent) -> None:
-            st.palette_index = min(len(self.palette_items()) - 1, st.palette_index + 1)
+            st.palette_index = around(st.palette_index + 1, len(self.palette_items()))
 
         @kb.add("space", filter=picker_open & Condition(lambda: bool(st.picker and st.picker.multi) and not buf.text))
         def _(event: KeyPressEvent) -> None:
@@ -817,13 +1075,11 @@ class Session:
 
         @kb.add("up", filter=picker_open)
         def _(event: KeyPressEvent) -> None:
-            if st.picker:
-                st.picker.index = max(0, st.picker.index - 1)
+            self.move_in_picker(-1)
 
         @kb.add("down", filter=picker_open)
         def _(event: KeyPressEvent) -> None:
-            if st.picker:
-                st.picker.index = min(len(st.picker.items) - 1, st.picker.index + 1)
+            self.move_in_picker(1)
 
         @kb.add("enter", filter=picker_open)
         def _(event: KeyPressEvent) -> None:
@@ -866,6 +1122,8 @@ class Session:
         def _(event: KeyPressEvent) -> None:
             if st.picker is not None:
                 p, st.picker = st.picker, None
+                if p.typed or p.search:
+                    buf.reset()
                 p.on_pick(None)
             elif isinstance(st.question, Future):
                 fut, st.question = st.question, None

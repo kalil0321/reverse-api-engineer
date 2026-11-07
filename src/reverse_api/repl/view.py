@@ -55,7 +55,6 @@ INDENT = 6 + VERB_COL
 CODE_PREVIEW = 8
 OUTPUT_PREVIEW = 3
 NOTE_LINES = 3
-LOG_PREVIEW = 24
 MENU_ROWS = 10
 TOP_PADDING = 1
 FLAP = "abcdefghijklmnopqrstuvwxyz"
@@ -193,6 +192,9 @@ class Picker:
     question: bool = False  # an agent question, which ends with its run
     multi: bool = False  # several options can be chosen, with space, before enter sends them
     chosen: list[str] = field(default_factory=list)
+    typed: bool = False  # enter sends what was typed in the bar, when anything was
+    search: bool = False  # what is typed in the bar narrows the items
+    hint: str = ""  # shown in the empty bar: what typing does here
 
 
 @dataclass
@@ -266,6 +268,15 @@ class SessionState:
     def elapsed(self) -> str:
         secs = int(time.time() - self.started) if self.started else 0
         return f"{secs // 60}m{secs % 60:02d}s" if secs >= 60 else f"{secs}s"
+
+
+def hanging(mark: Text, body: Text, margin: int) -> Table:
+    """A mark right-aligned in a margin of this width, and text that wraps under itself instead of the left edge."""
+    grid = Table.grid(padding=(0, 1))
+    grid.add_column(width=margin, justify="right")
+    grid.add_column()
+    grid.add_row(mark, body)
+    return grid
 
 
 def k(n: float) -> str:
@@ -441,7 +452,7 @@ class LedgerView:
 
     def user(self, text: str) -> None:
         self.gap()
-        self.out(f" [bold {self.st.accent}]›[/] [{INK}]{escape(terminal_safe(text))}[/]")
+        self.out(hanging(Text("›", style=f"bold {self.st.accent}"), Text(terminal_safe(text), style=INK), 2))
         self.out("")
 
     def command(self, cmd: str, arg: str = "") -> None:
@@ -586,43 +597,45 @@ class LedgerView:
             lines.append(f"     [{DIM}]{escape(spend) + ' · ' if spend else ''}[/][{INK_SOFT}]{client}[/]")
         self.out("\n".join(lines))
 
-    def log_rows(self, entries: list[tuple[str, str, str, str]]) -> list[Text]:
-        """A past run's (clock, verb, text, kind) rows in the ledger's colors."""
-        room = max(20, width() - VERB_COL - 16)
-        colors = {"user": self.st.accent, "say": DIM, "error": PINK, "done": MINT}
-        rows = []
-        for clock, verb, text, kind in entries:
-            tint = colors.get(kind) or KIND_TINT.get(kind, PASTEL_OTHER)
-            body = terminal_safe(text)
-            body = body if len(body) <= room else body[: room - 1] + "…"
-            style = f"italic {DIM}" if kind == "say" else PINK if kind == "error" else INK_SOFT
-            rows.append(Text.assemble(f"   {clock:<8}  ", (f"{verb:<{VERB_COL}} ", f"bold {tint}"), (body, style), style=DIM))
-        return rows
-
-    def message_log(self, entries: list[tuple[str, str, str, str]], latest: bool = False) -> None:
-        """A past run's log, folded to its first rows, or with latest to its last ones."""
-        rows = self.log_rows(entries)
-        shown = rows[-LOG_PREVIEW:] if latest else rows[:LOG_PREVIEW]
-        if len(rows) > len(shown):
-            self.st.folded = True
-            hidden = len(rows) - len(shown)
-            if latest:
-                shown.insert(0, Text.assemble(" " * 13, (f"+{hidden} earlier lines · ctrl+o full output", DIM)))
-            else:
-                shown.append(Text.assemble(" " * 13, (f"+{hidden} lines · ctrl+o full output", DIM)))
-        self.out(Group(*shown), Group(*rows))
-
     def event(self, key: str, old: str, new: str, note: str = "") -> None:
         """A settings change, set apart from the conversation: ◇ model  sonnet 5.5 → opus 5.5."""
         tail = f"  [{DIM}]· {escape(note)}[/]" if note else ""
         self.out(f"   [{AMBER}]◇[/] [{INK_SOFT}]{escape(key)}[/]  [{DIM}]{escape(old)} →[/] [bold {INK}]{escape(new)}[/]{tail}")
 
+    def help(self, modes: dict[str, str], commands: dict[str, str], keys: tuple[tuple[str, str], ...]) -> None:
+        """/help: what rae does, then its modes, commands and keys, their names in one column."""
+        accent = self.st.accent
+        about = (
+            "rae turns a website into an API client. Describe the API you want: the agent opens the site, "
+            "reads the requests it makes, writes a client and runs it against the live site before it is done."
+        )
+        self.out(Padding(Text(about, style=INK_SOFT), (0, 0, 0, 3)))
+        sections = [
+            ("modes", "shift+tab switches", [(m, d, f"bold {accent}" if m == self.st.mode else INK) for m, d in modes.items()]),
+            ("commands", "type / for the list", [(c, d, accent) for c, d in commands.items()]),
+            ("keys", "", [(key, d, INK) for key, d in keys]),
+        ]
+        name_w = max(len(name) for _, _, rows in sections for name, _, _ in rows)
+        for title, note, rows in sections:
+            self.out("")
+            self.out(f"   [bold {INK}]{title}[/]" + (f"  [{DIM}]· {note}[/]" if note else ""))
+            grid = Table.grid(padding=(0, 2))
+            grid.add_column(width=name_w)
+            grid.add_column()
+            for name, desc, style in rows:
+                current = f"  [{accent}]●[/]" if title == "modes" and name == self.st.mode else ""
+                grid.add_row(Text(name, style=style), Text.from_markup(f"[{DIM}]{escape(desc)}[/]{current}"))
+            self.out(Padding(grid, (0, 0, 0, 5)))
+        self.out("")
+        self.out(f"   [{DIM}]docs[/]  [{INK_SOFT}]{link('reverseapi.dev/docs', 'https://reverseapi.dev/docs')}[/]")
+        self.out("")
+
     def notice(self, text: str) -> None:
-        self.out(f"   [{DIM}]{escape(text)}[/]")
+        self.out(Padding(Text(text, style=DIM), (0, 0, 0, 3)))
 
     def error(self, text: str) -> None:
         self.gap()
-        self.out(f"   [bold {PINK}]![/] [{PINK}]{escape(text)}[/]")
+        self.out(hanging(Text("!", style=f"bold {PINK}"), Text(text, style=PINK), 4))
         self.out("")
 
     def question(self, text: str) -> None:
@@ -710,7 +723,9 @@ class LedgerView:
             hint, used = hint + [(f"fg:{DIM}", run)], used + len(run)
         return FormattedText(left + [("", " " * max(1, width() - used))] + hint)
 
-    def menu(self, rows: list[tuple[str, str, bool, bool]], title: str | None = None, limit: int = MENU_ROWS) -> FormattedText:
+    def menu(
+        self, rows: list[tuple[str, str, bool, bool]], title: str | None = None, limit: int = MENU_ROWS, empty: str = "no matching command"
+    ) -> FormattedText:
         """A list under the input: (label, description, selected, current)."""
         st = self.st
         out: list[tuple[str, str]] = []
@@ -730,7 +745,7 @@ class LedgerView:
                 out += [("", "   "), (f"fg:{INK_SOFT}", f"{label:<{label_w}}"), (f"fg:{DIM}", desc)]
             out += [(f"fg:{st.accent}", "  ●" if current else "")]
         if not rows:
-            out += [(f"fg:{DIM}", "   no matching command")]
+            out += [(f"fg:{DIM}", f"   {empty}")]
         if hidden:
             out += [("", "\n"), (f"fg:{DIM}", f"   {hidden} more · ↑↓")]
         return FormattedText(out)
