@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `engineer <run_id>` on a run without a HAR stops before starting a model session: chrome-mcp runs get an explanation and `error_kind: misuse` with exit code 2, other runs name the missing HAR path.
 - Pin `chrome-devtools-mcp` to the 1.12 line and update the chrome-mcp prompt for its `pageId` tool arguments; the agent now opens its own tab.
 - `/resume` replays the run's conversation the way it looked live (prompts, steps, the agent's messages, the client card) before it waits for the follow-up, and switches from a conversation that only waits for one instead of asking for `/new` first.
-- `/settings` opens inside the session: one list with every setting and its value, enter flips a toggle or opens its choices, long lists filter as you type, and each change shows as `◇ setting  old → new`. OpenCode's providers and models load behind a list that keeps keystrokes from starting a run. The classic settings screen is gone.
+- `/settings` opens inside the session: one list with the settings rae offers there (SDK, agent provider, models, output and sync) and their values, enter flips a toggle or opens its choices, long lists filter as you type, and each change shows as `◇ setting  old → new`. OpenCode's providers and models load behind a list that keeps keystrokes from starting a run. The classic settings screen is gone.
 - `/help` says what rae does and lists the modes (the current one marked), every command and every key.
 - Lists and the command menu go around: down on the last item moves to the first, up on the first to the last.
 - A blank line parts the conversation from the input bar.

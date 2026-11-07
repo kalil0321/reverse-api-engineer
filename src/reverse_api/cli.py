@@ -28,6 +28,7 @@ from .tui import (
     get_model_choices,
 )
 from .utils import (
+    build_sdk_effort,
     discover_scripts,
     generate_folder_name,
     generate_run_id,
@@ -38,6 +39,7 @@ from .utils import (
     get_messages_path,
     get_timestamp,
     normalize_url,
+    predates_effort,
     recorded_cost,
     resolve_run,
 )
@@ -1797,6 +1799,11 @@ def _session_recorder(
     }
     if sdk == "opencode":
         session["provider"] = config_manager.get("opencode_provider", DEFAULT_OPENCODE_PROVIDER)
+    if sdk == "claude" and not predates_effort(model):
+        from .repl.view import default_effort
+
+        # The effort the run thinks at, for the card a resume replays.
+        session["effort"] = build_sdk_effort(model).get("effort") or default_effort(model)
     if headless:
         session["headless"] = True  # a resume keeps its own browser rather than attaching to the user's Chrome
     return lambda sid: session_manager.update_run(run_id=run_id, sdk_session={**session, "id": sid, "cost": 0.0})

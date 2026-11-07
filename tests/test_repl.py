@@ -80,8 +80,12 @@ class TestDescribe:
         )
         patch_text = "*** Begin Patch\n*** Add File: /x/api_client.py\n+a\n*** Update File: /x/README.md\n*** End Patch"
         assert describe("apply_patch", {"patchText": patch_text})[:2] == ("edit", "api_client.py +1")
-        for todo_tool in ("TodoWrite", "todowrite", "updateTodos"):
+        for todo_tool in ("TodoWrite", "todowrite", "todo_write", "write_todos", "update_todos", "updateTodos"):
             assert describe(short_name(todo_tool), {"todos": []}) is None, "a todo list shows as the plan"
+
+    def test_playwright_runs_code_under_both_its_names(self):
+        for name in ("browser_run_code", "browser_run_code_unsafe"):
+            assert describe(name, {"code": "async (page) => page.title()"})[:2] == ("script", "async (page) => page.title()")
 
     def test_rae_desktop_tools(self):
         assert describe("traffic_overview", {})[:2] == ("overview", "captured traffic")
@@ -742,6 +746,16 @@ class TestSettings:
         assert config.get("real_time_sync") is False and "real-time sync  on → off" in plain(session.transcript)
         assert session.st.picker.title.startswith("settings")
 
+    def test_enter_on_an_empty_bar_keeps_a_custom_model(self, settings_session):
+        session, config = settings_session
+        config.set("cursor_model", "my-cursor-model")
+        session.run_command("/settings")
+        pick(session.st, "cursor_model")
+        p = session.st.picker
+        assert p.items[p.index][0] == "my-cursor-model"
+        session.choose()
+        assert config.get("cursor_model") == "my-cursor-model"
+
     def test_typing_a_filter_highlights_the_first_match(self, settings_session):
         session, _config = settings_session
         session.run_command("/settings")
@@ -1190,7 +1204,7 @@ class TestResume:
             "sdk": "claude",
             "usage": {"input_tokens": 8000, "output_tokens": 400, "cache_read_input_tokens": 10000, "estimated_cost_usd": 0.23},
             "paths": {"script_path": str(client)},
-            "sdk_session": {"id": "s", "mode": "agent"},
+            "sdk_session": {"id": "s", "mode": "agent", "effort": "xhigh"},
         }
         verify = "mcp__verification__report_client_verified"
         log = [
@@ -1213,6 +1227,7 @@ class TestResume:
         assert "navigate" in text and "quotes.toscrape.com/scroll" in text and "GET /api/quotes" in text
         assert "api_client.py ready" in text and "$0.23" in text and "haiku 4.5" in text and "3m07s" in text
         assert "18.4k tokens" in text, "cache tokens count, as on the live card"
+        assert "effort xhigh" in text, "the effort the run thought at"
         # The replay draws the past run's numbers without making them this session's.
         assert session.st.cost == 0 and session.st.step == 0 and not session.bridge.verified
         assert session.st.running and session.st.verb == "reopening"
@@ -1229,7 +1244,7 @@ class TestResume:
         from reverse_api.repl.app import run_output_dir
 
         assert run_output_dir({"sdk_session": {"output_dir": "/data/rae"}, "paths": {"har_dir": "/other/har/a1"}}) == "/data/rae"
-        assert run_output_dir({"paths": {"har_dir": "/data/rae/har/a1"}}) == "/data/rae"
+        assert run_output_dir({"paths": {"har_dir": "/data/rae/har/a1"}}) == str(Path("/data/rae"))
         assert run_output_dir({"run_id": "a1"}) is None and run_output_dir(None) is None
 
         session, history = app_session

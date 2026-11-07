@@ -41,6 +41,9 @@ ALIASES = {
     "webfetch": "WebFetch",
     "websearch": "WebSearch",
     "todowrite": "TodoWrite",
+    "todo_write": "TodoWrite",
+    "write_todos": "TodoWrite",
+    "update_todos": "TodoWrite",
     "updateTodos": "TodoWrite",
     "Agent": "Task",
     "task": "Task",
@@ -130,7 +133,7 @@ def describe_browser(name: str, args: dict[str, Any]) -> tuple[str, str, str, st
         return "click", first_line(args.get("element") or args.get("uid") or args.get("ref") or "element"), "read", None, None
     if name in ("fill", "fill_form", "browser_type", "type_text", "press_key", "browser_press_key"):
         return "type", first_line(args.get("value") or args.get("text") or args.get("key") or "text"), "read", None, None
-    if name in ("evaluate_script", "browser_evaluate", "browser_run_code"):
+    if name in ("evaluate_script", "browser_evaluate", "browser_run_code", "browser_run_code_unsafe"):
         return "script", first_line(args.get("function") or args.get("script") or args.get("code") or "page script"), "read", None, None
     if name in ("wait_for", "browser_wait_for"):
         return "wait", first_line(args.get("text") or args.get("time") or "page"), "read", None, None

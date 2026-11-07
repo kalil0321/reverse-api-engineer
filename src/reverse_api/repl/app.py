@@ -459,6 +459,8 @@ class Session:
             items = list(settings.SUGGESTIONS.get(key, ()))
             hint = "type a path, or pick the default below" if key == "output_dir" else "type a model id, or pick one below"
             current = cfg.get(key) or ""
+            if current and current not in [value for value, _, _ in items]:
+                items.insert(0, (current, current, "current"))
             index = next((i for i, (value, _, _) in enumerate(items) if value == current), 0)
             self.st.picker = Picker(label, items, current, picked, index, typed=True, hint=hint)
         else:
@@ -514,7 +516,11 @@ class Session:
                 catalog = asyncio.run(self.cli._load_opencode_catalog_for_settings())
             except Exception as exc:  # noqa: BLE001  # shown in the conversation, the settings stay open
                 denied = getattr(getattr(exc, "response", None), "status_code", None) == 401
-                message = "opencode authentication failed · set OPENCODE_SERVER_PASSWORD" if denied else f"could not load opencode models: {exc}"
+                message = (
+                    "opencode authentication failed · set OPENCODE_SERVER_PASSWORD, and OPENCODE_SERVER_USERNAME if it is not opencode"
+                    if denied
+                    else f"could not load opencode models: {exc}"
+                )
                 self.when_loaded(p, lambda: self.settings_failed(message))
                 return
             self.when_loaded(p, lambda: self.pick_opencode_provider(catalog))
@@ -684,7 +690,7 @@ class Session:
         usage = run.get("usage") or {}
         st.step, st.tokens, st.cost = 0, usage_tokens(usage), recorded_cost(usage) or 0.0
         st.started = time.time() - run_duration(messages)
-        st.run_model, st.run_sdk, st.run_effort = run.get("model"), run.get("sdk"), None
+        st.run_model, st.run_sdk, st.run_effort = run.get("model"), run.get("sdk"), (run.get("sdk_session") or {}).get("effort")
         script = (run.get("paths") or {}).get("script_path")
         b.workspace = (Path(script).parent, None) if script else None
         # Older logs kept no tool results; there the agent's report of a working client stands for its confirmation.

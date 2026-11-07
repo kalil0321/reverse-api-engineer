@@ -153,7 +153,7 @@ async def get_opencode_model_catalog(client: httpx.AsyncClient) -> dict[str, Any
             "Stop it so RAE can start opencode-ai@latest."
         ) from e
     except httpx.RequestError as e:
-        raise OpenCodeSetupError(f"Could not read the OpenCode model catalog: {e or type(e).__name__}") from e
+        raise OpenCodeSetupError(f"Could not read the OpenCode model catalog: {str(e) or type(e).__name__}") from e
 
     payload = response.json()
     if not isinstance(payload, dict) or not isinstance(payload.get("providers"), list):

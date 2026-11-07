@@ -13,7 +13,7 @@ menu; `Tab` completes and `Enter` runs the highlighted command.
 | `/model`               | Choose the model. In collector mode, the collector's own model.     |
 | `/effort`              | How hard the agent thinks, for Claude models (`low` to `max`).      |
 | `/mode`                | Switch between agent, manual, engineer and collector.               |
-| `/settings`            | Every setting with its value, changed in place in the session.      |
+| `/settings`            | SDK, agent provider, models, output and sync, changed in place.     |
 | `/history`             | Past runs with their cost; open one to resume or re-engineer it.    |
 | `/resume [run_id]`     | Show a past run's conversation as it was and continue it, on any SDK. |
 | `/output`              | Everything from the session, unfolded.                              |
@@ -23,7 +23,8 @@ menu; `Tab` completes and `Enter` runs the highlighted command.
 | `/exit`                | Quit. Alias: `/quit`.                                               |
 
 `/resume` works for runs that saved their SDK session, which agent and engineer
-runs do from this release on. Older runs and collector runs cannot be resumed.
+runs do from this release on. Older runs and collector runs cannot be resumed,
+and runs made in rae desktop continue in the app.
 
 ## Keys
 

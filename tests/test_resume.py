@@ -237,6 +237,16 @@ class TestCli:
         cli._session_recorder("r1", "agent", "claude", "claude-sonnet-5-5", "./outputs")("s-1")
         assert history.update_run.call_args.kwargs["sdk_session"]["output_dir"] == str((tmp_path / "outputs").resolve())
 
+    def test_a_claude_session_keeps_the_effort_it_runs_at(self, history, monkeypatch):
+        monkeypatch.setattr(cli, "build_sdk_effort", lambda model: {"effort": "xhigh"})
+        cli._session_recorder("r1", "agent", "claude", "claude-sonnet-5-5", None)("s-1")
+        assert history.update_run.call_args.kwargs["sdk_session"]["effort"] == "xhigh"
+        monkeypatch.setattr(cli, "build_sdk_effort", lambda model: {})
+        cli._session_recorder("r1", "agent", "claude", "claude-opus-5-5", None)("s-1")
+        assert history.update_run.call_args.kwargs["sdk_session"]["effort"] == "medium", "the model's own default"
+        cli._session_recorder("r1", "agent", "claude", "claude-haiku-4-5", None)("s-1")
+        assert "effort" not in history.update_run.call_args.kwargs["sdk_session"]
+
     def test_a_reopened_session_is_not_recorded_again(self, tmp_path, har_path):
         eng = _cursor(har_path, tmp_path)
         seen: list[str] = []
