@@ -270,11 +270,25 @@ class SessionState:
         return f"{secs // 60}m{secs % 60:02d}s" if secs >= 60 else f"{secs}s"
 
 
+PLAN_STATUSES = {
+    "pending": "pending",
+    "todo": "pending",
+    "notstarted": "pending",
+    "inprogress": "in_progress",
+    "active": "in_progress",
+    "completed": "completed",
+    "complete": "completed",
+    "done": "completed",
+    "cancelled": "cancelled",
+    "canceled": "cancelled",
+}
+
+
 def hanging(mark: Text, body: Text, margin: int) -> Table:
     """A mark right-aligned in a margin of this width, and text that wraps under itself instead of the left edge."""
     grid = Table.grid(padding=(0, 1))
     grid.add_column(width=margin, justify="right")
-    grid.add_column()
+    grid.add_column(overflow="fold")  # a path or URL breaks across lines rather than losing its end
     grid.add_row(mark, body)
     return grid
 
@@ -500,10 +514,15 @@ class LedgerView:
         self.out(block(lines[:OUTPUT_PREVIEW], more, cut=True), Deferred(lambda: block(lines, 0, cut=False)))
 
     def workspace(self, folder: Path, copy: Path | None) -> None:
-        """Where a verified client's files are, absolute so a click opens them."""
+        """Where a verified client's files are, absolute so a click opens them; a long path wraps under itself."""
         rows = [("in", folder), ("copy", copy)] if copy else [("in", folder)]
         for label, path in rows:
-            self.out(f"{' ' * INDENT}[{HAIRLINE}]└[/] [{DIM}]{label}[/] [{INK_SOFT}]{link(str(path), path)}[/]")
+            mark = Text.from_markup(f"[{HAIRLINE}]└[/] [{DIM}]{label}[/]")
+            self.out(Padding(hanging(mark, Text.from_markup(f"[{INK_SOFT}]{link(str(path), path)}[/]"), len(label) + 2), (0, 0, 0, INDENT)))
+
+    def copied(self, folder: Path) -> None:
+        mark = Text("copied to", style=DIM)
+        self.out(Padding(hanging(mark, Text.from_markup(f"[{INK_SOFT}]{link(str(folder), folder)}[/]"), len("copied to")), (0, 0, 0, 3)))
 
     def code(self, source: str, language: str) -> None:
         """Written code, previewed from its first definition; ctrl+o shows all of it."""
@@ -544,11 +563,16 @@ class LedgerView:
         self.out("")
 
     def plan(self, todos: list[dict[str, Any]]) -> None:
+        """The agent's task list, in any SDK's shape: Claude's content and activeForm, Claude's task subject,
+        a plan's step, statuses such as Cursor's inProgress."""
         marks = {"completed": "✓", "in_progress": "›", "pending": "○", "cancelled": "✗"}
         rows = []
         for t in todos[:12]:
-            status = str(t.get("status", "pending")).lower()
-            text = (t.get("activeForm") if status == "in_progress" else None) or t.get("content") or ""
+            raw = re.sub(r"[\s_-]", "", str(t.get("status") or "pending")).lower()
+            status = PLAN_STATUSES.get(raw, "pending")
+            text = (t.get("activeForm") if status == "in_progress" else None) or next(
+                (t[k] for k in ("content", "subject", "step", "description", "title", "text") if t.get(k)), ""
+            )
             color = MINT if status == "completed" else INK if status == "in_progress" else DIM
             rows.append(Text.assemble(" " * INDENT, (f"{marks.get(status, '·')} ", color), (terminal_safe(str(text))[:90], color)))
         self.out(Group(*rows))

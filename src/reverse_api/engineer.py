@@ -200,7 +200,7 @@ class ClaudeEngineer(BaseEngineer):
                 self.usage_metadata[key] = value
 
     def _record_tool_results(self, blocks: list[Any]) -> None:
-        """Tool results come back in user messages: always logged for /messages, shown by the session."""
+        """Tool results come back in user messages: always logged, for /resume to replay, and shown by the session."""
         for block in blocks:
             if isinstance(block, ToolResultBlock):
                 output = block.content
@@ -329,7 +329,8 @@ class ClaudeEngineer(BaseEngineer):
                         "script_path": script_path,
                         "usage": self.usage_metadata,
                     }
-                    self.message_store.save_result(result)
+                    # The model too, for the card a resume replays: a resumed run can change it.
+                    self.message_store.save_result({**result, "model": self.model})
                     return result
 
         return None

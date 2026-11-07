@@ -137,9 +137,9 @@ Settings live in `~/.reverse-api/config.json` and can be edited via `/settings` 
 
 `reverse-api-engineer` opens a full-screen session; `agent`, `engineer` and `collector` open it too when run in a terminal (`agent` and `engineer` stay plain with `--json` or `--no-interactive`). Type `/` for the commands:
 - `/model`, `/effort`, `/mode`: switch the model, how hard it thinks, and the mode (also Shift+Tab, ctrl+e).
-- `/settings`: SDK, agent provider, output and sync settings.
-- `/history`: past runs with their details, to resume (when the run can be) or re-engineer.
-- `/resume [run_id]`: show a past run's conversation as it was and continue it where it stopped, on any SDK. Works for agent and engineer runs from this version on, which save their SDK session. Collector runs cannot be resumed, and runs made in rae desktop continue in the app.
+- `/settings`: SDK, agent provider, models, output and sync, changed in place in the session.
+- `/history`: past runs with their details, to resume or re-engineer.
+- `/resume [run_id]`: show a past run's conversation as it was and continue it where it stopped, on any SDK. Works for agent and engineer runs from this version on, which save their SDK session. Collector runs cannot be resumed.
 - `/output` (ctrl+o): everything from the session, unfolded. `/open`: the latest client.
 - `/help` (or `/commands`): what rae does, its modes, commands and keys.
 - `/new`, `/clear`, `/exit` (or `/quit`).

@@ -27,9 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An OpenCode catalog request that times out names the error instead of ending its message on a colon.
 - Resuming a run whose Claude Code session is gone says so once, in plain words, instead of the SDK's "returned an error result … (exit code: 1)" followed by advice to install Claude Code. That advice now only appears when Claude Code is missing.
 - A Claude error such as "Not logged in" shows once, not as an agent message, then an error, then "Agent analysis produced no result."
-- The session no longer offers to resume runs made in rae desktop: they need the app's browser, captured traffic and secret masking, so `/resume` says to continue them there.
-- Steps name the tools of rae desktop, OpenCode, Copilot and Cursor (`bash`, `read`, `apply_patch`, `playwright-ses_…_browser_navigate`, Cursor's `mcp` wrapper…) the way they name Claude Code's. A tool without its own wording shows its name and main argument instead of raw JSON, and a todo tool shows the plan instead of a step.
-- Long errors, notices and prompts wrap under their own text instead of at the left edge.
+- Steps name the tools of OpenCode, Copilot and Cursor (`bash`, `read`, `apply_patch`, `playwright-ses_…_browser_navigate`, Cursor's `mcp` wrapper…) the way they name Claude Code's, and a tool without its own wording shows its name and main argument instead of raw JSON.
+- The agent's task list shows as one plan per batch of changes, whatever the SDK calls it: Claude Code's current `TaskCreate` and `TaskUpdate` (which the session showed as separate steps, never as a list), `TodoWrite`, OpenCode's `todowrite`, Cursor's `updateTodos`, `write_todos`, `update_todos` and `update_plan`.
+- Long errors, notices, prompts and folder paths wrap under their own text instead of at the left edge.
+- In the session, an engineer run ends with one line naming its copy in `./scripts`, instead of the plain terminal's "decoding complete" lines repeating the client card.
 - `agent --json` and `engineer --json` report `status: error` (`engine_failure`) when the run ends without writing its client, instead of `ok` with a `script_path` that does not exist.
 - Playwright MCP prompt: `browser_run_code` is now `browser_run_code_unsafe`, and the nonexistent `browser_scroll` tool is no longer listed.
 - The Claude SDK message buffer is raised to 32 MB, so a large screenshot no longer aborts a run.

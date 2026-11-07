@@ -13,7 +13,7 @@ class MessageStore:
     def __init__(self, run_id: str, output_dir: str | None = None) -> None:
         self.run_id = run_id
         self.messages_path = get_messages_path(run_id, output_dir)
-        self.messages_path.parent.mkdir(parents=True, exist_ok=True)
+        self._folder_ready = False  # made on the first write: reading a past run's log creates nothing
 
     def _get_timestamp(self) -> str:
         """Get current timestamp in ISO format."""
@@ -27,12 +27,18 @@ class MessageStore:
             "content": content,
             **kwargs,
         }
+        if not self._folder_ready:
+            self.messages_path.parent.mkdir(parents=True, exist_ok=True)
+            self._folder_ready = True
         with open(self.messages_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(message) + "\n")
 
-    def save_prompt(self, prompt: str) -> None:
-        """Save the initial prompt."""
-        self.append("prompt", prompt)
+    def save_prompt(self, prompt: str, opening: bool = False) -> None:
+        """Save a prompt; ``opening`` marks the first one of an engine run, fresh or resumed."""
+        if opening:
+            self.append("prompt", prompt, opening=True)
+        else:
+            self.append("prompt", prompt)
 
     def save_tool_start(self, tool_name: str, tool_input: dict) -> None:
         """Save a tool start event."""

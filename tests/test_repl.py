@@ -87,13 +87,6 @@ class TestDescribe:
         for name in ("browser_run_code", "browser_run_code_unsafe"):
             assert describe(name, {"code": "async (page) => page.title()"})[:2] == ("script", "async (page) => page.title()")
 
-    def test_rae_desktop_tools(self):
-        assert describe("traffic_overview", {})[:2] == ("overview", "captured traffic")
-        assert describe("get_flow", {"id": "eaaa2798-b3f", "part": "both"})[:2] == ("request", "eaaa2798-b3f both")
-        assert describe("replay_flow", {"id": "93ee", "url": "http://x/items?page=3", "method": "GET"})[:3] == ("replay", "93ee · method, url", "run")
-        assert describe("wait_for_flows", {"after_seq": 284, "timeout_s": 3})[:2] == ("wait", "requests after 284")
-        assert describe("browser_scroll", {"direction": "down", "pages": 5})[:2] == ("scroll", "down")
-
     def test_a_tool_without_wording_shows_its_name_and_main_argument_never_json(self):
         from reverse_api.repl.view import VERB_COL
 
@@ -105,14 +98,80 @@ class TestDescribe:
 
 
 class TestLedgerUI:
-    def test_a_todo_tool_shows_its_plan_once(self, session):
+    def test_a_todo_tool_shows_its_plan_once_before_the_next_step(self, session):
         st, t, _view, b = session
         ui = LedgerUI(b)
-        todos = [{"content": "Find the API", "status": "in_progress", "activeForm": "Finding the API"}]
+        todos = [{"content": "Find the API", "status": "inProgress", "activeForm": "Finding the API"}]
         ui.tool_start("updateTodos", {"todos": todos})
         ui.todo_updated(todos)  # Cursor reports its todo tool's list again
+        ui.tool_start("Bash", {"command": "ls"})
         text = plain(t)
-        assert text.count("Finding the API") == 1 and "updateTodos" not in text and st.step == 0
+        assert text.count("Finding the API") == 1 and "› Finding the API" in text and "updateTodos" not in text
+        assert text.index("Finding the API") < text.index("01  run") and st.step == 1
+
+    def test_each_sdks_todo_list_shows_as_the_plan(self, session):
+        _st, t, view, b = session
+        lists = {
+            "TodoWrite": {"todos": [{"content": "Find the API", "status": "completed", "activeForm": "Finding the API"}]},
+            "todowrite": {"todos": [{"id": "1", "content": "Find the API", "status": "completed", "priority": "high"}]},
+            "write_todos": {"todos": [{"description": "Find the API", "status": "done"}]},
+            "todo_write": {"todos": [{"content": "Find the API", "status": "completed"}]},
+            "update_todos": {"todos": [{"content": "Find the API", "status": "completed"}]},
+            "update_plan": {"plan": [{"step": "Find the API", "status": "completed"}], "explanation": "first"},
+        }
+        for name, args in lists.items():
+            t.clear()
+            ui = LedgerUI(b)
+            b.reset_plan()
+            ui.tool_start(name, args)
+            ui.thinking("next")
+            view.flush_live()
+            assert "✓ Find the API" in plain(t), name
+
+    def test_claude_codes_task_tools_build_one_plan_per_batch(self, session):
+        st, t, view, b = session
+        ui = LedgerUI(b)
+        for n, subject in ((1, "Find the API"), (2, "Write the client")):
+            ui.tool_start("TaskCreate", {"subject": subject, "description": subject.lower()})
+            ui.tool_result("TaskCreate", False, f"Task #{n} created successfully: {subject}")
+        ui.tool_start("TaskUpdate", {"taskId": "1", "status": "in_progress", "activeForm": "Finding the API"})
+        ui.tool_result("TaskUpdate", False, "Updated task #1 status")
+        ui.thinking("The jobs come from GraphQL.")
+        view.flush_live()
+        first = plain(t)
+        assert first.count("Write the client") == 1 and "› Finding the API" in first and "○ Write the client" in first
+        ui.tool_start("TaskUpdate", {"taskId": "1", "status": "completed"})
+        ui.tool_start("TaskUpdate", {"taskId": "2", "status": "in_progress"})
+        ui.tool_start("Bash", {"command": "python api_client.py"})
+        view.flush_live()
+        text = plain(t)
+        assert "✓ Find the API" in text and "› Write the client" in text and text.count("Write the client") == 2
+        assert "Task #1 created" not in text and "Updated task" not in text and st.step == 1
+
+    def test_a_failed_task_create_shifts_no_id(self, session):
+        _st, t, view, b = session
+        ui = LedgerUI(b)
+        ui.tool_start("TaskCreate", {"subject": "Find the API"})
+        ui.tool_result("TaskCreate", True, "InputValidationError: description is required")
+        for n, subject in ((1, "Find the API"), (2, "Write the client")):
+            ui.tool_start("TaskCreate", {"subject": subject, "description": subject})
+            ui.tool_result("TaskCreate", False, f"Task #{n} created successfully: {subject}")
+        ui.tool_start("TaskUpdate", {"taskId": "2", "status": "in_progress"})
+        ui.thinking("writing it")
+        view.flush_live()
+        text = plain(t)
+        assert text.count("Find the API") == 1 and "○ Find the API" in text and "› Write the client" in text
+
+    def test_a_task_list_catches_a_resumed_run_up(self, session):
+        _st, t, view, b = session
+        ui = LedgerUI(b)
+        ui.tool_start("TaskList", {})
+        ui.tool_result("TaskList", False, "#3 [completed] Write docs\n#4 [pending] Ship")
+        ui.tool_start("TaskUpdate", {"taskId": "4", "status": "in_progress"})
+        ui.thinking("shipping")
+        view.flush_live()
+        text = plain(t)
+        assert "✓ Write docs" in text and "› Ship" in text
 
     def test_steps_receipts_and_code(self, session, tmp_path):
         st, t, _view, b = session
@@ -933,6 +992,44 @@ def test_a_long_step_stays_on_one_line_at_any_width(session, monkeypatch):
         assert len(lines) == 1 and len(lines[0]) <= cols, (cols, lines)
 
 
+def test_an_engineer_run_in_the_session_names_only_its_copy(session, tmp_path, monkeypatch):
+    from reverse_api import cli
+
+    _st, t, _view, b = session
+    out, har = tmp_path / "out", tmp_path / "har"
+    out.mkdir()
+    har.mkdir()
+    (out / "api_client.py").write_text("x = 1\n")
+    (har / "recording.har").write_text("{}")
+    monkeypatch.chdir(tmp_path)
+    history = MagicMock()
+    history.get_run.return_value = {"prompt": "quotes", "paths": {"har_dir": str(har)}}
+    config = MagicMock()
+    config.get.side_effect = lambda key, default=None: {"real_time_sync": False}.get(key, default)
+    printed = io.StringIO()
+    monkeypatch.setattr(cli, "session_manager", history)
+    monkeypatch.setattr(cli, "config_manager", config)
+    monkeypatch.setattr(cli, "generate_folder_name", lambda prompt, sdk=None: "quotes")
+    monkeypatch.setattr(cli, "console", Console(file=printed))
+    monkeypatch.setattr(bridge_mod, "_bridge", b)
+    with patch.object(cli, "run_reverse_engineering", return_value={"script_path": str(out / "api_client.py"), "usage": {}}):
+        cli.run_engineer("a1")
+    assert printed.getvalue() == "", "the classic end-of-run lines stay out of the session"
+    joined = "".join(line.strip() for line in plain(t).splitlines())
+    assert joined.startswith("copied to") and joined.endswith("scripts/quotes") and (tmp_path / "scripts" / "quotes" / "api_client.py").exists()
+
+
+def test_a_long_workspace_path_wraps_under_itself(session, monkeypatch):
+    from reverse_api.repl import transcript, view
+
+    _st, t, ledger, _b = session
+    monkeypatch.setattr(view, "width", lambda: 60)
+    monkeypatch.setattr(transcript, "width", lambda: 60, raising=False)
+    ledger.workspace(Path("/Users/someone/projects/a-rather-long-folder-name/.reverse-api/runs/scripts/abc123def456"), None)
+    lines = [line for line in plain(t).splitlines() if line.strip()]
+    assert len(lines) > 1 and all(line.startswith(" " * 20) for line in lines[1:]), lines
+
+
 def test_long_errors_notices_and_prompts_wrap_under_their_own_text(session, monkeypatch):
     from reverse_api.repl import transcript, view
 
@@ -1200,7 +1297,7 @@ class TestResume:
         history.get_run.return_value = {
             "run_id": "a1",
             "prompt": "quotes",
-            "model": "claude-haiku-4-5",
+            "model": "claude-sonnet-5-5",
             "sdk": "claude",
             "usage": {"input_tokens": 8000, "output_tokens": 400, "cache_read_input_tokens": 10000, "estimated_cost_usd": 0.23},
             "paths": {"script_path": str(client)},
@@ -1225,7 +1322,7 @@ class TestResume:
         text = plain(session.transcript)
         assert "› all quotes on quotes.toscrape.com" in text and "brief" not in text
         assert "navigate" in text and "quotes.toscrape.com/scroll" in text and "GET /api/quotes" in text
-        assert "api_client.py ready" in text and "$0.23" in text and "haiku 4.5" in text and "3m07s" in text
+        assert "api_client.py ready" in text and "$0.23" in text and "sonnet 5.5" in text and "3m07s" in text
         assert "18.4k tokens" in text, "cache tokens count, as on the live card"
         assert "effort xhigh" in text, "the effort the run thought at"
         # The replay draws the past run's numbers without making them this session's.
@@ -1239,6 +1336,74 @@ class TestResume:
         stamps = ["2026-11-01T19:14:19", "2026-11-01T19:16:19", "2026-11-04T10:00:00", "2026-11-04T10:01:00"]
         assert run_duration([{"timestamp": s} for s in stamps]) == 180
         assert run_duration([{"timestamp": "bad"}]) == 0
+
+    def test_the_users_words_come_out_of_each_engines_brief(self):
+        from reverse_api.prompts import load
+        from reverse_api.repl.app import user_words
+
+        assert user_words("x <mission>all quotes</mission> y") == "all quotes"
+        fields = dict.fromkeys(["har_path", "scripts_dir", "existing_client_guidance", "tag_mode_label", "run_id", "har_parent"], "x")
+        fields |= dict.fromkeys(["existing_label", "messages_path", "is_fresh", "existing_artifact"], "x")
+        engineer = load("engineer/user", prompt="all quotes", additional_instructions="", **fields)
+        assert user_words(engineer) == "all quotes"
+        instructed = load("engineer/user", prompt="all quotes", additional_instructions="\n\nAdditional instructions:\nadd paging", **fields)
+        assert user_words(instructed) == "add paging"
+
+    def test_each_replayed_card_shows_its_own_moment(self, app_session, tmp_path):
+        session, history = app_session
+        client = tmp_path / "api_client.py"
+        client.write_text("x = 1\n")
+        history.get_run.return_value = {
+            "run_id": "a1",
+            "prompt": "quotes",
+            "model": "claude-haiku-4-5",
+            "sdk": "claude",
+            "usage": {"input_tokens": 9000, "estimated_cost_usd": 0.5},
+            "paths": {"script_path": str(client)},
+            "sdk_session": {"id": "s", "mode": "engineer", "model": "claude-haiku-5-5"},
+        }
+        verify = {"name": "mcp__verification__report_client_verified", "input": {}}
+        first = {"script_path": str(client), "usage": {"input_tokens": 1000, "estimated_cost_usd": 0.1}, "model": "claude-haiku-4-5"}
+        second = {"script_path": str(client), "usage": {"input_tokens": 2000, "estimated_cost_usd": 0.2}}
+        log = [
+            {"type": "prompt", "content": "quotes", "timestamp": "2026-11-01T19:00:00"},
+            {"type": "tool_start", "content": verify, "timestamp": "2026-11-01T19:00:30"},
+            {"type": "result", "content": first, "timestamp": "2026-11-01T19:01:00"},
+            {"type": "prompt", "content": "more", "timestamp": "2026-11-07T10:00:00"},
+            {"type": "tool_start", "content": verify, "timestamp": "2026-11-07T10:00:30"},
+            {"type": "result", "content": second, "timestamp": "2026-11-07T10:02:00"},
+        ]
+        with patch("reverse_api.repl.app.MessageStore") as store, patch.object(session, "work"):
+            store.return_value.load.return_value = log
+            session.run_command("/resume a1")
+        cards = plain(session.transcript).split("api_client.py ready")[1:]
+        assert "1.0k tokens · $0.10" in cards[0] and "haiku 4.5" in cards[0] and "1m00s" in cards[0]
+        assert "2.0k tokens · $0.20" in cards[1] and "haiku 5.5" in cards[1] and "3m00s" in cards[1]
+
+    def test_a_resumed_stretch_starts_its_own_clock_and_needs_its_own_verification(self, app_session, tmp_path):
+        session, history = app_session
+        client = tmp_path / "api_client.py"
+        client.write_text("x = 1\n")
+        history.get_run.return_value = {"run_id": "a1", "prompt": "quotes", "paths": {"script_path": str(client)}, "sdk_session": {"id": "s"}}
+        verify = {"name": "mcp__verification__report_client_verified", "input": {}}
+        result = {"script_path": str(client), "usage": {"input_tokens": 1000}}
+        log = [
+            {"type": "prompt", "content": "brief <mission>quotes</mission>", "timestamp": "2026-11-01T19:00:00"},
+            {"type": "tool_start", "content": verify, "timestamp": "2026-11-01T19:00:30"},
+            {"type": "result", "content": result, "timestamp": "2026-11-01T19:05:00"},
+            {"type": "prompt", "content": "rename it", "opening": True, "timestamp": "2026-11-01T19:06:00"},
+            {"type": "result", "content": result, "timestamp": "2026-11-01T19:07:00"},
+            {"type": "prompt", "content": "and test it", "timestamp": "2026-11-01T19:07:30"},
+            {"type": "tool_start", "content": verify, "timestamp": "2026-11-01T19:08:00"},
+            {"type": "result", "content": result, "timestamp": "2026-11-01T19:08:30"},
+        ]
+        with patch("reverse_api.repl.app.MessageStore") as store, patch.object(session, "work"):
+            store.return_value.load.return_value = log
+            session.run_command("/resume a1")
+        text = plain(session.transcript)
+        assert text.count("api_client.py ready") == 2, "the resumed turn that verified nothing gets no card"
+        assert "5m00s" in text and "2m30s" in text, "the resumed stretch's clock starts at its own opening"
+
 
     def test_a_runs_messages_are_read_from_its_own_folder(self, app_session):
         from reverse_api.repl.app import run_output_dir
@@ -1297,30 +1462,6 @@ class TestResume:
         work.assert_not_called()
         assert session.after_run is None and "a run is in progress · esc stops it" in plain(session.transcript)
 
-    def test_a_run_made_in_rae_desktop_is_continued_there(self, app_session):
-        session, history = app_session
-        desktop = {"run_id": "d1", "prompt": "quotes", "mode": "desktop-browse", "sdk_session": {"id": "s", "mode": "desktop-browse"}}
-        history.get_run.return_value = desktop
-        with patch.object(session, "work") as work:
-            session.run_command("/resume d1")
-        work.assert_not_called()
-        assert "run d1 was made in rae desktop" in plain(session.transcript)
-        history.history = [desktop]
-        history.get_history.return_value = [desktop]
-        session.run_command("/resume")
-        assert session.st.picker is None, "the picker lists only runs this session can continue"
-
-    def test_the_cli_does_not_reopen_a_desktop_run_without_its_tools(self, monkeypatch):
-        from reverse_api import cli
-
-        history = MagicMock()
-        history.get_run.return_value = {"run_id": "d1", "mode": "desktop-capture", "sdk_session": {"id": "s", "mode": "engineer"}}
-        monkeypatch.setattr(cli, "session_manager", history)
-        with patch.object(cli, "run_engineer") as engineer, patch.object(cli, "run_auto_capture") as agent:
-            assert cli.resume_run("d1") is None
-        engineer.assert_not_called()
-        agent.assert_not_called()
-
     def test_a_failure_the_engine_reported_is_not_repeated(self, app_session):
         session, _history = app_session
 
@@ -1350,6 +1491,36 @@ class TestResume:
             session.finish({})
         assert reopened == [True] and started == [] and session.after_run is None
         assert session.st.queue == ["follow-up text"], "the resumed conversation takes it as its next message"
+
+    def test_a_queued_resume_keeps_the_session_busy_until_the_app_starts_it(self, app_session):
+        session, _history = app_session
+        later: list = []
+        session.st.running = True
+        session.after_run = lambda: None
+        with patch.object(session, "call_soon", side_effect=later.append):
+            session.finish({})
+        assert session.st.running, "a prompt sent before the resume starts is queued, not a run of its own"
+        later[0]()
+        assert not session.st.running
+
+    def test_an_opencode_resume_drops_prompts_queued_for_the_session(self, app_session):
+        session, history = app_session
+        history.get_run.return_value = {"run_id": "a1", "prompt": "jobs", "sdk_session": {"id": "s", "mode": "agent", "sdk": "opencode"}}
+        session.st.queue = ["add paging"]
+        with patch("reverse_api.repl.app.MessageStore") as store, patch.object(session, "classic"):
+            store.return_value.load.return_value = []
+            session.run_command("/resume a1")
+        assert session.st.queue == []
+
+    def test_a_log_that_cannot_be_read_falls_back_to_the_runs_details(self, app_session):
+        session, history = app_session
+        run = {"run_id": "a1", "prompt": "jobs", "timestamp": "2026-11-01T19:00:00", "sdk_session": {"id": "s", "mode": "agent"}}
+        history.get_run.return_value = run
+        with patch("reverse_api.repl.app.MessageStore") as store, patch.object(session, "work") as work:
+            store.return_value.load.side_effect = PermissionError("/Volumes/Ext/rae/messages")
+            session.run_command("/resume a1")
+        work.assert_called_once()
+        assert "jobs" in plain(session.transcript)
 
     def test_new_and_quit_drop_a_pending_resume(self, app_session):
         session, _history = app_session

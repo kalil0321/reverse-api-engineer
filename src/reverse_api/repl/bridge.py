@@ -23,9 +23,13 @@ from .style import THEME, width
 from .transcript import Raw, TranscriptWriter
 from .view import KIND_VERB, VERB_COL, LedgerView, default_effort, language_for
 
-# Tools that are plumbing for the agent, not steps worth showing. A todo list shows as the plan instead.
-HIDDEN_TOOLS = {"ToolSearch", "AskUserQuestion", "TodoWrite", "report_intent"}
-QUIET_RESULTS = {"Write", "Edit", "MultiEdit", "TodoWrite", "TaskCreate", "TaskUpdate", "report_client_verified"}
+# Tools that are plumbing for the agent, not steps worth showing.
+HIDDEN_TOOLS = {"ToolSearch", "AskUserQuestion", "report_intent"}
+QUIET_RESULTS = {"Write", "Edit", "MultiEdit", "report_client_verified"}
+# The agent's task list shows as the plan, not as steps. These tools write all of it at once...
+PLAN_TOOLS = {"TodoWrite", "update_plan"}
+# ...and these, Claude Code's, one task at a time, by the id TaskCreate's result gives.
+TASK_TOOLS = {"TaskCreate", "TaskUpdate", "TaskList", "TaskGet"}
 LOOK_TOOLS = {"take_snapshot", "browser_snapshot", "take_screenshot", "browser_take_screenshot"}
 # Other SDKs' names for Claude Code's tools: OpenCode's, Copilot's and Cursor's.
 ALIASES = {
@@ -76,28 +80,6 @@ def first_line(value: Any, limit: int = 80) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-TRAFFIC_TOOLS = {"traffic_overview", "search_flows", "get_flow", "endpoint_clusters", "auth_trace", "wait_for_flows", "replay_flow"}
-
-
-def describe_traffic(name: str, args: dict[str, Any]) -> tuple[str, str, str, str | None, str | None]:
-    """rae desktop's traffic tools (desktop/tools/traffic.py), as steps."""
-    if name == "traffic_overview":
-        return "overview", "captured traffic", "read", None, None
-    if name == "search_flows":
-        found = " ".join(str(args[k]) for k in ("text", "method", "host", "path", "status", "mime") if args.get(k))
-        return "search", first_line(found or "all requests"), "read", None, None
-    if name == "get_flow":
-        return "request", first_line(f"{args.get('id', '?')} {args.get('json_path') or args.get('part') or ''}".strip()), "read", None, None
-    if name == "endpoint_clusters":
-        return "endpoints", first_line(args.get("host") or "all hosts"), "read", None, None
-    if name == "auth_trace":
-        return "auth", first_line(args.get("header") or args.get("value") or "credentials"), "read", None, None
-    if name == "replay_flow":
-        changed = ", ".join(k for k in ("method", "url", "headers", "body") if args.get(k)) or "as captured"
-        return "replay", first_line(f"{args.get('id', '?')} · {changed}"), "run", None, None
-    return "wait", first_line(args.get("host") or args.get("path_contains") or f"requests after {args.get('after_seq', '?')}"), "read", None, None
-
-
 def describe_other(name: str, args: dict[str, Any]) -> tuple[str, str, str, str | None, str | None]:
     """A tool rae has no wording for: its name as the verb, cut to the column, and its most telling argument."""
     words = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name.removeprefix("browser_")).replace("_", " ").lower().split() or ["tool"]
@@ -114,14 +96,12 @@ def patched_files(args: dict[str, Any]) -> list[str]:
 
 
 def describe_browser(name: str, args: dict[str, Any]) -> tuple[str, str, str, str | None, str | None] | None:
-    """The browser tools of Chrome DevTools MCP, Playwright MCP and rae desktop, as steps; None for any other tool."""
+    """The browser tools of Chrome DevTools MCP and Playwright MCP, as steps; None for any other tool."""
     url = args.get("url") if isinstance(args.get("url"), str) else None
     if name in ("navigate_page", "browser_navigate", "new_page"):
         return "navigate", first_line(url or args.get("type") or "page"), "read", url, None
     if name == "browser_navigate_back":
         return "navigate", "back", "read", None, None
-    if name == "browser_scroll":
-        return "scroll", str(args.get("direction") or "down"), "read", None, None
     if name in ("list_network_requests", "browser_network_requests"):
         types = args.get("resourceTypes")
         return "network", ", ".join(types) if isinstance(types, list) and types else "all requests", "read", None, None
@@ -146,7 +126,7 @@ def describe_browser(name: str, args: dict[str, Any]) -> tuple[str, str, str, st
 
 def describe(name: str, args: dict[str, Any]) -> tuple[str, str, str, str | None, str | None] | None:
     """(verb, target, kind, url, path) for a tool call, or None when the call is not worth a step."""
-    if name in HIDDEN_TOOLS:
+    if name in HIDDEN_TOOLS or name in PLAN_TOOLS or name in TASK_TOOLS:
         return None
     if name == "mcp" and isinstance(args.get("toolName"), str):
         # Cursor calls every MCP tool through this one, with the real tool and its arguments inside.
@@ -157,8 +137,6 @@ def describe(name: str, args: dict[str, Any]) -> tuple[str, str, str, str | None
     url = args.get("url") if isinstance(args.get("url"), str) else None
     path = args.get("file_path") or args.get("filePath") or args.get("path")
     path = path if isinstance(path, str) else None
-    if name in TRAFFIC_TOOLS:
-        return describe_traffic(name, args)
     if name == "report_client_verified":
         return "verified", first_line(args.get("summary") or "the client ran on the live site"), "other", None, None
     if name == "Write":
@@ -185,8 +163,6 @@ def describe(name: str, args: dict[str, Any]) -> tuple[str, str, str, str | None
         return "fetch", first_line(url or ""), "read", url, None
     if name == "WebSearch":
         return "search", first_line(args.get("query") or ""), "read", None, None
-    if name in ("TaskCreate", "TaskUpdate"):
-        return "plan", first_line(args.get("subject") or args.get("description") or args.get("status") or "task"), "other", None, None
     return describe_other(name, args)
 
 
@@ -207,6 +183,7 @@ class Bridge:
         self.workspace: tuple[Path, Path | None] | None = None  # the run's folder and its synced copy
         self.stopping = False  # the run is already on its way out: stopped once, or ended while it waited
         self.failed = False  # the engine already said why the run failed
+        self.reset_plan()
 
     def ui(self) -> LedgerUI:
         return LedgerUI(self)
@@ -228,7 +205,76 @@ class Bridge:
             return True
         return False
 
+    def reset_plan(self) -> None:
+        self.plan: dict[str, dict[str, Any]] = {}  # the agent's tasks by id, in the order it made them
+        self.plan_new: list[str] = []  # tasks TaskCreate made whose id its result has not given yet
+        self.plan_made = 0  # TaskCreate calls so far, so each waiting task gets its own key
+        self.plan_changed = False
+        self.plan_shown: list[dict[str, Any]] | None = None
+
+    def plan_tool(self, name: str, args: dict[str, Any]) -> bool:
+        """Takes a todo, plan or task tool's call into the plan; False for any other tool."""
+        if name in PLAN_TOOLS:
+            items = args.get("todos") if isinstance(args.get("todos"), list) else args.get("plan")
+            if isinstance(items, list):
+                self.set_plan(items)
+            return True
+        if name == "TaskCreate":
+            key, self.plan_made = f"new-{self.plan_made}", self.plan_made + 1
+            subject = args.get("subject") or args.get("description") or "task"
+            self.plan[key] = {"subject": subject, "activeForm": args.get("activeForm"), "status": "pending"}
+            self.plan_new.append(key)
+            self.plan_changed = True
+        elif name == "TaskUpdate":
+            task_id = str(args.get("taskId"))
+            if task_id in self.plan and args.get("status") == "deleted":
+                self.plan.pop(task_id)
+                self.plan_changed = True
+            elif task_id in self.plan:
+                self.plan[task_id].update({k: args[k] for k in ("status", "subject", "activeForm") if args.get(k)})
+                self.plan_changed = True
+        return name in TASK_TOOLS
+
+    def plan_result(self, name: str, output: str, failed: bool = False) -> None:
+        """TaskCreate's result names the task's id; TaskList's lists every task, so a resumed run catches up."""
+        if name == "TaskCreate" and self.plan_new:
+            # Results come back in the order of the calls: this one is the oldest task still waiting for its id.
+            key, found = self.plan_new.pop(0), re.search(r"#(\w+)", output)
+            if failed:
+                self.plan.pop(key, None)  # the task was never made
+                self.plan_changed = True
+            elif found and key in self.plan:
+                self.plan = {(found.group(1) if k == key else k): v for k, v in self.plan.items()}
+        elif name == "TaskList" and not failed:
+            rows = re.findall(r"^#(\w+) \[([\w-]+)\] (.+)$", output, re.MULTILINE)
+            if rows:
+                known = self.plan
+                self.plan = {i: {**known.get(i, {}), "subject": subject, "status": status} for i, status, subject in rows}
+                self.plan_changed = True
+
+    def set_plan(self, items: list[Any]) -> None:
+        self.plan = {str(i): dict(item) for i, item in enumerate(items) if isinstance(item, dict)}
+        self.plan_new, self.plan_changed = [], True
+
+    def flush_plan(self) -> None:
+        """Shows the plan once a batch of changes is done, and only when it differs from the one shown."""
+        if not self.plan_changed:
+            return
+        self.plan_changed = False
+        items = [dict(task) for task in self.plan.values()]
+        if items and items != self.plan_shown:
+            self.plan_shown = items
+            self.view.plan(items)
+            self.invalidate()
+
+    def copied(self, folder: Path) -> None:
+        """A finished run's copy in the working directory, where the user looks for it."""
+        self.flush_card()
+        self.view.copied(folder)
+        self.invalidate()
+
     def flush_card(self) -> None:
+        self.flush_plan()
         path, self.pending_card = self.pending_card, None
         if path is None:
             return
@@ -294,7 +340,6 @@ class LedgerUI:
         self.view = bridge.view
         self.st = bridge.st
         self.verbose = verbose
-        self._plan: list | None = None
         # Engines also print directly; that output joins the conversation as plain lines.
         writer = TranscriptWriter(self._printed)
         self.console = Console(file=cast(IO[str], writer), force_terminal=True, color_system="truecolor", width=width(), theme=THEME, highlight=False)
@@ -313,6 +358,7 @@ class LedgerUI:
         st.running, st.waiting, st.verb, st.kind = True, False, "starting", "other"
         self.b.cost_base = st.cost
         self.b.verified, self.b.workspace = False, None
+        self.b.reset_plan()
         # The run's own model and SDK; the selection in st.model stays for the next run.
         st.run_model, st.run_sdk = model or st.model, sdk or st.sdk
         claude = st.run_sdk == "claude" and not predates_effort(st.run_model)
@@ -325,7 +371,6 @@ class LedgerUI:
 
     def tool_start(self, tool_name: str, tool_input: dict | Any, call_id: str | None = None) -> None:
         _ = call_id
-        self.b.flush_card()
         name = short_name(tool_name)
         args = tool_input if isinstance(tool_input, dict) else {}
         if isinstance(tool_input, str) and tool_input.strip().startswith("{"):
@@ -334,8 +379,10 @@ class LedgerUI:
                 args = parsed if isinstance(parsed, dict) else {}
             except json.JSONDecodeError:
                 args = {}
-        if name == "TodoWrite" and isinstance(args.get("todos"), list):
-            self.todo_updated(args["todos"])
+        if self.b.plan_tool(name, args):
+            self._changed()
+            return  # its change shows with the next step, message or card, so a batch of them makes one plan
+        self.b.flush_card()
         found = describe(name, args)
         if found is None:
             return
@@ -362,6 +409,9 @@ class LedgerUI:
     def tool_result(self, tool_name: str, is_error: bool = False, output: str | None = None, call_id: str | None = None) -> None:
         _ = call_id
         name = short_name(tool_name)
+        if name in PLAN_TOOLS or name in TASK_TOOLS:
+            self.b.plan_result(name, str(output or ""), failed=is_error)
+            return
         if name in HIDDEN_TOOLS:
             return
         if name == "report_client_verified" and not is_error:
@@ -383,10 +433,9 @@ class LedgerUI:
         self._changed()
 
     def todo_updated(self, todos: list) -> None:
-        # Cursor also reports its todo tool's list on its own: one plan per change.
-        if todos and todos != self._plan:
-            self._plan = todos
-            self.view.plan(todos)
+        # Cursor and OpenCode also report their todo tool's list on their own; the plan shows once per change.
+        if todos:
+            self.b.set_plan(todos)
             self._changed()
 
     def stream_thinking(self, delta: str) -> None:
@@ -445,6 +494,7 @@ class LedgerUI:
         self.b.flush_card()
 
     def error(self, message: str) -> None:
+        self.b.flush_plan()
         self.b.failed = True
         self.view.error(message)
         self._changed()

@@ -682,6 +682,12 @@ def main(ctx: click.Context, show_schema_version: bool) -> None:
         open_session()
 
 
+def _in_session() -> bool:
+    from .repl.bridge import active
+
+    return active() is not None
+
+
 def _in_terminal() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
@@ -1721,8 +1727,12 @@ def run_engineer(
                 if item.is_file():
                     shutil.copy2(item, local_dir / item.name)
 
-            # Different messages for docs vs client mode
-            if output_mode == "docs":
+            from .repl.bridge import active
+
+            # The session's card already names the client; there only the copy is news.
+            if (session := active()) is not None:
+                session.copied(local_dir.resolve())
+            elif output_mode == "docs":
                 console.print(" [dim]>[/dim] [white]documentation complete[/white]")
                 console.print(f" [dim]>[/dim] [white]{result['script_path']}[/white]")
                 console.print(f" [dim]>[/dim] [white]copied to ./docs/{local_dir.name}[/white]\n")
@@ -1730,7 +1740,7 @@ def run_engineer(
                 console.print(" [dim]>[/dim] [white]decoding complete[/white]")
                 console.print(f" [dim]>[/dim] [white]{result['script_path']}[/white]")
                 console.print(f" [dim]>[/dim] [white]copied to ./scripts/{local_dir.name}[/white]\n")
-        else:
+        elif not _in_session():
             # With sync enabled, just show completion
             if output_mode == "docs":
                 console.print(" [dim]>[/dim] [white]documentation complete[/white]")
@@ -1753,13 +1763,6 @@ def run_engineer(
 def resumable(run: dict[str, Any] | None) -> bool:
     return bool(((run or {}).get("sdk_session") or {}).get("id"))
 
-
-def made_in_desktop(run: dict[str, Any] | None) -> bool:
-    """A run of rae desktop: only the app has its browser and captured traffic, and the sandbox that masks its secrets."""
-    return str((run or {}).get("mode") or "").startswith("desktop-")
-
-
-DESKTOP_RESUME = "run {} was made in rae desktop · continue it there, where its browser and captured traffic are"
 
 
 def _session_sdk(resume: dict[str, Any] | None) -> str | None:
@@ -1835,9 +1838,6 @@ def resume_run(run_id: str) -> dict[str, Any] | None:
     run = session_manager.get_run(run_id)
     if run is None or not resumable(run):
         console.print(f" [dim]run {escape(run_id)} has no saved session to resume[/dim]")
-        return None
-    if made_in_desktop(run):
-        console.print(f" [dim]{escape(DESKTOP_RESUME.format(run_id))}[/dim]")
         return None
     session = run["sdk_session"]
     model = session.get("model") or run.get("model") or None

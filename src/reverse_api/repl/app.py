@@ -138,26 +138,39 @@ def run_output_dir(run: dict[str, Any] | None) -> str | None:
 
 
 def user_words(prompt: Any) -> str:
-    """What the user asked: the mission inside an engine's brief, else the message itself."""
+    """What the user asked: the mission inside an agent's brief, the instructions or prompt inside an engineer's,
+    else the message itself."""
     text = str(prompt or "")
-    mission = re.search(r"<mission>(.*?)</mission>", text, re.DOTALL)
-    words = (mission.group(1) if mission else text).strip()
+    found = (
+        re.search(r"<mission>(.*?)</mission>", text, re.DOTALL)
+        or re.search(r"\nAdditional instructions:\n(.*?)(?:\n## |\Z)", text, re.DOTALL)
+        or re.search(r"<user_prompt>(.*?)</user_prompt>", text, re.DOTALL)
+    )
+    words = (found.group(1) if found else text).strip()
     return words if len(words) <= 500 else first_line(words, 200)
 
 
 RUN_PAUSE = 600  # seconds between two messages past which the run was waiting or set aside, not working
 
 
-def run_duration(messages: list[dict[str, Any]]) -> float:
-    """Seconds a run worked: the time between its saved messages, without the long pauses of a resumed run."""
-    stamps = []
+def run_durations(messages: list[dict[str, Any]]) -> list[float]:
+    """Seconds a run had worked by each of its saved messages, without the long pauses of a resumed run."""
+    total, last, worked = 0.0, None, []
     for msg in messages:
         try:
-            stamps.append(datetime.fromisoformat(str(msg.get("timestamp"))))
+            stamp: datetime | None = datetime.fromisoformat(str(msg.get("timestamp")))
         except ValueError:
-            continue
-    gaps = ((later - earlier).total_seconds() for earlier, later in zip(stamps, stamps[1:], strict=False))
-    return sum(gap for gap in gaps if 0 <= gap <= RUN_PAUSE)
+            stamp = None
+        if stamp is not None and last is not None and 0 <= (gap := (stamp - last).total_seconds()) <= RUN_PAUSE:
+            total += gap
+        last = stamp or last
+        worked.append(total)
+    return worked
+
+
+def run_duration(messages: list[dict[str, Any]]) -> float:
+    worked = run_durations(messages)
+    return worked[-1] if worked else 0.0
 
 
 class InputLexer(Lexer):
@@ -419,7 +432,7 @@ class Session:
             if arg:
                 self.resume(arg)
             else:
-                self.pick_run(cmd, "resume a run", self.resume, keep=self.can_resume, empty="no run can be resumed yet · runs from now on can")
+                self.pick_run(cmd, "resume a run", self.resume, keep=self.cli.resumable, empty="no run can be resumed yet · runs from now on can")
         else:
             view.notice(f"unknown command {cmd} · / lists them")
         self.invalidate()
@@ -620,7 +633,7 @@ class Session:
             self.view.notice(f"no run {run_id}")
             return
         self.view.run_details(run)
-        actions = [("resume", "resume", "continue its conversation")] if self.can_resume(run) else []
+        actions = [("resume", "resume", "continue its conversation")] if self.cli.resumable(run) else []
         actions += [("engineer", "re-engineer", "write its client again from the capture"), ("", "back", "")]
 
         def act(value: str | None) -> None:
@@ -632,9 +645,6 @@ class Session:
         self.open_picker(f"run {run_id}", actions, None, act)
         self.invalidate()
 
-    def can_resume(self, run: dict[str, Any]) -> bool:
-        return self.cli.resumable(run) and not self.cli.made_in_desktop(run)
-
     def resume(self, run_id: str) -> None:
         """Reopen a past run's SDK session; the next message in the bar continues its conversation."""
         st = self.st
@@ -644,8 +654,6 @@ class Session:
             self.view.notice("a run is in progress · esc stops it")
         elif run is None or not self.cli.resumable(run):
             self.view.notice(f"run {run_id} has no saved session to resume" if run else f"no run {run_id}")
-        elif self.cli.made_in_desktop(run):
-            self.view.notice(self.cli.DESKTOP_RESUME.format(run_id))
         elif st.running or st.waiting:
             # The open conversation only waits for a follow-up, or is already closing: end it, then switch.
             self.after_run = lambda: self.reopen(run_id, run)
@@ -657,12 +665,14 @@ class Session:
 
     def reopen(self, run_id: str, run: dict[str, Any]) -> None:
         st = self.st
-        start = len(self.transcript.full)
+        start = len(self.transcript.items)
         if not self.replay(run_id, run):
             self.view.run_details(run)
         if run["sdk_session"].get("sdk") == "opencode":
-            # OpenCode runs still use the classic screen, which asks for the next message there.
-            replayed = self.transcript.full[start:]
+            # OpenCode runs still use the classic screen, which asks for the next message there, so nothing queued
+            # in the session reaches it, nor any later run.
+            st.queue.clear()
+            replayed = self.transcript.items[start:]  # as the session showed it, folded
 
             def classic_resume() -> None:
                 self.print_items(replayed, self.cli.console)  # the plain terminal does not show the transcript
@@ -678,26 +688,36 @@ class Session:
 
     def replay(self, run_id: str, run: dict[str, Any]) -> bool:
         """Draws a run's saved conversation the way it looked live, so a resumed one picks up in view."""
-        messages = MessageStore(run_id, run_output_dir(run)).load()
+        try:
+            messages = MessageStore(run_id, run_output_dir(run)).load()
+        except (OSError, ValueError):  # an unreadable log, or a folder on a drive that is gone: the run's details stand in
+            messages = []
         if not messages:
             return False
         st, b, ui = self.st, self.bridge, LedgerUI(self.bridge)
         saved = (st.step, st.tokens, st.cost, st.started, st.run_model, st.run_sdk, st.run_effort, st.kind, st.verb, st.host, st.client_name)
         # A conversation that waits for a follow-up keeps its own client card and folder.
-        bridge_saved = (b.verified, b.workspace, b.pending_card)
+        bridge_saved = (b.verified, b.workspace, b.pending_card, b.plan, b.plan_new, b.plan_changed, b.plan_shown)
         b.verified, b.pending_card = False, None
-        # The client card reads the run's own numbers, not this session's.
-        usage = run.get("usage") or {}
+        b.reset_plan()
+        # The client card reads the run's own numbers, not this session's; each result sets them as they were then.
+        usage, session = run.get("usage") or {}, run.get("sdk_session") or {}
         st.step, st.tokens, st.cost = 0, usage_tokens(usage), recorded_cost(usage) or 0.0
-        st.started = time.time() - run_duration(messages)
-        st.run_model, st.run_sdk, st.run_effort = run.get("model"), run.get("sdk"), (run.get("sdk_session") or {}).get("effort")
+        st.run_model, st.run_sdk, st.run_effort = session.get("model") or run.get("model"), run.get("sdk"), session.get("effort")
         script = (run.get("paths") or {}).get("script_path")
         b.workspace = (Path(script).parent, None) if script else None
         # Older logs kept no tool results; there the agent's report of a working client stands for its confirmation.
         logged_results = any(msg.get("type") == "tool_result" for msg in messages)
+        worked, since = run_durations(messages), 0.0
         try:
-            for msg in messages:
+            for i, msg in enumerate(messages):
                 kind, content = msg.get("type"), msg.get("content")
+                # Older logs do not mark it, but a fresh run's first prompt is the engine's brief.
+                if kind == "prompt" and (msg.get("opening") or re.search(r"<mission>|<user_prompt>", str(content or ""))):
+                    # An engine run starts here, as live: its clock starts over, and its card waits for its own verification.
+                    b.flush_card()
+                    since, b.verified = worked[i], False
+                st.started = time.time() - (worked[i] - since)
                 if kind == "prompt":
                     b.flush_card()
                     self.view.user(user_words(content))
@@ -717,11 +737,15 @@ class Session:
                     b.flush_card()
                     self.view.error(str(content))
                 elif kind == "result" and isinstance(content, dict) and content.get("script_path"):
+                    if isinstance(content.get("usage"), dict):
+                        st.tokens, st.cost = usage_tokens(content["usage"]), recorded_cost(content["usage"]) or st.cost
+                    st.run_model = content.get("model") or session.get("model") or run.get("model")
                     ui.success(str(content["script_path"]))
+                    b.flush_card()  # drawn now, with the numbers of its own moment
             b.flush_card()
         finally:
             st.step, st.tokens, st.cost, st.started, st.run_model, st.run_sdk, st.run_effort, st.kind, st.verb, st.host, st.client_name = saved
-            b.verified, b.workspace, b.pending_card = bridge_saved
+            b.verified, b.workspace, b.pending_card, b.plan, b.plan_new, b.plan_changed, b.plan_shown = bridge_saved
         return True
 
     @staticmethod
@@ -856,8 +880,12 @@ class Session:
         after, self.after_run = self.after_run, None
         if after is not None:
             # A run asked for while this one wrapped up, such as /resume; it takes the queued prompts as its messages.
-            st.running = False
-            self.call_soon(after)
+
+            def start_after() -> None:
+                st.running = False  # on the app's thread, like start_next below
+                after()
+
+            self.call_soon(start_after)
             self.invalidate()
             return
         # Take the queued prompt before going idle: a prompt typed in between would otherwise start
@@ -1128,8 +1156,7 @@ class Session:
         def _(event: KeyPressEvent) -> None:
             if st.picker is not None:
                 p, st.picker = st.picker, None
-                if p.typed or p.search:
-                    buf.reset()
+                buf.reset()  # what was typed for the list, or while it loaded, would filter the next one
                 p.on_pick(None)
             elif isinstance(st.question, Future):
                 fut, st.question = st.question, None
