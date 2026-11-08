@@ -738,11 +738,11 @@ class Session:
                     self.view.user(user_words(content))
                 elif kind == "tool_start" and isinstance(content, dict):
                     name = str(content.get("name", ""))
-                    ui.tool_start(name, content.get("input") or {})
+                    ui.tool_start(name, content.get("input") or {}, call_id=content.get("call_id"))
                     if not logged_results and short_name(name) == "report_client_verified":
                         ui.tool_result(name)
                 elif kind == "tool_result" and isinstance(content, dict):
-                    ui.tool_result(str(content.get("name", "")), bool(content.get("is_error")), content.get("output"))
+                    ui.tool_result(str(content.get("name", "")), bool(content.get("is_error")), content.get("output"), call_id=content.get("call_id"))
                 elif kind == "thinking":
                     ui.thinking(str(content or ""))
                     self.view.flush_live()  # past messages appear whole, not typed out

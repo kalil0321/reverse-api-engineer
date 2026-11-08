@@ -334,7 +334,7 @@ class TestReviewedEdges:
         assert cli._session_provider({"sdk_session": {"id": "s", "provider": "opencode"}}) == "opencode"
         assert cli._session_provider(None) is None
 
-    def test_tool_results_are_logged_for_messages_without_the_session(self, har_path, tmp_path):
+    def test_tool_results_are_logged_for_resume_without_the_session(self, har_path, tmp_path):
         from claude_agent_sdk.types import ToolResultBlock
 
         eng = _cursor(har_path, tmp_path)  # any engine with a message store
@@ -345,7 +345,7 @@ class TestReviewedEdges:
         eng._tool_names["t1"] = "Bash"
         eng.ui = MagicMock(shows_tool_results=False)
         eng._record_tool_results([ToolResultBlock(tool_use_id="t1", content="12 jobs", is_error=False)])
-        eng.message_store.save_tool_result.assert_called_once_with("Bash", False, "12 jobs")
+        eng.message_store.save_tool_result.assert_called_once_with("Bash", False, "12 jobs", call_id="t1")
         eng.ui.tool_result.assert_not_called()
 
     def test_format_error_is_valid_markup_with_literal_exception_text(self):

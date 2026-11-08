@@ -716,7 +716,7 @@ class TestClaudeEngineerAnalyzeAndGenerate:
                 result = await eng.analyze_and_generate()
                 assert result is not None
                 render_result.assert_called_once_with("Read", False, expected, call_id="toolu_1")
-                eng.message_store.save_tool_result.assert_called_once_with("Read", False, expected)
+                eng.message_store.save_tool_result.assert_called_once_with("Read", False, expected, call_id="toolu_1")
 
     @pytest.mark.asyncio
     async def test_exception_handling(self, tmp_path):

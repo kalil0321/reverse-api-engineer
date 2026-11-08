@@ -173,6 +173,27 @@ class TestLedgerUI:
         view.flush_live()
         assert "○ Find the API" in plain(t) and "✓ Find the API" not in plain(t)
 
+    def test_a_replay_matches_task_results_by_their_logged_call_ids(self, app_session):
+        session, history = app_session
+        history.get_run.return_value = {"run_id": "a1", "prompt": "q", "sdk_session": {"id": "s"}}
+
+        def call(kind: str, content: dict[str, Any]) -> dict[str, Any]:
+            return {"type": kind, "content": content, "timestamp": "2026-11-01T19:00:00"}
+
+        log = [
+            call("tool_start", {"name": "TaskCreate", "input": {"subject": "Find the API"}, "call_id": "c1"}),
+            call("tool_start", {"name": "TaskCreate", "input": {"subject": "Write the client"}, "call_id": "c2"}),
+            call("tool_result", {"name": "TaskCreate", "is_error": False, "output": "Task #2 created successfully", "call_id": "c2"}),
+            call("tool_result", {"name": "TaskCreate", "is_error": False, "output": "Task #1 created successfully", "call_id": "c1"}),
+            call("tool_start", {"name": "TaskUpdate", "input": {"taskId": "1", "status": "completed"}, "call_id": "u1"}),
+            call("thinking", "next"),
+        ]
+        with patch("reverse_api.repl.app.MessageStore") as store, patch.object(session, "work"):
+            store.return_value.load.return_value = log
+            session.run_command("/resume a1")
+        text = plain(session.transcript)
+        assert "✓ Find the API" in text and "○ Write the client" in text
+
     def test_task_results_out_of_order_find_their_own_call(self, session):
         _st, t, view, b = session
         ui = LedgerUI(b)

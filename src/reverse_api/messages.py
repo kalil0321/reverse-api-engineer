@@ -40,15 +40,15 @@ class MessageStore:
         else:
             self.append("prompt", prompt)
 
-    def save_tool_start(self, tool_name: str, tool_input: dict) -> None:
-        """Save a tool start event."""
-        self.append("tool_start", {"name": tool_name, "input": tool_input})
+    def save_tool_start(self, tool_name: str, tool_input: dict, call_id: str | None = None) -> None:
+        """Save a tool start event; ``call_id`` ties its result to it."""
+        self.append("tool_start", {"name": tool_name, "input": tool_input, **({"call_id": call_id} if call_id else {})})
 
-    def save_tool_result(self, tool_name: str, is_error: bool = False, output: str | None = None) -> None:
+    def save_tool_result(self, tool_name: str, is_error: bool = False, output: str | None = None, call_id: str | None = None) -> None:
         """Save a tool result event."""
         self.append(
             "tool_result",
-            {"name": tool_name, "is_error": is_error, "output": output},
+            {"name": tool_name, "is_error": is_error, "output": output, **({"call_id": call_id} if call_id else {})},
         )
 
     def save_thinking(self, text: str) -> None:

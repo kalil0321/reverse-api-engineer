@@ -211,7 +211,7 @@ class ClaudeEngineer(BaseEngineer):
                 )
                 name = self._tool_names.get(block.tool_use_id, "Tool")
                 saved = text if len(text) <= 20000 else f"{text[:20000]}\n[{len(text) - 20000} more characters not saved]"
-                self.message_store.save_tool_result(name, bool(block.is_error), saved)
+                self.message_store.save_tool_result(name, bool(block.is_error), saved, call_id=block.tool_use_id)
                 if getattr(self.ui, "shows_tool_results", False):
                     self.ui.tool_result(name, bool(block.is_error), text, call_id=block.tool_use_id)
 
@@ -226,7 +226,7 @@ class ClaudeEngineer(BaseEngineer):
                 if tool_id := getattr(block, "id", None):
                     self._tool_names[tool_id] = block.name
                 self.ui.tool_start(block.name, block.input, call_id=getattr(block, "id", None))
-                self.message_store.save_tool_start(block.name, block.input)
+                self.message_store.save_tool_start(block.name, block.input, call_id=getattr(block, "id", None))
             elif isinstance(block, ToolResultBlock):
                 is_error = block.is_error if block.is_error else False
 
@@ -250,7 +250,7 @@ class ClaudeEngineer(BaseEngineer):
                 else:
                     output_text = str(output) if output is not None else None
                 self.ui.tool_result(tool_name, is_error, output_text, call_id=getattr(block, "tool_use_id", None))
-                self.message_store.save_tool_result(tool_name, is_error, output_text)
+                self.message_store.save_tool_result(tool_name, is_error, output_text, call_id=getattr(block, "tool_use_id", None))
             elif isinstance(block, TextBlock) and message.error:
                 notice = block.text
             elif isinstance(block, TextBlock):
