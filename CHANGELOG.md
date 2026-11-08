@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-08
+
 ### Changed
+- **Claude sessions are isolated from your Claude Code setup (#141)**: they no longer load your settings files, `CLAUDE.md`, hooks, plugins, permission rules or MCP servers, which could derail a run while it still reported `status: ok`. Set `claude_setting_sources` (for example `["user"]`) to load chosen layers again, such as when `~/.claude/settings.json` provides your authentication. `claude-agent-sdk` now needs 0.2.174 or later.
+- The Copilot SDK is now 1.0.
 - **chrome-mcp is the default agent provider** for new configurations. Existing `~/.reverse-api/config.json` files keep the provider they already store; switch with `/settings` or `"agent_provider": "auto"` for Playwright MCP with HAR recording.
 - Headed chrome-mcp runs check Chrome auto-connect (`DevToolsActivePort` plus an open port) before launching and fail with setup steps and `error_kind: config_invalid` instead of starting the agent. `agent --dry-run` reports the same check as an error.
 - `engineer <run_id>` on a run without a HAR stops before starting a model session: chrome-mcp runs get an explanation and `error_kind: misuse` with exit code 2, other runs name the missing HAR path.
@@ -23,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/messages`: `/resume` shows a past run's whole conversation, also for a run that saved no session and so cannot continue, and `/history` its details.
 
 ### Fixed
+- `agent --url` reaches the agent: its first message names the start URL, instead of the URL being checked and then dropped (#140).
+- Usage is counted once per turn, with the SDK's own cost, and the agent's and tools' text is printed as is instead of being read as markup.
+- Files under a symlinked output folder sync again.
 - `/effort` on a Claude model without the setting (Haiku 4.5) says that model has none, instead of calling effort a Claude setting.
 - A second `esc` while a run wraps up no longer cuts its cleanup short, which left the Claude CLI behind with a "Loop … that handles pid … is closed" warning and a false "interrupted".
 - An OpenCode catalog request that times out names the error instead of ending its message on a colon.
@@ -46,7 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/history` shows the cost of OpenCode runs recorded before this release.
 
 ### Security
-- Manual capture requires Playwright 1.64.1 or later, which bundles Chromium 156, and the lockfile pins it. Playwright 1.58 bundled Chromium 145, which lacks the fixes for the Chrome vulnerabilities exploited in 2026.
+- Manual capture requires Playwright 1.64.1 or later, which bundles Chromium 156, and the lockfile pins it. Playwright 1.58 bundled Chromium 145, which lacks the fixes for the Chrome vulnerabilities exploited in 2026. Manual capture uses your installed Chrome when it can, so keep Chrome up to date; after upgrading, run `playwright install chromium` for the Chromium it falls back to.
 - Agent runs start `rae-playwright-mcp@0.0.9` instead of whatever `@latest` resolves to, so a new publish of the MCP reaches users only through a rae release.
 - Manual capture's stealth Chromium no longer asks Chrome to turn off Site Isolation (`--disable-features=IsolateOrigins,site-per-process`); a later `--disable-features` flag already overrode that request.
 - Raise security minimums to aiohttp >=3.14.4, certifi >=2026.10.19, multidict >=6.9.1, OpenTelemetry API >=1.45.1, PyJWT >=2.15.0 and urllib3 >=2.8.0, and lock the patched versions. certifi drops the emSign root CAs whose intermediate keys were compromised.
@@ -54,6 +61,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Upgrade the website to Next.js 16.4.3 to fix remote code execution, server-side request forgery, cache poisoning and denial-of-service vulnerabilities, and refresh Sharp, brace-expansion, source-map-js, undici and Zod to patched versions.
 
 ### Added
+- **Full-screen session**: `reverse-api-engineer` opens a full-screen session where the conversation scrolls above an input bar. The agent's text and reasoning stream as they come, tool steps are numbered with their output folded (ctrl+o unfolds it), and a client card appears once the agent has verified the client. The status row shows the run id, and the verified step lists the run's folder and its synced copy as clickable paths. Type `/` for the commands; pickers set the model, effort and mode. In a terminal, `agent`, `engineer` and `collector` open the session too; `--json` and `--no-interactive` keep their plain output. The line-by-line prompt is gone; `/quit` and `/commands` still work as aliases of `/exit` and `/help`.
+- **`/resume`** reopens a past run's conversation on the SDK it ran on (Claude, Cursor, Copilot or OpenCode); your next message continues it. Agent and engineer runs save their SDK session from this release on.
+- **Claude 5.5 models**: Sonnet 5.5, Opus 5.5 and Haiku 5.5, with a configurable effort (`/effort`, ctrl+e, or `claude_effort` in the config). Sonnet 4.6 stays the default, and the Sonnet 4.6 and Haiku 4.5 ids are still accepted by `--model`.
 - **Agent skill**: `skills/reverse-api-engineer` teaches Claude Code, Codex, Cursor, OpenCode and other agents to drive the scripted CLI (preflight, capture, verify, iterate). Install with `npx skills add kalil0321/reverse-api-engineer`.
 
 ## [0.14.0] - 2026-09-23
