@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import json
 import logging
@@ -53,7 +54,10 @@ class Collector:
         self.model = model
         self.output_dir = output_dir
 
-        self.ui = CollectorUI()
+        from .repl.bridge import CollectorLedgerUI, active
+
+        bridge = active()
+        self.ui = CollectorLedgerUI(bridge) if bridge else CollectorUI()
         self.message_store = MessageStore(run_id, output_dir)
 
         self._folder_name: str | None = None
@@ -80,7 +84,13 @@ class Collector:
         self._system_prompt, self._user_message = self._build_prompts()
         self.message_store.save_prompt(self._user_message)
 
-        result = await self._agent_loop()
+        try:
+            result = await self._agent_loop()
+        except asyncio.CancelledError as exc:
+            # Stopped from the session: what was collected so far still gets its JSON, CSV and README.
+            collected = self.items_path.exists() and self.items_path.stat().st_size > 0
+            exc.partial_result = self._finalize_collection() if collected else None  # type: ignore[attr-defined]
+            raise
 
         if result and not result.get("error"):
             return self._finalize_collection()

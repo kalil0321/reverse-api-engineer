@@ -135,9 +135,13 @@ class OpenCodeEngineer(BaseEngineer):
 
         super().__init__(*args, **kwargs)
 
-        # Override UI with OpenCode-specific version
-        self.opencode_ui = OpenCodeUI(verbose=kwargs.get("verbose", True))
-        self.ui = self.opencode_ui  # Ensure base class uses our specialized UI
+        from .repl.bridge import OpenCodeLedgerUI, active
+
+        # OpenCode's own events need their own UI: the session's when it is open, else the plain terminal's.
+        bridge = active()
+        verbose = kwargs.get("verbose", True)
+        self.opencode_ui = OpenCodeLedgerUI(bridge, verbose=verbose) if bridge else OpenCodeUI(verbose=verbose)
+        self.ui = self.opencode_ui  # type: ignore[assignment]  # the base class uses our specialized UI too
         self._last_error: str | None = None
         self._session_id: str | None = None
         self._last_event_time = 0.0
@@ -222,6 +226,7 @@ class OpenCodeEngineer(BaseEngineer):
             return {}
         combined_prompt = opening if self.resume_session else f"{system_prompt}\n\n{user_message}"
 
+        event_task: asyncio.Task | None = None
         try:
             auth = self._get_auth()
             async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=600.0, auth=auth) as client:
@@ -303,6 +308,10 @@ class OpenCodeEngineer(BaseEngineer):
             }
             self.message_store.save_result(result_data)
             return result_data
+
+        except asyncio.CancelledError:
+            await self._stopped(event_task)
+            raise
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 401:
@@ -676,6 +685,23 @@ class OpenCodeEngineer(BaseEngineer):
         except Exception as e:
             debug_log(f"Error checking session: {e}")
 
+    async def _stopped(self, event_task: asyncio.Task | None) -> None:
+        """A run stopped from rae: its text ends, its event stream stops updating the UI, and OpenCode stops working."""
+        self.opencode_ui.stop_streaming()
+        if event_task is not None:
+            event_task.cancel()
+        await self._abort_on_stop()
+
+    async def _abort_on_stop(self) -> None:
+        """A run stopped from rae: OpenCode would otherwise keep the agent and its subagents working."""
+        if not self._session_id:
+            return
+        try:
+            async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=5.0, auth=self._get_auth()) as client:
+                await self._abort_sessions(client, {str(self._session_id), *(str(sid) for sid in self._child_sessions)})
+        except Exception as e:
+            debug_log(f"Abort on stop failed: {e}")
+
     async def _abort_sessions(self, client: httpx.AsyncClient, session_ids: set[str]) -> None:
         """Stops OpenCode's work on these sessions; stopping the run's own one ends the pending prompt request."""
         for sid in sorted(session_ids):
@@ -730,7 +756,7 @@ class OpenCodeEngineer(BaseEngineer):
                 return
 
             # Use delta for incremental updates if available
-            self.opencode_ui.update_text(text, delta)
+            self.opencode_ui.update_text(text, delta, part_id=part_id or None)
 
             # Save to message store (only significant updates)
             if len(text) > 50 and part_id not in seen_parts:

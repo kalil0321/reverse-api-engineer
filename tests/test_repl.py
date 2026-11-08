@@ -781,14 +781,6 @@ class TestCommands:
         assert "api_client.py ready" in plain(session.transcript)
         assert not session.bridge.verified
 
-    def test_classic_screens_wait_for_a_running_agent(self, app_session):
-        session, _history = app_session
-        session.app = MagicMock()
-        session.st.running = True
-        session.classic(lambda: None)
-        session.app.exit.assert_not_called()
-        assert session.take_classic_job() is None
-
 
 class FakeConfig:
     """A config_manager over a dict, so settings can be changed and read back."""
@@ -1025,18 +1017,6 @@ class TestSettings:
         pick(session.st, "qwen3:8b")
         assert (config.get("opencode_provider"), config.get("opencode_model")) == ("ollama", "qwen3:8b")
 
-    def test_a_failing_classic_screen_reports_and_returns(self, app_session):
-        session, _history = app_session
-
-        def broken() -> None:
-            raise RuntimeError("questionary blew up")
-
-        session.classic(broken, pause=False)
-        job = session.take_classic_job()
-        assert job is not None
-        job()
-        assert "questionary blew up" in plain(session.transcript)
-
 
 def test_card_path_is_a_link(session, tmp_path):
     _st, t, view, _b = session
@@ -1044,6 +1024,25 @@ def test_card_path_is_a_link(session, tmp_path):
     view.card(Path(client), 3, "python")
     handlers = [frag for line in t.lines() for frag in line if len(frag) == 3]
     assert handlers, "the client name in the card should be clickable"
+
+
+def test_long_diff_lines_and_binary_output_stay_readable(session, monkeypatch):
+    from reverse_api.repl import transcript, view
+
+    _st, t, ledger, _b = session
+    monkeypatch.setattr(view, "width", lambda: 60)
+    monkeypatch.setattr(transcript, "width", lambda: 60, raising=False)
+    ledger.diff("No rate limiting was observed during testing, but add delays between requests when fetching a lot.", "x = 1", "markdown")
+    ledger.receipt(["200 application/json 1094", "A�,\x00 V����j�\x12H���s�"])
+    lines = [line for line in plain(t).splitlines() if line.strip()]
+    assert all(line.startswith(" " * 15) for line in lines), lines
+    assert "(binary data)" in plain(t) and "\ufffd" not in plain(t)
+    from reverse_api.repl.view import readable
+
+    assert readable("\x1b[32mPASS\x1b[0m tests/test_api.py") == "\x1b[32mPASS\x1b[0m tests/test_api.py", "colors are text"
+    ledger.diff("x" * 200, "y", "python")
+    full = t.full[-1]
+    assert all(not row.no_wrap for row in full.renderables), "ctrl+o keeps long diff lines whole"
 
 
 def test_a_long_step_stays_on_one_line_at_any_width(session, monkeypatch):
@@ -1515,21 +1514,18 @@ class TestResume:
             session.run_command("/resume a1")
         assert store.call_args_list == [call("a1", "/data/rae")]
 
-    def test_an_opencode_resume_replays_in_the_plain_terminal_before_its_prompt(self, app_session):
-        import io
-
-        from rich.console import Console
-
+    def test_an_opencode_resume_continues_in_the_session(self, app_session):
         session, history = app_session
         history.get_run.return_value = {"run_id": "a1", "prompt": "jobs", "sdk_session": {"id": "s", "mode": "agent", "sdk": "opencode"}}
         log = [{"type": "thinking", "content": "the jobs come from GraphQL", "timestamp": "2026-10-25T15:47:00"}]
-        with patch("reverse_api.repl.app.MessageStore") as store, patch.object(session, "classic") as classic:
+        session.app = MagicMock()
+        with patch("reverse_api.repl.app.MessageStore") as store, patch.object(session, "work") as work:
             store.return_value.load.return_value = log
             session.run_command("/resume a1")
-        buf = io.StringIO()
-        with patch.object(session.cli, "console", Console(file=buf, width=120)), patch.object(session.cli, "resume_run") as resume_run:
-            classic.call_args.args[0]()
-        assert "GraphQL" in buf.getvalue()
+        assert "GraphQL" in plain(session.transcript) and session.st.running
+        session.app.exit.assert_not_called()
+        with patch.object(session.cli, "resume_run") as resume_run:
+            work.call_args.args[0]()
         resume_run.assert_called_once_with("a1")
 
     def test_resume_switches_from_a_conversation_that_waits(self, app_session):
@@ -1602,15 +1598,6 @@ class TestResume:
         assert session.st.running, "a prompt sent before the resume starts is queued, not a run of its own"
         later[0]()
         assert not session.st.running
-
-    def test_an_opencode_resume_drops_prompts_queued_for_the_session(self, app_session):
-        session, history = app_session
-        history.get_run.return_value = {"run_id": "a1", "prompt": "jobs", "sdk_session": {"id": "s", "mode": "agent", "sdk": "opencode"}}
-        session.st.queue = ["add paging"]
-        with patch("reverse_api.repl.app.MessageStore") as store, patch.object(session, "classic"):
-            store.return_value.load.return_value = []
-            session.run_command("/resume a1")
-        assert session.st.queue == []
 
     def test_a_run_without_a_session_shows_its_conversation_and_why_it_cannot_continue(self, app_session):
         session, history = app_session
@@ -1699,16 +1686,20 @@ class TestEntry:
         work.assert_called_once_with(run)
         assert "jobs on example.com" in plain(session.transcript) and session.st.running
 
-    def test_plain_terminal_modes_hand_the_run_to_the_classic_screen(self, app_session):
+    @pytest.mark.parametrize(
+        ("mode", "sdk", "verb"), [("collector", "claude", "starting"), ("manual", "claude", "recording"), ("agent", "opencode", "starting")]
+    )
+    def test_every_mode_and_sdk_runs_in_the_session(self, app_session, mode, sdk, verb):
         session, _history = app_session
         session.app = MagicMock()
-        session.st.mode = "collector"
+        session.st.mode, session.st.sdk = mode, sdk
         run = MagicMock()
         session.first = ("companies hiring", run)
-        with patch("reverse_api.utils.check_for_updates", return_value=None):
+        with patch("reverse_api.utils.check_for_updates", return_value=None), patch.object(session, "work") as work:
             session.start_first()
-        session.app.exit.assert_called_once()
-        assert session.take_classic_job() is not None
+        session.app.exit.assert_not_called()
+        work.assert_called_once_with(run)
+        assert session.st.running and session.st.verb == verb
 
     def test_an_update_shows_as_a_notice(self, app_session):
         session, _history = app_session
@@ -2036,10 +2027,10 @@ class TestReviewedAgain:
         session.set_model("claude-opus-5-5")
         assert st.collector_model == "claude-opus-5-5" and st.model == "claude-sonnet-5-5"
         session.cli.config_manager.set.assert_called_with("collector_model", "claude-opus-5-5")
-        with patch.object(session, "classic") as classic:
+        with patch.object(session, "work") as work:
             session.start("companies hiring")
         with patch.object(session.cli, "run_collector") as run:
-            classic.call_args.args[0]()
+            work.call_args.args[0]()
         assert run.call_args.kwargs["model"] == "claude-opus-5-5"
 
     def test_a_collector_runner_gets_the_collectors_model(self, app_session):
@@ -2048,9 +2039,9 @@ class TestReviewedAgain:
         st.mode, st.collector_model = "collector", "claude-haiku-5-5"
         runner = MagicMock()
         session.runners["collector"] = runner
-        with patch.object(session, "classic") as classic:
+        with patch.object(session, "work") as work:
             session.start("companies hiring")
-            classic.call_args.args[0]()
+            work.call_args.args[0]()
         runner.assert_called_once_with("companies hiring", "claude-haiku-5-5")
 
 
@@ -2061,3 +2052,172 @@ def test_collector_mode_effort_follows_the_collectors_model(app_session):
     assert not st.has_effort
     st.collector_model = "claude-opus-5-5"
     assert st.has_effort and st.effort_label == "medium"
+
+
+class TestPortedScreens:
+    def test_opencode_text_parts_stream_and_settle_before_each_step(self, session):
+        _st, t, view, b = session
+        from reverse_api.repl.bridge import OpenCodeLedgerUI
+
+        ui = OpenCodeLedgerUI(b)
+        ui.header("r1", "jobs", model="big-pickle", sdk="opencode", mode="engineer")
+        ui.update_text("The jobs", "The jobs")
+        ui.update_text("The jobs come from GraphQL.", " come from GraphQL.")
+        ui.tool_start("bash", {"command": "ls"})
+        ui.update_text("Now the client.", "Now the client.")
+        ui.update_text("A second part.", "A second part.")
+        ui.stop_streaming()
+        view.flush_live()
+        text = plain(t)
+        assert text.index("The jobs come from GraphQL.") < text.index("01  run") < text.index("Now the client.") < text.index("A second part.")
+        assert text.count("The jobs") == 1
+
+    def test_an_opencode_client_without_a_card_says_where_it_is(self, session, tmp_path):
+        _st, t, _view, b = session
+        from reverse_api.repl.bridge import OpenCodeLedgerUI
+
+        client = tmp_path / "api_client.py"
+        client.write_text("x = 1\n")
+        ui = OpenCodeLedgerUI(b)
+        ui.session_summary({"input_tokens": 10, "estimated_cost_usd": 0.0})
+        ui.success(str(client), None)
+        ui.error("provider refused", unexpected=False)
+        text = "".join(line.strip() for line in plain(t).splitlines())
+        assert "└ in" in plain(t) and str(tmp_path) in text and "provider refused" in text
+
+    def test_the_collector_reports_its_items_and_folder(self, session, tmp_path):
+        st, t, _view, b = session
+        from reverse_api.repl.bridge import CollectorLedgerUI
+
+        ui = CollectorLedgerUI(b)
+        ui.header("r1", "companies hiring", "claude-haiku-5-5", mode="collector")
+        ui.tool_start("WebFetch", {"url": "https://example.com/jobs"})
+        ui.item_saved('{"company": "Acme"}')
+        ui.collection_complete(2, str(tmp_path))
+        ui.usage_summary({"input_tokens": 100, "output_tokens": 20, "estimated_cost_usd": 0.01})
+        text = plain(t)
+        assert "run r1 · collector" in text and "saved" in text and "Acme" in text and "2 items collected" in text
+        assert str(tmp_path) in "".join(line.strip() for line in text.splitlines())
+        assert st.run_model == "claude-haiku-5-5" and st.tokens == 120
+
+    def test_esc_ends_the_browsing_and_keeps_the_capture(self, app_session, tmp_path, monkeypatch):
+        from reverse_api import cli
+
+        session, _history = app_session
+        stopped: list[bool] = []
+        session.bridge.on_stop = lambda: stopped.append(True)
+        assert session.bridge.cancel() and stopped == [True] and session.bridge.on_stop is None
+
+        class Browser:
+            def __init__(self, **kwargs):
+                self.stopped = False
+
+            def stop(self):
+                self.stopped = True
+
+            def start(self, start_url=None):
+                # The user presses esc while browsing.
+                assert bridge_mod._bridge.on_stop is not None
+                bridge_mod._bridge.cancel()
+                return tmp_path / "recording.har"
+
+        monkeypatch.setattr(bridge_mod, "_bridge", session.bridge)
+        with patch("reverse_api.browser.ManualBrowser", Browser), patch.object(cli, "run_engineer") as engineer:
+            result = cli.run_manual_capture(prompt="jobs", output_dir=str(tmp_path))
+        engineer.assert_not_called()
+        assert result["error"] == "interrupted" and session.bridge.on_stop is None
+
+    def test_the_manual_browser_sets_no_signal_handler_in_the_session(self, tmp_path, monkeypatch):
+        from reverse_api import browser
+
+        monkeypatch.setattr(bridge_mod, "_bridge", MagicMock())
+        b = browser.ManualBrowser(run_id="r1", prompt="jobs", output_dir=str(tmp_path))
+        with patch.object(browser.signal, "signal") as set_handler, patch.object(browser, "sync_playwright", side_effect=RuntimeError("no browser")):
+            with pytest.raises(RuntimeError):
+                b.start()
+        set_handler.assert_not_called()
+
+    def test_a_stop_during_the_first_navigation_keeps_the_capture(self, tmp_path):
+        from reverse_api import browser
+
+        b = browser.ManualBrowser(run_id="r1", prompt="jobs", output_dir=str(tmp_path))
+        page = MagicMock()
+
+        def stalled(url, wait_until):
+            b.stop()  # esc while the page loads
+            raise TimeoutError("navigation timed out")
+
+        page.goto.side_effect = stalled
+        b._context = MagicMock(pages=[page])
+        b._browse(page, "https://example.com")
+        assert b.stopped
+
+    def test_a_browser_closed_by_the_user_is_not_a_stop(self, tmp_path):
+        from reverse_api import browser
+
+        b = browser.ManualBrowser(run_id="r1", prompt="jobs", output_dir=str(tmp_path))
+        b._context = MagicMock(pages=[])
+        b._browse(MagicMock(), "about:blank")
+        b.stop()  # esc while the HAR is written: the browsing had already ended
+        assert not b.stopped
+
+    def test_opencode_parts_are_told_apart_by_their_id(self, session):
+        _st, t, view, b = session
+        from reverse_api.repl.bridge import OpenCodeLedgerUI
+
+        ui = OpenCodeLedgerUI(b)
+        ui.update_text("Done", "Done", part_id="p1")
+        ui.update_text("Done", "Done", part_id="p2")
+        ui.update_text("Done checking", " checking", part_id="p3")
+        ui.stop_streaming()
+        view.flush_live()
+        assert plain(t).count("Done") == 3
+
+    def test_a_stopped_collector_keeps_what_it_collected(self, tmp_path, monkeypatch):
+        import json
+
+        from reverse_api import cli
+        from reverse_api.collector import Collector
+
+        history = MagicMock()
+        monkeypatch.setattr(cli, "session_manager", history)
+        monkeypatch.setattr("reverse_api.collector.get_collected_dir", lambda name: tmp_path)
+        monkeypatch.setattr("reverse_api.collector.generate_folder_name", lambda prompt: "companies")
+
+        async def stopped_after_two(self):
+            self.items_path.write_text(json.dumps({"company": "Acme"}) + "\n" + json.dumps({"company": "Globex"}) + "\n")
+            raise asyncio.CancelledError  # esc in the session
+
+        with patch("reverse_api.collector.MessageStore"), patch.object(Collector, "_agent_loop", stopped_after_two):
+            with pytest.raises(asyncio.CancelledError):
+                cli.run_collector(prompt="companies hiring", model="claude-haiku-5-5")
+        assert history.update_run.call_args.kwargs["paths"] == {"output_path": str(tmp_path)}
+        assert len(json.loads((tmp_path / "data.json").read_text())) == 2 and (tmp_path / "data.csv").exists()
+
+
+def test_an_update_is_only_a_newer_release():
+    from reverse_api import utils
+
+    response = MagicMock(status_code=200)
+    response.json.return_value = {"info": {"version": "0.14.0"}}
+    with patch.object(utils.httpx, "get", return_value=response), patch.object(utils, "__version__", "0.15.0"):
+        assert utils.check_for_updates() is None
+    response.json.return_value = {"info": {"version": "0.15.1"}}
+    with patch.object(utils.httpx, "get", return_value=response), patch.object(utils, "__version__", "0.15.0"):
+        assert "0.15.0 → 0.15.1" in (utils.check_for_updates() or "")
+    assert utils.version_key("0.10.0") > utils.version_key("0.9.3")
+    assert utils.version_key("0.15.0") > utils.version_key("0.15.0rc1") > utils.version_key("0.15.0.dev1")
+
+
+def test_a_kill_quits_the_session_like_ctrl_d(app_session):
+    import signal
+
+    session, _history = app_session
+    loop = MagicMock()
+    with patch("reverse_api.repl.app.asyncio.get_running_loop", return_value=loop), patch.object(session, "build") as build:
+        build.return_value.run_async = AsyncMock()
+        asyncio.run(session.run())
+    handlers = {c.args[0]: c.args[1] for c in loop.add_signal_handler.call_args_list}
+    assert handlers.get(signal.SIGTERM) == session.quit
+    if hasattr(signal, "SIGHUP"):
+        assert handlers.get(signal.SIGHUP) == session.quit

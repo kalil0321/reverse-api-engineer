@@ -22,11 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Lists and the command menu go around: down on the last item moves to the first, up on the first to the last.
 - A blank line parts the conversation from the input bar.
 - `--json-stream` `tool_start` events of Claude runs carry the tool call's `call_id`, as Cursor runs' already did.
+- Manual capture, the collector and OpenCode runs stay in the full-screen session instead of switching to the plain terminal. During a manual capture, closing the browser starts the engineering and `esc` stops while keeping the capture. Stopping an OpenCode run aborts its OpenCode session and its subagents, which kept working before.
 
 ### Removed
 - `/messages`: `/resume` shows a past run's whole conversation, also for a run that saved no session and so cannot continue, and `/history` its details.
 
 ### Fixed
+- An OpenCode server started by rae stops with rae even when rae is killed or its terminal is closed, and its whole process tree stops, not only the `npx` launcher, which could leave `opencode serve` listening.
+- In tool output, a line of binary data (such as a compressed response body) shows as "(binary data)", and a long line in a diff is cut instead of wrapping to the left edge.
+- The update notice no longer offers an older release: it appeared whenever PyPI's version differed from the installed one, as with 0.15.0 before its publication.
 - `agent --url` reaches the agent: its first message names the start URL, instead of the URL being checked and then dropped (#140).
 - Usage is counted once per turn, with the SDK's own cost, and the agent's and tools' text is printed as is instead of being read as markup.
 - Files under a symlinked output folder sync again.
@@ -58,7 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Manual capture's stealth Chromium no longer asks Chrome to turn off Site Isolation (`--disable-features=IsolateOrigins,site-per-process`); a later `--disable-features` flag already overrode that request.
 - Raise security minimums to aiohttp >=3.14.4, certifi >=2026.10.19, multidict >=6.9.1, OpenTelemetry API >=1.45.1, PyJWT >=2.15.0 and urllib3 >=2.8.0, and lock the patched versions. certifi drops the emSign root CAs whose intermediate keys were compromised.
 - Upgrade the Cursor bridge to `@cursor/sdk` 1.0.40 with Zod 4.6.7, fixing a Zod memory-exhaustion issue and removing the vulnerable undici dependency.
-- Upgrade the website to Next.js 16.4.3 to fix remote code execution, server-side request forgery, cache poisoning and denial-of-service vulnerabilities, and refresh Sharp, brace-expansion, source-map-js, undici and Zod to patched versions.
+- Upgrade the website to Next.js 16.4.3 to fix remote code execution, server-side request forgery, cache poisoning and denial-of-service vulnerabilities, and refresh Sharp, brace-expansion, source-map-js, undici, Zod and minimatch (a denial of service in the website's lint tooling) to patched versions.
 
 ### Added
 - **Full-screen session**: `reverse-api-engineer` opens a full-screen session where the conversation scrolls above an input bar. The agent's text and reasoning stream as they come, tool steps are numbered with their output folded (ctrl+o unfolds it), and a client card appears once the agent has verified the client. The status row shows the run id, and the verified step lists the run's folder and its synced copy as clickable paths. Type `/` for the commands; pickers set the model, effort and mode. In a terminal, `agent`, `engineer` and `collector` open the session too; `agent` and `engineer` stay plain with `--json` or `--no-interactive`. The line-by-line prompt is gone; `/quit` and `/commands` still work as aliases of `/exit` and `/help`.

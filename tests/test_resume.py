@@ -288,7 +288,7 @@ class TestCli:
         assert engine.resume_session == "agent-1" and engine.on_session is record
 
 
-def test_opencode_resume_runs_in_the_classic_screen(monkeypatch):
+def test_opencode_resume_runs_in_the_session(monkeypatch):
     from reverse_api.repl.app import Session
 
     config = MagicMock()
@@ -302,9 +302,8 @@ def test_opencode_resume_runs_in_the_classic_screen(monkeypatch):
     session.app = MagicMock()
     with patch.object(session, "work") as work:
         session.run_command("/resume r1")
-    work.assert_not_called()
-    session.app.exit.assert_called_once()
-    assert session.take_classic_job() is not None
+    work.assert_called_once()
+    session.app.exit.assert_not_called()
 
 
 class TestReviewedEdges:

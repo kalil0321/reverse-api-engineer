@@ -135,6 +135,17 @@ def terminal_safe(text: str) -> str:
     return _DRIFT.sub("", text)
 
 
+ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def readable(line: str) -> str:
+    """A line of tool output, or a word for it when it is bytes rather than text, such as a compressed body.
+    Terminal colors are text: a test runner's green PASS is not binary."""
+    text = ANSI.sub("", line)
+    odd = sum(1 for ch in text if ch == "\ufffd" or (ord(ch) < 32 and ch != "\t"))
+    return "(binary data)" if text and odd * 10 > len(text) else line
+
+
 def strip_markdown(text: str) -> str:
     """Thinking summaries come as light Markdown; a margin note shows them as plain text."""
     text = re.sub(r"\*\*(\S(?:.*?\S)?)\*\*", r"\1", text)  # only ** bold: __ is too often part of a name
@@ -498,7 +509,7 @@ class LedgerView:
         def block(rows: list[str], more: int, cut: bool) -> Group:
             texts = []
             for i, line in enumerate(rows):
-                line = terminal_safe(line)
+                line = terminal_safe(readable(line))
                 body = Text(line if not cut or len(line) <= room else line[: room - 1] + "…", style=PINK if error else DIM)
                 RECEIPT_HL.highlight(body)
                 texts.append(Text.assemble(" " * INDENT, ("└ " if i == 0 else "  ", HAIRLINE), body))
@@ -519,6 +530,12 @@ class LedgerView:
         for label, path in rows:
             mark = Text.from_markup(f"[{HAIRLINE}]└[/] [{DIM}]{label}[/]")
             self.out(Padding(hanging(mark, Text.from_markup(f"[{INK_SOFT}]{link(str(path), path)}[/]"), len(label) + 2), (0, 0, 0, INDENT)))
+
+    def collected(self, total: int, folder: Path) -> None:
+        """A collector run's result: how many items, and the folder with its JSON, CSV and README."""
+        items = f"{total} item{'s' if total != 1 else ''}"
+        body = Text.from_markup(f"[bold {INK}]{items}[/] [italic {PINK}]collected[/] [{INK_SOFT}]{link(str(folder), folder)}[/]")
+        self.out(Padding(hanging(Text("*", style=self.st.accent), body, 1), (0, 0, 0, 1)))
 
     def docs_ready(self, path: Path) -> None:
         body = Text.from_markup(f"[bold {INK}]{link(path.name, path)}[/] [italic {PINK}]documentation ready[/]")
@@ -551,7 +568,9 @@ class LedgerView:
         old, new = removed.splitlines(), added.splitlines()
         rows = [Text.assemble(" " * INDENT, ("- ", f"bold {PINK}"), code_line(line)) for line in old]
         rows += [Text.assemble(" " * INDENT, ("+ ", f"bold {MINT}"), code_line(line)) for line in new]
-        shown = rows[: OUTPUT_PREVIEW * 2]
+        shown = [row.copy() for row in rows[: OUTPUT_PREVIEW * 2]]
+        for row in shown:
+            row.no_wrap, row.overflow = True, "ellipsis"  # a wrapped line would start again at the left edge; ctrl+o keeps it whole
         if len(rows) > len(shown):
             self.st.folded = True
             shown.append(Text.assemble(" " * (INDENT + 2), (f"+{len(rows) - len(shown)} lines · ctrl+o full output", DIM)))

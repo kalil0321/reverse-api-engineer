@@ -1,16 +1,17 @@
 """The interactive CLI: a full-screen session with the conversation above an input bar fixed to the bottom.
 
-Agent and engineer runs on the Claude, Copilot and Cursor SDKs stream into the conversation
-through the bridge. Screens not ported yet (manual, collector, OpenCode runs, /settings) leave
-full screen, run in the plain terminal on the main thread, then hand back.
+Every run streams into the conversation through the bridge: agent, engineer, manual capture and
+the collector, on every SDK. A run works in a worker thread; the app's own thread draws.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import io
 import os
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -213,7 +214,6 @@ class Session:
         self.app: Application | None = None
         self.loop: asyncio.AbstractEventLoop | None = None
         self.real_out, self.real_err = sys.stdout, sys.stderr
-        self.classic_job: Callable[[], None] | None = None
         self.after_run: Callable[[], None] | None = None  # what starts once the open run has wrapped up
         self.first: tuple[str, Callable[[], Any]] | None = None  # a run a subcommand handed over
         # Per mode, how a subcommand's options (--headless, --output-dir...) start each prompt: runner(prompt, model).
@@ -680,25 +680,12 @@ class Session:
 
     def reopen(self, run_id: str, run: dict[str, Any]) -> None:
         st = self.st
-        start = len(self.transcript.items)
         if not self.replay(run_id, run):
             self.view.run_details(run)
-        if run["sdk_session"].get("sdk") == "opencode":
-            # OpenCode runs still use the classic screen, which asks for the next message there, so nothing queued
-            # in the session reaches it, nor any later run.
-            st.queue.clear()
-            replayed = self.transcript.items[start:]  # as the session showed it, folded
-
-            def classic_resume() -> None:
-                self.print_items(replayed, self.cli.console)  # the plain terminal does not show the transcript
-                self.cli.resume_run(run_id)
-
-            self.classic(classic_resume)
-        else:
-            self.view.gap()
-            st.host, st.client_name = host_in(str(run.get("prompt") or "")), ""
-            st.started, st.running, st.verb, st.kind = time.time(), True, "reopening", "other"
-            self.work(lambda: self.cli.resume_run(run_id))
+        self.view.gap()
+        st.host, st.client_name = host_in(str(run.get("prompt") or "")), ""
+        st.started, st.running, st.verb, st.kind = time.time(), True, "reopening", "other"
+        self.work(lambda: self.cli.resume_run(run_id))
         self.invalidate()
 
     def replay(self, run_id: str, run: dict[str, Any]) -> bool:
@@ -763,11 +750,6 @@ class Session:
             b.verified, b.workspace, b.pending_card, b.plan, b.plan_calls, b.plan_made, b.plan_changed, b.plan_shown = bridge_saved
         return True
 
-    @staticmethod
-    def print_items(items: list[Any], console: Console) -> None:
-        for item in items:
-            console.print(Text.from_ansi(item.text) if isinstance(item, Raw) else item)
-
     def reengineer(self, run_id: str) -> None:
         if self.st.running or self.st.waiting:
             self.view.notice("a run is open · /new ends it first")
@@ -818,17 +800,15 @@ class Session:
         self.launch(prompt, run, mode, echo)
 
     def launch(self, prompt: str, run: Callable[[], Any], mode: str | None = None, echo: bool = True) -> None:
-        """Start a run in the session, or in the plain terminal for the screens not ported yet."""
+        """Start a run in the session; its engine's UI calls stream into the conversation."""
         st = self.st
         mode = mode or st.mode
         st.host, st.client_name = host_in(prompt), ""
         if echo:
             self.view.user(prompt)
-        if mode in ("manual", "collector") or st.sdk == "opencode":
-            self.classic(run)
-        else:
-            st.started, st.running, st.verb, st.kind = time.time(), True, "starting", "other"
-            self.work(run)
+        # Manual capture first waits for the user to browse; the engine takes over the verb when it starts.
+        st.started, st.running, st.verb, st.kind = time.time(), True, "recording" if mode == "manual" else "starting", "other"
+        self.work(run)
 
     def start_first(self) -> None:
         """Once the app is up: the run a subcommand handed over, and the check for a newer rae."""
@@ -920,32 +900,6 @@ class Session:
             self.call_soon(start_next)
         self.invalidate()
 
-    def classic(self, fn: Callable[[], Any], pause: bool = True) -> None:
-        """Leave full screen and run fn in the plain terminal on the main thread, then come back.
-
-        The classic screens prompt with questionary, which runs its own event loop, and manual
-        capture installs signal handlers; both need the main thread with no loop running.
-        ``pause`` keeps what fn printed on screen until the user is done reading it.
-        """
-        if self.st.running:
-            self.view.notice("a run is in progress · esc stops it")
-            return
-
-        def job() -> None:
-            try:
-                fn()
-                if pause:
-                    self.cli.console.print("\n [dim]enter returns to the session[/dim]", end="")
-                    input()
-            except (KeyboardInterrupt, EOFError, click.Abort):
-                pass
-            except Exception as exc:  # noqa: BLE001  # a failing classic screen must not end the session
-                self.view.error(str(exc) or type(exc).__name__)
-
-        self.classic_job = job
-        if self.app is not None:
-            self.app.exit()
-
     def stop(self) -> None:
         st = self.st
         if st.running and self.bridge.stopping:
@@ -977,10 +931,6 @@ class Session:
 
         asyncio.ensure_future(run_in_terminal(page))
 
-    def take_classic_job(self) -> Callable[[], None] | None:
-        job, self.classic_job = self.classic_job, None
-        return job
-
     def wait_for_run(self, timeout: float = 60) -> None:
         """After quitting: let a stopped run close its SDK session, sync its files and save its history."""
         worker = self.worker
@@ -989,7 +939,6 @@ class Session:
             worker.join(timeout)
 
     def quit(self) -> None:
-        self.classic_job = None
         self.st.queue.clear()  # nothing new starts on the way out
         self.after_run = None
         if self.st.running:
@@ -1206,6 +1155,12 @@ class Session:
         self.loop = asyncio.get_running_loop()
         self.app = self.build()
         activate(self.bridge)
+        # A kill or a closed terminal quits like ctrl+d: the run stops (a manual capture saves its HAR, an OpenCode
+        # run aborts its session), then run_session waits for its worker and exits normally.
+        for name in ("SIGTERM", "SIGHUP"):
+            if hasattr(signal, name):
+                with contextlib.suppress(NotImplementedError, RuntimeError):
+                    self.loop.add_signal_handler(getattr(signal, name), self.quit)
         sys.stdout = sys.stderr = cast(IO[str], self.capture)
         # The SDK warns once that bypassPermissions shadows can_use_tool; it is not for the user.
         warnings.filterwarnings("ignore", message=".*can_use_tool.*")
@@ -1232,7 +1187,7 @@ def run_session(
     first: tuple[str, Callable[[], Any]] | None = None,
     runner: Callable[[str, str | None], Any] | None = None,
 ) -> None:
-    """Entry point for the interactive CLI: full screen, with stretches in the plain terminal for classic screens.
+    """Entry point for the interactive CLI: the full-screen session.
 
     A subcommand hands over its options: ``first`` is its prompt and run, with every option bound, and
     ``runner(prompt, model)`` starts the prompts typed later in ``mode`` with the options that still apply.
@@ -1247,13 +1202,17 @@ def run_session(
     if runner is not None:
         session.runners[mode] = runner
     try:
-        while True:
-            asyncio.run(session.run())
-            job = session.take_classic_job()
-            if job is None:
-                break
-            job()
+        asyncio.run(session.run())
     except KeyboardInterrupt:
         pass
+    # The loop's handlers went with it; another kill while the run wraps up still exits normally, so atexit runs.
+    for name in ("SIGTERM", "SIGHUP"):
+        if hasattr(signal, name):
+            signal.signal(getattr(signal, name), exit_on_signal)
     session.wait_for_run()
     session.print_transcript()
+
+
+def exit_on_signal(signum: int, _frame: Any) -> None:
+    raise SystemExit(128 + signum)
+

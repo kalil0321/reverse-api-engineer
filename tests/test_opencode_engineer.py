@@ -1267,7 +1267,7 @@ class TestOpenCodeEngineerStreamEvents:
 
         await eng._stream_events(mock_client)
 
-        eng.opencode_ui.update_text.assert_called_once_with("Assistant answer", None)
+        eng.opencode_ui.update_text.assert_called_once_with("Assistant answer", None, part_id="part_assistant")
         assert eng._pending_text_parts == {}
 
     @pytest.mark.asyncio
@@ -1314,7 +1314,7 @@ class TestOpenCodeEngineerStreamEvents:
         await eng._stream_events(mock_client)
 
         assert eng._last_error is None
-        eng.opencode_ui.update_text.assert_called_once_with("Late assistant answer", None)
+        eng.opencode_ui.update_text.assert_called_once_with("Late assistant answer", None, part_id="part_assistant")
         assert eng._pending_text_parts == {}
         mock_client.get.assert_awaited_once_with("/session/session_abc/message")
 
@@ -1994,3 +1994,20 @@ class TestRunOpenCodeEngineering:
                         )
                         mock_run.assert_called_once()
                         assert result == {"test": True}
+
+
+class TestStoppedFromTheSession:
+    @pytest.mark.asyncio
+    async def test_a_stop_aborts_the_session_and_its_subagents(self, tmp_path):
+        har_path = tmp_path / "test.har"
+        har_path.touch()
+        with patch("reverse_api.base_engineer.get_scripts_dir", return_value=tmp_path / "scripts"), patch("reverse_api.base_engineer.MessageStore"):
+            with patch("reverse_api.opencode_engineer.OpenCodeUI"):
+                eng = OpenCodeEngineer(run_id="test123", har_path=har_path, prompt="p", output_dir=str(tmp_path))
+        eng._session_id, eng._child_sessions = "ses_1", {"ses_2"}
+        client = AsyncMock()
+        with patch("reverse_api.opencode_engineer.httpx.AsyncClient") as async_client:
+            async_client.return_value.__aenter__ = AsyncMock(return_value=client)
+            async_client.return_value.__aexit__ = AsyncMock(return_value=False)
+            await eng._abort_on_stop()
+        assert sorted(c.args[0] for c in client.post.call_args_list) == ["/session/ses_1/abort", "/session/ses_2/abort"]

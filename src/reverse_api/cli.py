@@ -947,7 +947,7 @@ def run_manual_capture(
     reverse_engineer: bool = True,
     model: str | None = None,
     output_dir: str | None = None,
-) -> None:
+) -> dict[str, Any] | None:
     """Shared logic for manual capture."""
     output_dir = output_dir or config_manager.get("output_dir")
 
@@ -984,8 +984,20 @@ def run_manual_capture(
         paths={"har_dir": str(get_har_dir(run_id, output_dir))},
     )
 
+    from .repl.bridge import active
+
     browser = ManualBrowser(run_id=run_id, prompt=prompt, output_dir=output_dir)
-    har_path = browser.start(start_url=url)
+    session = active()
+    if session is not None:
+        session.on_stop = browser.stop  # esc ends the browsing; the capture is kept
+    try:
+        har_path = browser.start(start_url=url)
+    finally:
+        if session is not None:
+            session.on_stop = None
+    if browser.stopped:
+        # Stopped rather than finished: the capture is saved, and /history can engineer it later.
+        return {"run_id": run_id, "error": "interrupted"}
 
     if reverse_engineer:
         result = run_engineer(
@@ -1007,6 +1019,7 @@ def run_manual_capture(
         console.print(" [dim]>[/dim] [white]recording complete[/white]")
         console.print(f" [dim]>[/dim] [white]run_id: {run_id}[/white]")
         console.print(f" [dim]>[/dim] [dim]use 'reverse-api-engineer engineer {run_id}' to engineer later[/dim]\n")
+    return None
 
 
 def run_agent_capture(
@@ -1034,6 +1047,16 @@ def run_agent_capture(
         headless=headless,
         json_event_sink=json_event_sink,
     )
+
+
+def _record_collection(run_id: str, result: dict[str, Any] | None) -> None:
+    if result and not result.get("error"):
+        session_manager.update_run(
+            run_id=run_id,
+            sdk="claude",
+            usage=result.get("usage", {}),
+            paths={"output_path": result.get("output_path")},
+        )
 
 
 def run_collector(prompt: str | None = None, model: str | None = None, output_dir: str | None = None) -> dict[str, Any] | None:
@@ -1066,16 +1089,14 @@ def run_collector(prompt: str | None = None, model: str | None = None, output_di
             output_dir=output_dir,
         )
 
-        result = asyncio.run(collector.run())
-
-        if result and not result.get("error"):
-            # Update session with results
-            session_manager.update_run(
-                run_id=run_id,
-                sdk="claude",
-                usage=result.get("usage", {}),
-                paths={"output_path": result.get("output_path")},
-            )
+        try:
+            result = asyncio.run(collector.run())
+        except (asyncio.CancelledError, KeyboardInterrupt) as exc:
+            # Stopped: from the session, or by ctrl+c, which reaches here as KeyboardInterrupt over the cancellation.
+            result = getattr(exc, "partial_result", None) or getattr(exc.__context__, "partial_result", None)
+            _record_collection(run_id, result)
+            raise
+        _record_collection(run_id, result)
         return result
     except Exception as e:
         console.print(f" [red]collector error: {escape(str(e))}[/red]")
