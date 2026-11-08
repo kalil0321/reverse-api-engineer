@@ -108,7 +108,7 @@ class BaseEngineer(ABC):
         """The first message of the run: its brief, or when resuming, the user's next message."""
         message = await self._prompt_follow_up() if self.resume_session else brief
         if message:
-            self.message_store.save_prompt(message)
+            self.message_store.save_prompt(message, opening=True)
         return message
 
     def __init__(

@@ -10,8 +10,10 @@ from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
+    CLINotFoundError,
     McpSdkServerConfig,
     PermissionResultAllow,
+    ResultError,
     ResultMessage,
     SdkMcpTool,
     StreamEvent,
@@ -52,6 +54,22 @@ class ClaudeEngineer(BaseEngineer):
 
     def _resume_options(self) -> dict[str, Any]:
         return {"resume": self.resume_session} if self.resume_session else {}
+
+    def _report_failure(self, e: Exception) -> str:
+        """Shows why the run failed in Claude Code's own words, without the SDK's wrapping, and saves it."""
+        if isinstance(e, ResultError):
+            message = "; ".join(e.errors) or e.result or e.subtype or "Claude Code stopped with an error"
+        else:
+            message = str(e) or type(e).__name__
+        gone = bool(self.resume_session) and "No conversation found" in message
+        if gone:
+            message = "Claude Code no longer has this run's conversation on this machine · start a new run, or re-engineer it from its capture"
+        self.ui.error(message)
+        if not gone:  # the run's conversation did not change, so its log keeps no trace of the attempt
+            self.message_store.save_error(message)
+        if isinstance(e, CLINotFoundError):
+            self.ui.console.print("\n[dim]Make sure Claude Code CLI is installed: npm install -g @anthropic-ai/claude-code[/dim]")
+        return message
 
     def _print_context_overflow_help(self) -> None:
         """Explain a context-window overflow and how to continue."""
@@ -182,7 +200,7 @@ class ClaudeEngineer(BaseEngineer):
                 self.usage_metadata[key] = value
 
     def _record_tool_results(self, blocks: list[Any]) -> None:
-        """Tool results come back in user messages: always logged for /messages, shown by the session."""
+        """Tool results come back in user messages: always logged, for /resume to replay, and shown by the session."""
         for block in blocks:
             if isinstance(block, ToolResultBlock):
                 output = block.content
@@ -193,15 +211,61 @@ class ClaudeEngineer(BaseEngineer):
                 )
                 name = self._tool_names.get(block.tool_use_id, "Tool")
                 saved = text if len(text) <= 20000 else f"{text[:20000]}\n[{len(text) - 20000} more characters not saved]"
-                self.message_store.save_tool_result(name, bool(block.is_error), saved)
+                self.message_store.save_tool_result(name, bool(block.is_error), saved, call_id=block.tool_use_id)
                 if getattr(self.ui, "shows_tool_results", False):
-                    self.ui.tool_result(name, bool(block.is_error), text)
+                    self.ui.tool_result(name, bool(block.is_error), text, call_id=block.tool_use_id)
+
+    def _record_assistant(self, message: AssistantMessage) -> str | None:
+        """Shows and logs an assistant message's blocks. Claude Code's own notice of a failed call is returned instead:
+        the turn's error result says the same, and a turn Claude Code recovers from needs no error at all."""
+        last_tool_name: str | None = None
+        notice: str | None = None
+        for block in message.content:
+            if isinstance(block, ToolUseBlock):
+                last_tool_name = block.name
+                if tool_id := getattr(block, "id", None):
+                    self._tool_names[tool_id] = block.name
+                self.ui.tool_start(block.name, block.input, call_id=getattr(block, "id", None))
+                self.message_store.save_tool_start(block.name, block.input, call_id=getattr(block, "id", None))
+            elif isinstance(block, ToolResultBlock):
+                is_error = block.is_error if block.is_error else False
+
+                output = None
+                if getattr(block, "content", None) is not None:
+                    output = block.content
+                elif getattr(block, "result", None) is not None:
+                    output = getattr(block, "result", None)
+                elif getattr(block, "output", None) is not None:
+                    output = getattr(block, "output", None)
+
+                tool_name = last_tool_name or "Tool"
+                output_text: str | None
+                if isinstance(output, list):
+                    output_text = "\n".join(
+                        str(item["text"])
+                        if isinstance(item, dict) and item.get("type") == "text" and isinstance(item.get("text"), str)
+                        else str(item)
+                        for item in output
+                    )
+                else:
+                    output_text = str(output) if output is not None else None
+                self.ui.tool_result(tool_name, is_error, output_text, call_id=getattr(block, "tool_use_id", None))
+                self.message_store.save_tool_result(tool_name, is_error, output_text, call_id=getattr(block, "tool_use_id", None))
+            elif isinstance(block, TextBlock) and message.error:
+                notice = block.text
+            elif isinstance(block, TextBlock):
+                self.ui.thinking(block.text)
+                self.message_store.save_thinking(block.text)
+            elif isinstance(block, ThinkingBlock) and (thinking_note := getattr(self.ui, "thinking_note", None)):
+                thinking_note(block.thinking)
+        return notice
 
     async def _process_streaming_response(self, client: ClaudeSDKClient) -> dict[str, Any] | None:
         """Process a single streaming response from the SDK client.
 
         Returns a result dict on success, or None on error.
         """
+        notice: str | None = None
         async for message in client.receive_response():
             self._note_session(message)
             if isinstance(message, StreamEvent):
@@ -219,56 +283,14 @@ class ClaudeEngineer(BaseEngineer):
                 self._accumulate_usage(message.usage)
 
             if isinstance(message, AssistantMessage):
-                last_tool_name = None
-                for block in message.content:
-                    if isinstance(block, ToolUseBlock):
-                        last_tool_name = block.name
-                        if tool_id := getattr(block, "id", None):
-                            self._tool_names[tool_id] = block.name
-                        self.ui.tool_start(block.name, block.input)
-                        self.message_store.save_tool_start(block.name, block.input)
-                    elif isinstance(block, ToolResultBlock):
-                        is_error = block.is_error if block.is_error else False
-
-                        output = None
-                        if getattr(block, "content", None) is not None:
-                            output = block.content
-                        elif getattr(block, "result", None) is not None:
-                            output = getattr(block, "result", None)
-                        elif getattr(block, "output", None) is not None:
-                            output = getattr(block, "output", None)
-
-                        tool_name = last_tool_name or "Tool"
-                        output_text: str | None
-                        if isinstance(output, list):
-                            output_text = "\n".join(
-                                str(item["text"])
-                                if isinstance(item, dict) and item.get("type") == "text" and isinstance(item.get("text"), str)
-                                else str(item)
-                                for item in output
-                            )
-                        else:
-                            output_text = str(output) if output is not None else None
-                        self.ui.tool_result(tool_name, is_error, output_text)
-                        self.message_store.save_tool_result(tool_name, is_error, output_text)
-                        # The real-time "client_executed" --json-stream event
-                        # (once inferred here from Bash tool-call text) now
-                        # comes from the report_client_verified tool itself —
-                        # see _build_verification_mcp_server — which fires it
-                        # directly when called, so there's nothing left to do
-                        # in this generic per-tool-result branch.
-                    elif isinstance(block, TextBlock):
-                        self.ui.thinking(block.text)
-                        self.message_store.save_thinking(block.text)
-                    elif isinstance(block, ThinkingBlock) and (thinking_note := getattr(self.ui, "thinking_note", None)):
-                        thinking_note(block.thinking)
+                notice = self._record_assistant(message) or notice
 
             elif isinstance(message, UserMessage) and isinstance(message.content, list):
                 self._record_tool_results(message.content)
 
             elif isinstance(message, ResultMessage):
                 if message.is_error:
-                    error_text = message.result or "Unknown error"
+                    error_text = message.result or notice or "Unknown error"
                     self.ui.error(error_text)
                     self.message_store.save_error(error_text)
                     if is_context_overflow_error(error_text):
@@ -307,7 +329,8 @@ class ClaudeEngineer(BaseEngineer):
                         "script_path": script_path,
                         "usage": self.usage_metadata,
                     }
-                    self.message_store.save_result(result)
+                    # The model too, for the card a resume replays: a resumed run can change it.
+                    self.message_store.save_result({**result, "model": self.model})
                     return result
 
         return None
@@ -386,9 +409,7 @@ class ClaudeEngineer(BaseEngineer):
             return {**(last_result or {}), "error": "interrupted"}
 
         except Exception as e:
-            self.ui.error(str(e))
-            self.message_store.save_error(str(e))
-            self.ui.console.print("\n[dim]Make sure Claude Code CLI is installed: npm install -g @anthropic-ai/claude-code[/dim]")
+            self._report_failure(e)
             return None
 
         return None

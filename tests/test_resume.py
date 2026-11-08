@@ -237,6 +237,16 @@ class TestCli:
         cli._session_recorder("r1", "agent", "claude", "claude-sonnet-5-5", "./outputs")("s-1")
         assert history.update_run.call_args.kwargs["sdk_session"]["output_dir"] == str((tmp_path / "outputs").resolve())
 
+    def test_a_claude_session_keeps_the_effort_it_runs_at(self, history, monkeypatch):
+        monkeypatch.setattr(cli, "build_sdk_effort", lambda model: {"effort": "xhigh"})
+        cli._session_recorder("r1", "agent", "claude", "claude-sonnet-5-5", None)("s-1")
+        assert history.update_run.call_args.kwargs["sdk_session"]["effort"] == "xhigh"
+        monkeypatch.setattr(cli, "build_sdk_effort", lambda model: {})
+        cli._session_recorder("r1", "agent", "claude", "claude-opus-5-5", None)("s-1")
+        assert history.update_run.call_args.kwargs["sdk_session"]["effort"] == "medium", "the model's own default"
+        cli._session_recorder("r1", "agent", "claude", "claude-haiku-4-5", None)("s-1")
+        assert "effort" not in history.update_run.call_args.kwargs["sdk_session"]
+
     def test_a_reopened_session_is_not_recorded_again(self, tmp_path, har_path):
         eng = _cursor(har_path, tmp_path)
         seen: list[str] = []
@@ -324,7 +334,7 @@ class TestReviewedEdges:
         assert cli._session_provider({"sdk_session": {"id": "s", "provider": "opencode"}}) == "opencode"
         assert cli._session_provider(None) is None
 
-    def test_tool_results_are_logged_for_messages_without_the_session(self, har_path, tmp_path):
+    def test_tool_results_are_logged_for_resume_without_the_session(self, har_path, tmp_path):
         from claude_agent_sdk.types import ToolResultBlock
 
         eng = _cursor(har_path, tmp_path)  # any engine with a message store
@@ -335,7 +345,7 @@ class TestReviewedEdges:
         eng._tool_names["t1"] = "Bash"
         eng.ui = MagicMock(shows_tool_results=False)
         eng._record_tool_results([ToolResultBlock(tool_use_id="t1", content="12 jobs", is_error=False)])
-        eng.message_store.save_tool_result.assert_called_once_with("Bash", False, "12 jobs")
+        eng.message_store.save_tool_result.assert_called_once_with("Bash", False, "12 jobs", call_id="t1")
         eng.ui.tool_result.assert_not_called()
 
     def test_format_error_is_valid_markup_with_literal_exception_text(self):

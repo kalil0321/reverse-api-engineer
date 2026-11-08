@@ -13,14 +13,13 @@ menu; `Tab` completes and `Enter` runs the highlighted command.
 | `/model`               | Choose the model. In collector mode, the collector's own model.     |
 | `/effort`              | How hard the agent thinks, for Claude models (`low` to `max`).      |
 | `/mode`                | Switch between agent, manual, engineer and collector.               |
-| `/settings`            | SDK, agent provider, output directory, language and sync settings.  |
-| `/history`             | Past runs with their cost; open one to resume, re-engineer or read its messages. |
-| `/messages [run_id]`   | What the agent did in a run, step by step.                          |
-| `/resume [run_id]`     | Continue a past run's conversation where it stopped, on any SDK.    |
+| `/settings`            | SDK, agent provider, models, output and sync, changed in place.     |
+| `/history`             | Past runs with their cost; open one to resume or re-engineer it.    |
+| `/resume [run_id]`     | Show a past run's conversation as it was and continue it, on any SDK. |
 | `/output`              | Everything from the session, unfolded.                              |
 | `/open`                | Open the latest generated client.                                   |
 | `/clear`               | Clear the conversation and its spend.                               |
-| `/help`                | Keys and commands. Alias: `/commands`.                              |
+| `/help`                | What rae does, its modes, commands and keys. Alias: `/commands`.    |
 | `/exit`                | Quit. Alias: `/quit`.                                               |
 
 `/resume` works for runs that saved their SDK session, which agent and engineer
@@ -32,16 +31,19 @@ runs do from this release on. Older runs and collector runs cannot be resumed.
 |----------------------|------------------------------------------------------------|
 | `Enter`              | Send. While the agent works, the message is queued.        |
 | `Esc`                | Stop the run, or close a menu.                             |
+| `↑` / `↓`            | Earlier prompts; in a menu, move, around from either end.  |
+| `Tab`                | Complete a command.                                        |
 | `Shift+Tab`          | Cycle the mode: agent → manual → engineer → collector.     |
 | `Ctrl+E`             | Cycle the effort level.                                    |
 | `Ctrl+O`             | Show the full output of folded steps.                      |
 | `PageUp` / `PageDown`| Scroll the conversation. `End` jumps back to the latest.   |
+| `Ctrl+C`             | Stop the run, else clear the input, else quit.             |
 | `Ctrl+D`             | Quit.                                                      |
 
 Click a file or URL in the conversation to open it.
 
-The status row under the input shows the run's id, which `/resume`,
-`/messages` and `reverse-api-engineer show` take. Once the agent has verified
+The status row under the input shows the run's id, which `/resume` and
+`reverse-api-engineer show` take. Once the agent has verified
 the client, its step lists the run's folder, and with real-time sync on, the
 synced copy in `./scripts`, as full paths.
 

@@ -12,8 +12,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Headed chrome-mcp runs check Chrome auto-connect (`DevToolsActivePort` plus an open port) before launching and fail with setup steps and `error_kind: config_invalid` instead of starting the agent. `agent --dry-run` reports the same check as an error.
 - `engineer <run_id>` on a run without a HAR stops before starting a model session: chrome-mcp runs get an explanation and `error_kind: misuse` with exit code 2, other runs name the missing HAR path.
 - Pin `chrome-devtools-mcp` to the 1.12 line and update the chrome-mcp prompt for its `pageId` tool arguments; the agent now opens its own tab.
+- `/resume` replays the run's conversation the way it looked live (prompts, steps, the agent's messages, the client card) before it waits for the follow-up, and switches from a conversation that only waits for one instead of asking for `/new` first.
+- `/settings` opens inside the session: one list with the settings rae offers there (SDK, agent provider, models, output and sync) and their values, enter flips a toggle or opens its choices, long lists filter as you type, and each change shows as `◇ setting  old → new`. OpenCode's providers and models load behind a list that keeps keystrokes from starting a run. The classic settings screen is gone.
+- `/help` says what rae does and lists the modes (the current one marked), every command and every key.
+- Lists and the command menu go around: down on the last item moves to the first, up on the first to the last.
+- A blank line parts the conversation from the input bar.
+- `--json-stream` `tool_start` events of Claude runs carry the tool call's `call_id`, as Cursor runs' already did.
+
+### Removed
+- `/messages`: `/resume` shows a past run's whole conversation, also for a run that saved no session and so cannot continue, and `/history` its details.
 
 ### Fixed
+- `/effort` on a Claude model without the setting (Haiku 4.5) says that model has none, instead of calling effort a Claude setting.
+- A second `esc` while a run wraps up no longer cuts its cleanup short, which left the Claude CLI behind with a "Loop … that handles pid … is closed" warning and a false "interrupted".
+- An OpenCode catalog request that times out names the error instead of ending its message on a colon.
+- Resuming a run whose Claude Code session is gone says so once, in plain words, instead of the SDK's "returned an error result … (exit code: 1)" followed by advice to install Claude Code. That advice now only appears when Claude Code is missing.
+- A Claude error such as "Not logged in" shows once, not as an agent message, then an error, then "Agent analysis produced no result."
+- Steps name the tools of OpenCode, Copilot and Cursor (`bash`, `read`, `apply_patch`, `playwright-ses_…_browser_navigate`, Cursor's `mcp` wrapper…) the way they name Claude Code's, and a tool without its own wording shows its name and main argument instead of raw JSON.
+- The agent's task list shows as one plan per batch of changes, whatever the SDK calls it: Claude Code's current `TaskCreate` and `TaskUpdate` (which the session showed as separate steps, never as a list), `TodoWrite`, OpenCode's `todowrite`, Cursor's `updateTodos`, `write_todos`, `update_todos` and `update_plan`.
+- Long errors, notices, prompts and folder paths wrap under their own text instead of at the left edge.
+- In the session, an engineer run ends with one line naming its local copy (`./scripts`, or `./docs` for documentation, which also gets a line of its own), instead of the plain terminal's "decoding complete" lines repeating the client card.
 - `agent --json` and `engineer --json` report `status: error` (`engine_failure`) when the run ends without writing its client, instead of `ok` with a `script_path` that does not exist.
 - Playwright MCP prompt: `browser_run_code` is now `browser_run_code_unsafe`, and the nonexistent `browser_scroll` tool is no longer listed.
 - The Claude SDK message buffer is raised to 32 MB, so a large screenshot no longer aborts a run.

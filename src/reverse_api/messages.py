@@ -13,7 +13,7 @@ class MessageStore:
     def __init__(self, run_id: str, output_dir: str | None = None) -> None:
         self.run_id = run_id
         self.messages_path = get_messages_path(run_id, output_dir)
-        self.messages_path.parent.mkdir(parents=True, exist_ok=True)
+        self._folder_ready = False  # made on the first write: reading a past run's log creates nothing
 
     def _get_timestamp(self) -> str:
         """Get current timestamp in ISO format."""
@@ -27,22 +27,28 @@ class MessageStore:
             "content": content,
             **kwargs,
         }
+        if not self._folder_ready:
+            self.messages_path.parent.mkdir(parents=True, exist_ok=True)
+            self._folder_ready = True
         with open(self.messages_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(message) + "\n")
 
-    def save_prompt(self, prompt: str) -> None:
-        """Save the initial prompt."""
-        self.append("prompt", prompt)
+    def save_prompt(self, prompt: str, opening: bool = False) -> None:
+        """Save a prompt; ``opening`` marks the first one of an engine run, fresh or resumed."""
+        if opening:
+            self.append("prompt", prompt, opening=True)
+        else:
+            self.append("prompt", prompt)
 
-    def save_tool_start(self, tool_name: str, tool_input: dict) -> None:
-        """Save a tool start event."""
-        self.append("tool_start", {"name": tool_name, "input": tool_input})
+    def save_tool_start(self, tool_name: str, tool_input: dict, call_id: str | None = None) -> None:
+        """Save a tool start event; ``call_id`` ties its result to it."""
+        self.append("tool_start", {"name": tool_name, "input": tool_input, **({"call_id": call_id} if call_id else {})})
 
-    def save_tool_result(self, tool_name: str, is_error: bool = False, output: str | None = None) -> None:
+    def save_tool_result(self, tool_name: str, is_error: bool = False, output: str | None = None, call_id: str | None = None) -> None:
         """Save a tool result event."""
         self.append(
             "tool_result",
-            {"name": tool_name, "is_error": is_error, "output": output},
+            {"name": tool_name, "is_error": is_error, "output": output, **({"call_id": call_id} if call_id else {})},
         )
 
     def save_thinking(self, text: str) -> None:

@@ -9,11 +9,13 @@ from reverse_api.messages import MessageStore
 class TestMessageStoreInit:
     """Test MessageStore initialization."""
 
-    def test_creates_messages_dir(self, tmp_path):
-        """MessageStore creates parent directories."""
+    def test_the_messages_dir_is_made_on_the_first_write(self, tmp_path):
+        """Reading a past run's log creates no folder; its first message does."""
         with patch("reverse_api.messages.get_messages_path", return_value=tmp_path / "messages" / "test.jsonl"):
             store = MessageStore("test123")
-            assert store.messages_path.parent.exists()
+            assert store.load() == [] and not store.messages_path.parent.exists()
+            store.save_prompt("hi")
+            assert store.messages_path.parent.exists() and store.load()[0]["content"] == "hi"
 
     def test_run_id_stored(self, tmp_path):
         """MessageStore stores the run_id."""

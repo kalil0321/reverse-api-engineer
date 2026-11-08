@@ -118,8 +118,9 @@ class OpenCodeUI:
         if self._live:
             self._live.update(self._build_display())
 
-    def tool_start(self, tool_name: str, tool_input: dict | None = None) -> None:
+    def tool_start(self, tool_name: str, tool_input: dict | None = None, call_id: str | None = None) -> None:
         """Display when a tool starts execution."""
+        _ = call_id  # accepted for parity with the other UIs; not rendered
         self._current_tool = tool_name
         self._tool_status = "running"
         self._tools_used.append(tool_name)
@@ -142,8 +143,9 @@ class OpenCodeUI:
         if self._live:
             self._live.update(self._build_display())
 
-    def tool_result(self, tool_name: str, is_error: bool = False, output: str | None = None) -> None:
+    def tool_result(self, tool_name: str, is_error: bool = False, output: str | None = None, call_id: str | None = None) -> None:
         """Display when a tool completes."""
+        _ = call_id
         self._current_tool = None
         self._tool_status = "completed" if not is_error else "error"
 
