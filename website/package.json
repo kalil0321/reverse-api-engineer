@@ -52,7 +52,8 @@
       "undici@7": "^7.30.1",
       "miniflare>sharp": "0.35.5",
       "source-map-js": "^1.2.2",
-      "zod@4": "^4.6.7"
+      "zod@4": "^4.6.7",
+      "minimatch@10": "^11.0.1"
     }
   }
 }
