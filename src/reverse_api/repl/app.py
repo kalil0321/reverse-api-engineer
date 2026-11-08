@@ -899,6 +899,9 @@ class Session:
             def start_after() -> None:
                 st.running = False  # on the app's thread, like start_next below
                 after()
+                if not st.running and st.queue:
+                    # It started no run, such as a replay of a run without a session: queued prompts go on as usual.
+                    self.start(st.queue.pop(0))
 
             self.call_soon(start_after)
             self.invalidate()

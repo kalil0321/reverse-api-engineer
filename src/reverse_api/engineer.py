@@ -249,7 +249,7 @@ class ClaudeEngineer(BaseEngineer):
                     )
                 else:
                     output_text = str(output) if output is not None else None
-                self.ui.tool_result(tool_name, is_error, output_text)
+                self.ui.tool_result(tool_name, is_error, output_text, call_id=getattr(block, "tool_use_id", None))
                 self.message_store.save_tool_result(tool_name, is_error, output_text)
             elif isinstance(block, TextBlock) and message.error:
                 notice = block.text

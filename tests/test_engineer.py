@@ -680,6 +680,7 @@ class TestClaudeEngineerAnalyzeAndGenerate:
 
         mock_tool_use = self._make_tool_use_block("Read", {"file_path": "/test.py"})
         mock_tool_result = self._make_tool_result_block(is_error=False, content=tool_content)
+        mock_tool_result.tool_use_id = "toolu_1"
         mock_text = self._make_text_block("Analyzing the file...")
 
         mock_assistant = self._make_assistant_message(
@@ -714,7 +715,7 @@ class TestClaudeEngineerAnalyzeAndGenerate:
             ) as render_result:
                 result = await eng.analyze_and_generate()
                 assert result is not None
-                render_result.assert_called_once_with("Read", False, expected)
+                render_result.assert_called_once_with("Read", False, expected, call_id="toolu_1")
                 eng.message_store.save_tool_result.assert_called_once_with("Read", False, expected)
 
     @pytest.mark.asyncio

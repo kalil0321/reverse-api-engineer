@@ -1561,7 +1561,11 @@ class TestResume:
         session, _history = app_session
         reopened, started = [], []
         session.st.running, session.st.queue = True, ["follow-up text"]
-        session.after_run = lambda: reopened.append(True)
+        def reopen() -> None:
+            reopened.append(True)
+            session.st.running = True  # as reopen does: the resumed run takes the queue as its messages
+
+        session.after_run = reopen
         with patch.object(session, "call_soon", side_effect=lambda fn: fn()), patch.object(session, "start", side_effect=started.append):
             session.finish({})
         assert reopened == [True] and started == [] and session.after_run is None
@@ -1609,6 +1613,19 @@ class TestResume:
             with patch.object(session, "call_soon", side_effect=lambda fn: fn()):
                 session.finish({})
         assert "› all jobs" in plain(session.transcript)
+
+    def test_a_prompt_queued_before_a_read_only_replay_still_runs(self, app_session):
+        session, history = app_session
+        history.get_run.return_value = {"run_id": "old1", "prompt": "jobs", "timestamp": "2026-10-01T10:00:00"}
+        session.st.running, session.bridge.stopping, session.st.queue = True, True, []
+        started: list[str] = []
+        with patch("reverse_api.repl.app.MessageStore") as store, patch.object(session, "start", side_effect=started.append):
+            store.return_value.load.return_value = []
+            session.run_command("/resume old1")
+            session.st.queue.append("all open jobs on example.com")
+            with patch.object(session, "call_soon", side_effect=lambda fn: fn()):
+                session.finish({})
+        assert started == ["all open jobs on example.com"] and session.st.queue == []
 
     def test_a_log_that_cannot_be_read_falls_back_to_the_runs_details(self, app_session):
         session, history = app_session
