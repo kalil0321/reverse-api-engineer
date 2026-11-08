@@ -947,7 +947,7 @@ def run_manual_capture(
     reverse_engineer: bool = True,
     model: str | None = None,
     output_dir: str | None = None,
-) -> None:
+) -> dict[str, Any] | None:
     """Shared logic for manual capture."""
     output_dir = output_dir or config_manager.get("output_dir")
 
@@ -984,8 +984,20 @@ def run_manual_capture(
         paths={"har_dir": str(get_har_dir(run_id, output_dir))},
     )
 
+    from .repl.bridge import active
+
     browser = ManualBrowser(run_id=run_id, prompt=prompt, output_dir=output_dir)
-    har_path = browser.start(start_url=url)
+    session = active()
+    if session is not None:
+        session.on_stop = browser.stop  # esc ends the browsing; the capture is kept
+    try:
+        har_path = browser.start(start_url=url)
+    finally:
+        if session is not None:
+            session.on_stop = None
+    if browser.stopped:
+        # Stopped rather than finished: the capture is saved, and /history can engineer it later.
+        return {"run_id": run_id, "error": "interrupted"}
 
     if reverse_engineer:
         result = run_engineer(
@@ -1007,6 +1019,7 @@ def run_manual_capture(
         console.print(" [dim]>[/dim] [white]recording complete[/white]")
         console.print(f" [dim]>[/dim] [white]run_id: {run_id}[/white]")
         console.print(f" [dim]>[/dim] [dim]use 'reverse-api-engineer engineer {run_id}' to engineer later[/dim]\n")
+    return None
 
 
 def run_agent_capture(

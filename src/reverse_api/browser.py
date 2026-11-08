@@ -6,6 +6,7 @@ import os
 import random
 import signal
 import sys
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from types import FrameType
@@ -210,6 +211,17 @@ class ManualBrowser:
         self._start_time: str | None = None
         self._user_agent = random.choice(USER_AGENTS)
         self._using_persistent = False  # Track if using persistent context
+        # Set from another thread (the session's esc); the browsing loop, on Playwright's own thread, sees it.
+        self._stop = threading.Event()
+
+    def stop(self) -> None:
+        """Ends the browsing, as closing the browser does; the capture so far is saved."""
+        self._stop.set()
+
+    @property
+    def stopped(self) -> bool:
+        """Whether the browsing ended by stop() rather than by closing the browser."""
+        return self._stop.is_set()
 
     def _save_metadata(self, end_time: str) -> None:
         """Save run metadata to JSON file."""
@@ -314,7 +326,7 @@ class ManualBrowser:
 
             # Wait for browser to close
             try:
-                while self._context.pages:
+                while self._context.pages and not self._stop.is_set():
                     self._context.pages[0].wait_for_timeout(100)
             except Exception:
                 pass
@@ -406,7 +418,7 @@ class ManualBrowser:
 
         # Wait for browser to close
         try:
-            while self._context.pages:
+            while self._context.pages and not self._stop.is_set():
                 self._context.pages[0].wait_for_timeout(100)
         except Exception:
             pass
@@ -417,17 +429,22 @@ class ManualBrowser:
         """Start the browser with HAR recording enabled. Returns HAR path when done."""
         self._start_time = get_timestamp()
 
-        # Set up signal handlers for graceful shutdown
-        signal.signal(signal.SIGINT, self._handle_signal)
-        signal.signal(signal.SIGTERM, self._handle_signal)
+        from .repl.bridge import active
 
-        console.print(" [dim]capture starting...[/dim]")
-        console.print(f" [dim]━[/dim] [white]{self.run_id}[/white]")
-        console.print(f" [dim]goal[/dim]  [white]{self.prompt}[/white]")
-        console.print()
-        console.print(" [dim]navigate and interact to record traffic[/dim]")
-        console.print(" [dim]close browser or ctrl+c to finalize[/dim]")
-        console.print()
+        if active() is not None:
+            # In the session, which runs this off the main thread: esc stops the browsing through stop().
+            print("browse the site to record its traffic · close the browser when you are done · esc stops and keeps the capture")
+        else:
+            # Signal handlers can only be set on the main thread.
+            signal.signal(signal.SIGINT, self._handle_signal)
+            signal.signal(signal.SIGTERM, self._handle_signal)
+            console.print(" [dim]capture starting...[/dim]")
+            console.print(f" [dim]━[/dim] [white]{self.run_id}[/white]")
+            console.print(f" [dim]goal[/dim]  [white]{self.prompt}[/white]")
+            console.print()
+            console.print(" [dim]navigate and interact to record traffic[/dim]")
+            console.print(" [dim]close browser or ctrl+c to finalize[/dim]")
+            console.print()
 
         if start_url:
             start_url = normalize_url(start_url)

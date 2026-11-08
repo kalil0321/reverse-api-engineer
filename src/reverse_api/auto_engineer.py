@@ -553,6 +553,10 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
             self.message_store.save_result(result_data)
             return result_data
 
+        except asyncio.CancelledError:
+            await self._abort_on_stop()
+            raise
+
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 401:
                 self.opencode_ui.error("Authentication failed. OpenCode server requires a password.", unexpected=False)

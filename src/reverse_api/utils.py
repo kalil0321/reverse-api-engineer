@@ -176,11 +176,17 @@ def check_for_updates() -> str | None:
         )
         if response.status_code == 200:
             latest = response.json()["info"]["version"]
-            if latest != __version__:
+            # Only a newer release: a build ahead of PyPI, such as one about to be published, has nothing to update to.
+            if version_key(latest) > version_key(__version__):
                 return f"update available: {__version__} → {latest}  (pip install -U reverse-api-engineer | uv tool upgrade reverse-api-engineer)"
     except Exception:
         pass
     return None
+
+
+def version_key(version: str) -> tuple[int, ...]:
+    """A release number as numbers to compare: 0.15.0 comes after 0.9.3."""
+    return tuple(int(part) for part in re.findall(r"\d+", version.split("+")[0])[:3])
 
 
 def generate_folder_name(prompt: str, sdk: str | None = None, session_id: str | None = None) -> str:

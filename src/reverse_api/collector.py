@@ -53,7 +53,10 @@ class Collector:
         self.model = model
         self.output_dir = output_dir
 
-        self.ui = CollectorUI()
+        from .repl.bridge import CollectorLedgerUI, active
+
+        bridge = active()
+        self.ui = CollectorLedgerUI(bridge) if bridge else CollectorUI()
         self.message_store = MessageStore(run_id, output_dir)
 
         self._folder_name: str | None = None

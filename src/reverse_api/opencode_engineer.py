@@ -135,9 +135,13 @@ class OpenCodeEngineer(BaseEngineer):
 
         super().__init__(*args, **kwargs)
 
-        # Override UI with OpenCode-specific version
-        self.opencode_ui = OpenCodeUI(verbose=kwargs.get("verbose", True))
-        self.ui = self.opencode_ui  # Ensure base class uses our specialized UI
+        from .repl.bridge import OpenCodeLedgerUI, active
+
+        # OpenCode's own events need their own UI: the session's when it is open, else the plain terminal's.
+        bridge = active()
+        verbose = kwargs.get("verbose", True)
+        self.opencode_ui = OpenCodeLedgerUI(bridge, verbose=verbose) if bridge else OpenCodeUI(verbose=verbose)
+        self.ui = self.opencode_ui  # type: ignore[assignment]  # the base class uses our specialized UI too
         self._last_error: str | None = None
         self._session_id: str | None = None
         self._last_event_time = 0.0
@@ -303,6 +307,10 @@ class OpenCodeEngineer(BaseEngineer):
             }
             self.message_store.save_result(result_data)
             return result_data
+
+        except asyncio.CancelledError:
+            await self._abort_on_stop()
+            raise
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 401:
@@ -675,6 +683,16 @@ class OpenCodeEngineer(BaseEngineer):
                                     return
         except Exception as e:
             debug_log(f"Error checking session: {e}")
+
+    async def _abort_on_stop(self) -> None:
+        """A run stopped from rae: OpenCode would otherwise keep the agent and its subagents working."""
+        if not self._session_id:
+            return
+        try:
+            async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=5.0, auth=self._get_auth()) as client:
+                await self._abort_sessions(client, {str(self._session_id), *(str(sid) for sid in self._child_sessions)})
+        except Exception as e:
+            debug_log(f"Abort on stop failed: {e}")
 
     async def _abort_sessions(self, client: httpx.AsyncClient, session_ids: set[str]) -> None:
         """Stops OpenCode's work on these sessions; stopping the run's own one ends the pending prompt request."""

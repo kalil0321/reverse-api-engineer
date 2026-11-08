@@ -183,6 +183,7 @@ class Bridge:
         self.workspace: tuple[Path, Path | None] | None = None  # the run's folder and its synced copy
         self.stopping = False  # the run is already on its way out: stopped once, or ended while it waited
         self.failed = False  # the engine already said why the run failed
+        self.on_stop: Callable[[], None] | None = None  # how esc stops a stretch that has no asyncio task
         self.reset_plan()
 
     def ui(self) -> LedgerUI:
@@ -197,6 +198,11 @@ class Bridge:
             self.loop, self.task = None, None
 
     def cancel(self) -> bool:
+        if self.on_stop is not None:
+            # A stretch that is not an engine's task, such as manual capture's browser, stops its own way.
+            stop, self.on_stop = self.on_stop, None
+            stop()
+            return True
         if self.loop and self.task and not self.task.done():
             # Cancelling again would cut the SDK's cleanup short and leave its CLI process behind.
             if not self.stopping:
@@ -547,6 +553,128 @@ class CursorLedgerUI(LedgerUI):
 
     def thinking_block(self, text: str, max_chars: int = 8000) -> None:
         LedgerUI.thinking(self, text[:max_chars])
+
+
+class OpenCodeLedgerUI(LedgerUI):
+    """Drop-in for OpenCodeUI while the session is open. OpenCode sends each text part whole again as it grows,
+    with no end: a part is complete when the next one starts, or a step, the result or an error comes."""
+
+    def __init__(self, bridge: Bridge, verbose: bool = True) -> None:
+        super().__init__(bridge, verbose=verbose)
+        self._text = ""
+
+    def _settle(self) -> None:
+        if self._text:
+            self.view.stream_done(self._text)
+            self._text = ""
+            self._changed()
+
+    def update_text(self, text: str, delta: str | None = None) -> None:
+        _ = delta  # the whole part is in text; the part before it ended if this one does not continue it
+        if self._text and not text.startswith(self._text):
+            self._settle()
+        new, self._text = text[len(self._text) :], text
+        if new:
+            self.stream_text(new)
+
+    def start_streaming(self) -> None:
+        pass
+
+    def stop_streaming(self) -> None:
+        self._settle()
+
+    def tool_start(self, tool_name: str, tool_input: dict | Any = None, call_id: str | None = None) -> None:
+        self._settle()
+        super().tool_start(tool_name, tool_input or {}, call_id=call_id)
+
+    def success(self, script_path: str, local_path: str | None = None) -> None:
+        self._settle()
+        super().success(script_path, local_path)
+        path = Path(script_path)
+        if not self.b.verified and path.exists():
+            # OpenCode has no tool to report a verified client, so no card: say where the client is instead.
+            self.view.workspace(path.parent, Path(local_path).parent if local_path else None)
+
+    def error(self, message: str, *, unexpected: bool | None = None) -> None:
+        _ = unexpected
+        self._settle()
+        super().error(message)
+
+    def session_summary(self, usage_metadata: dict[str, Any]) -> None:
+        self.usage(usage_metadata)
+
+    def server_started(self, package: str, base_url: str) -> None:
+        self.progress(f"opencode started: {package} at {base_url}")
+
+    def compatibility_warning(self, message: str) -> None:
+        self.progress(f"opencode: {message}")
+
+    def ollama_ready(self, model: str, started: bool = False) -> None:
+        self.progress(f"ollama {'started' if started else 'connected'}, using {model}")
+
+    def session_retry(self, attempt: int, message: str) -> None:
+        self.progress(f"opencode retries (attempt {attempt}): {message}")
+
+    def session_compacted(self) -> None:
+        self.progress("opencode compacted the conversation to fit the model's context")
+
+    # What the session already shows another way, or does not need: steps, the plan and the card.
+    def health_check(self, health: dict[str, Any]) -> None:
+        pass
+
+    def session_created(self, session_id: str) -> None:
+        pass
+
+    def model_info(self, provider: str, model: str) -> None:
+        pass
+
+    def session_status(self, status_type: str) -> None:
+        pass
+
+    def step_finish(self, cost: float, tokens: dict[str, Any]) -> None:
+        pass
+
+    def permission_requested(self, perm_type: str, title: str) -> None:
+        pass
+
+    def permission_approved(self, perm_type: str) -> None:
+        pass
+
+    def file_edited(self, file_path: str) -> None:
+        pass
+
+    def session_diff(self, diffs: list) -> None:
+        pass
+
+    def session_busy(self) -> None:
+        pass
+
+    def session_idle(self) -> None:
+        pass
+
+
+class CollectorLedgerUI(LedgerUI):
+    """Drop-in for CollectorUI while the session is open."""
+
+    def header(self, run_id: str, prompt: str, model: str | None = None, sdk: str | None = None, mode: str | None = None, **kwargs: Any) -> None:
+        _ = kwargs
+        super().header(run_id, prompt, model=model, sdk=sdk or "claude", mode=mode or "collector")
+
+    def start_collecting(self) -> None:
+        pass
+
+    def item_saved(self, preview: str) -> None:
+        self.b.flush_card()
+        self.view.step("saved", first_line(preview), "write")
+        self._changed()
+
+    def collection_complete(self, total_items: int, output_path: str) -> None:
+        self.b.flush_card()
+        self.view.collected(total_items, Path(output_path))
+        self._changed()
+
+    def usage_summary(self, usage: dict[str, Any]) -> None:
+        self.usage(usage)
 
 
 _bridge: Bridge | None = None

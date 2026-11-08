@@ -11,6 +11,7 @@ import atexit
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -405,8 +406,21 @@ def stop_managed_opencode_server() -> None:
         process.terminate()
     except OSError:
         return
+    _signal_group(process.pid, signal.SIGTERM)
     try:
         process.wait(timeout=3)
     except subprocess.TimeoutExpired:
         process.kill()
+        _signal_group(process.pid, signal.SIGKILL)
         process.wait(timeout=3)
+
+
+def _signal_group(pid: int, sig: int) -> None:
+    """npx -> node -> opencode: the launcher can exit and leave the server listening. It was started in a session of
+    its own, so its process group holds the whole tree."""
+    if sys.platform == "win32" or not hasattr(os, "killpg"):
+        return
+    try:
+        os.killpg(pid, sig)
+    except (OSError, TypeError):
+        pass  # the group is already gone

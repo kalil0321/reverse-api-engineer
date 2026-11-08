@@ -305,3 +305,13 @@ def test_windows_shutdown_falls_back_when_taskkill_unavailable():
             opencode_runtime.stop_managed_opencode_server()
     process.terminate.assert_called_once_with()
     process.wait.assert_called_once_with(timeout=3)
+
+
+def test_stopping_the_server_stops_its_whole_process_group():
+    process = MagicMock(pid=4242)
+    process.poll.return_value = None
+    opencode_runtime._PROCESS = process
+    with patch.object(opencode_runtime.sys, "platform", "darwin"), patch.object(opencode_runtime.os, "killpg", create=True) as killpg:
+        opencode_runtime.stop_managed_opencode_server()
+    process.terminate.assert_called_once_with()
+    killpg.assert_called_once_with(4242, opencode_runtime.signal.SIGTERM)
