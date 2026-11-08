@@ -213,7 +213,7 @@ class ClaudeEngineer(BaseEngineer):
                 saved = text if len(text) <= 20000 else f"{text[:20000]}\n[{len(text) - 20000} more characters not saved]"
                 self.message_store.save_tool_result(name, bool(block.is_error), saved)
                 if getattr(self.ui, "shows_tool_results", False):
-                    self.ui.tool_result(name, bool(block.is_error), text)
+                    self.ui.tool_result(name, bool(block.is_error), text, call_id=block.tool_use_id)
 
     def _record_assistant(self, message: AssistantMessage) -> str | None:
         """Shows and logs an assistant message's blocks. Claude Code's own notice of a failed call is returned instead:
@@ -225,7 +225,7 @@ class ClaudeEngineer(BaseEngineer):
                 last_tool_name = block.name
                 if tool_id := getattr(block, "id", None):
                     self._tool_names[tool_id] = block.name
-                self.ui.tool_start(block.name, block.input)
+                self.ui.tool_start(block.name, block.input, call_id=getattr(block, "id", None))
                 self.message_store.save_tool_start(block.name, block.input)
             elif isinstance(block, ToolResultBlock):
                 is_error = block.is_error if block.is_error else False

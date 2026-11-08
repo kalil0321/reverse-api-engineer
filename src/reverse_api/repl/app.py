@@ -658,9 +658,17 @@ class Session:
             self.view.notice(f"no run {run_id}")
         elif not self.cli.resumable(run):
             # Its conversation can still be read; there is just no session to continue it in.
-            if not self.replay(run_id, run):
-                self.view.run_details(run)
-            self.view.notice(f"run {run_id} saved no session, so it cannot continue · /history re-engineers it")
+
+            def show() -> None:
+                if not self.replay(run_id, run):
+                    self.view.run_details(run)
+                self.view.notice(f"run {run_id} saved no session, so it cannot continue · /history re-engineers it")
+                self.invalidate()
+
+            if st.running:
+                self.after_run = show  # a run still closing: its last lines and the replayed ones would interleave
+            else:
+                show()
         elif st.running or st.waiting:
             # The open conversation only waits for a follow-up, or is already closing: end it, then switch.
             self.after_run = lambda: self.reopen(run_id, run)
@@ -704,7 +712,7 @@ class Session:
         st, b, ui = self.st, self.bridge, LedgerUI(self.bridge)
         saved = (st.step, st.tokens, st.cost, st.started, st.run_model, st.run_sdk, st.run_effort, st.kind, st.verb, st.host, st.client_name)
         # A conversation that waits for a follow-up keeps its own client card and folder.
-        bridge_saved = (b.verified, b.workspace, b.pending_card, b.plan, b.plan_new, b.plan_changed, b.plan_shown)
+        bridge_saved = (b.verified, b.workspace, b.pending_card, b.plan, b.plan_calls, b.plan_made, b.plan_changed, b.plan_shown)
         b.verified, b.pending_card = False, None
         b.reset_plan()
         # The client card reads the run's own numbers, not this session's; each result sets them as they were then.
@@ -752,7 +760,7 @@ class Session:
             b.flush_card()
         finally:
             st.step, st.tokens, st.cost, st.started, st.run_model, st.run_sdk, st.run_effort, st.kind, st.verb, st.host, st.client_name = saved
-            b.verified, b.workspace, b.pending_card, b.plan, b.plan_new, b.plan_changed, b.plan_shown = bridge_saved
+            b.verified, b.workspace, b.pending_card, b.plan, b.plan_calls, b.plan_made, b.plan_changed, b.plan_shown = bridge_saved
         return True
 
     @staticmethod

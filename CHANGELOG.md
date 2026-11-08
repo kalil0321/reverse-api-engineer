@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/help` says what rae does and lists the modes (the current one marked), every command and every key.
 - Lists and the command menu go around: down on the last item moves to the first, up on the first to the last.
 - A blank line parts the conversation from the input bar.
+- `--json-stream` tool events of Claude runs carry the tool call's `call_id`, as Cursor runs' already did.
 
 ### Removed
 - `/messages`: `/resume` shows a past run's whole conversation, also for a run that saved no session and so cannot continue, and `/history` its details.

@@ -173,6 +173,22 @@ class TestLedgerUI:
         view.flush_live()
         assert "○ Find the API" in plain(t) and "✓ Find the API" not in plain(t)
 
+    def test_task_results_out_of_order_find_their_own_call(self, session):
+        _st, t, view, b = session
+        ui = LedgerUI(b)
+        for n, subject in ((1, "Find the API"), (2, "Write the client")):
+            ui.tool_start("TaskCreate", {"subject": subject, "description": "x"}, call_id=f"c{n}")
+        ui.tool_result("TaskCreate", False, "Task #2 created successfully: Write the client", call_id="c2")
+        ui.tool_result("TaskCreate", False, "Task #1 created successfully: Find the API", call_id="c1")
+        ui.tool_start("TaskUpdate", {"taskId": "1", "status": "completed"}, call_id="u1")
+        ui.tool_start("TaskUpdate", {"taskId": "2", "status": "in_progress"}, call_id="u2")
+        ui.tool_result("TaskUpdate", True, "Task #2 is blocked", call_id="u2")
+        ui.tool_result("TaskUpdate", False, "Updated task #1 status", call_id="u1")
+        ui.thinking("next")
+        view.flush_live()
+        text = plain(t)
+        assert "✓ Find the API" in text and "○ Write the client" in text
+
     def test_a_task_list_catches_a_resumed_run_up(self, session):
         _st, t, view, b = session
         ui = LedgerUI(b)
@@ -1581,6 +1597,18 @@ class TestResume:
         work.assert_not_called()
         text = plain(session.transcript)
         assert "› all jobs" in text and "run old1 saved no session, so it cannot continue" in text
+
+    def test_a_run_without_a_session_waits_for_a_closing_run_before_its_replay(self, app_session):
+        session, history = app_session
+        history.get_run.return_value = {"run_id": "old1", "prompt": "jobs", "timestamp": "2026-10-01T10:00:00"}
+        session.st.running, session.bridge.stopping = True, True
+        with patch("reverse_api.repl.app.MessageStore") as store:
+            store.return_value.load.return_value = [{"type": "prompt", "content": "all jobs", "timestamp": "2026-10-01T10:00:00"}]
+            session.run_command("/resume old1")
+            assert "all jobs" not in plain(session.transcript) and session.after_run is not None
+            with patch.object(session, "call_soon", side_effect=lambda fn: fn()):
+                session.finish({})
+        assert "› all jobs" in plain(session.transcript)
 
     def test_a_log_that_cannot_be_read_falls_back_to_the_runs_details(self, app_session):
         session, history = app_session

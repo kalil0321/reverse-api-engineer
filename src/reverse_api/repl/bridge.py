@@ -207,13 +207,21 @@ class Bridge:
 
     def reset_plan(self) -> None:
         self.plan: dict[str, dict[str, Any]] = {}  # the agent's tasks by id, in the order it made them
-        self.plan_new: list[str] = []  # tasks TaskCreate made whose id its result has not given yet
+        # TaskCreate and TaskUpdate calls waiting for their result: (call id, tool, the new task's key or the task as it was)
+        self.plan_calls: list[tuple[str | None, str, Any]] = []
         self.plan_made = 0  # TaskCreate calls so far, so each waiting task gets its own key
-        self.plan_updates: list[tuple[str, dict[str, Any] | None]] = []  # each TaskUpdate's task as it was, until its result
         self.plan_changed = False
         self.plan_shown: list[dict[str, Any]] | None = None
 
-    def plan_tool(self, name: str, args: dict[str, Any]) -> bool:
+    def plan_call(self, name: str, call_id: str | None) -> Any:
+        """The waiting call a result answers: the one with its id when the SDK gives ids, else the oldest of that tool."""
+        same = [i for i, (cid, tool, _) in enumerate(self.plan_calls) if tool == name]
+        exact = [i for i in same if call_id is not None and self.plan_calls[i][0] == call_id]
+        if not (exact or same):
+            return None
+        return self.plan_calls.pop((exact or same)[0])[2]
+
+    def plan_tool(self, name: str, args: dict[str, Any], call_id: str | None = None) -> bool:
         """Takes a todo, plan or task tool's call into the plan; False for any other tool."""
         if name in PLAN_TOOLS:
             items = args.get("todos") if isinstance(args.get("todos"), list) else args.get("plan")
@@ -224,12 +232,12 @@ class Bridge:
             key, self.plan_made = f"new-{self.plan_made}", self.plan_made + 1
             subject = args.get("subject") or args.get("description") or "task"
             self.plan[key] = {"subject": subject, "activeForm": args.get("activeForm"), "status": "pending"}
-            self.plan_new.append(key)
+            self.plan_calls.append((call_id, name, key))
             self.plan_changed = True
         elif name == "TaskUpdate":
             task_id = str(args.get("taskId"))
             before = self.plan.get(task_id)
-            self.plan_updates.append((task_id, dict(before) if before is not None else None))
+            self.plan_calls.append((call_id, name, (task_id, dict(before) if before is not None else None)))
             if task_id in self.plan and args.get("status") == "deleted":
                 self.plan.pop(task_id)
                 self.plan_changed = True
@@ -238,18 +246,18 @@ class Bridge:
                 self.plan_changed = True
         return name in TASK_TOOLS
 
-    def plan_result(self, name: str, output: str, failed: bool = False) -> None:
+    def plan_result(self, name: str, output: str, failed: bool = False, call_id: str | None = None) -> None:
         """TaskCreate's result names the task's id; TaskList's lists every task, so a resumed run catches up."""
-        if name == "TaskCreate" and self.plan_new:
-            # Results come back in the order of the calls: this one is the oldest task still waiting for its id.
-            key, found = self.plan_new.pop(0), re.search(r"#(\w+)", output)
+        call = self.plan_call(name, call_id) if name in ("TaskCreate", "TaskUpdate") else None
+        if name == "TaskCreate" and call is not None:
+            key, found = call, re.search(r"#(\w+)", output)
             if failed:
                 self.plan.pop(key, None)  # the task was never made
                 self.plan_changed = True
             elif found and key in self.plan:
                 self.plan = {(found.group(1) if k == key else k): v for k, v in self.plan.items()}
-        elif name == "TaskUpdate" and self.plan_updates:
-            task_id, before = self.plan_updates.pop(0)
+        elif name == "TaskUpdate" and call is not None:
+            task_id, before = call
             if failed and before is not None:
                 self.plan[task_id] = before  # back in its place, or at the end if the call had deleted it
                 self.plan_changed = True
@@ -262,7 +270,7 @@ class Bridge:
 
     def set_plan(self, items: list[Any]) -> None:
         self.plan = {str(i): dict(item) for i, item in enumerate(items) if isinstance(item, dict)}
-        self.plan_new, self.plan_changed = [], True
+        self.plan_calls, self.plan_changed = [], True
 
     def flush_plan(self) -> None:
         """Shows the plan once a batch of changes is done, and only when it differs from the one shown."""
@@ -393,7 +401,7 @@ class LedgerUI:
                 args = parsed if isinstance(parsed, dict) else {}
             except json.JSONDecodeError:
                 args = {}
-        if self.b.plan_tool(name, args):
+        if self.b.plan_tool(name, args, call_id):
             self._changed()
             return  # its change shows with the next step, message or card, so a batch of them makes one plan
         self.b.flush_card()
@@ -424,7 +432,7 @@ class LedgerUI:
         _ = call_id
         name = short_name(tool_name)
         if name in PLAN_TOOLS or name in TASK_TOOLS:
-            self.b.plan_result(name, str(output or ""), failed=is_error)
+            self.b.plan_result(name, str(output or ""), failed=is_error, call_id=call_id)
             return
         if name in HIDDEN_TOOLS:
             return
