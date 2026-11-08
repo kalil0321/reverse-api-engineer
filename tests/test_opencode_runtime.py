@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import signal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx2 as httpx
@@ -326,9 +327,10 @@ def test_a_server_whose_launcher_exited_is_still_stopped():
         killpg.side_effect = [None, None, ProcessLookupError()]
         opencode_runtime.stop_managed_opencode_server()
     process.terminate.assert_not_called()
-    assert killpg.call_args_list[0].args == (4242, opencode_runtime.signal.SIGTERM)
+    assert [c.args for c in killpg.call_args_list] == [(4242, opencode_runtime.signal.SIGTERM), (4242, 0), (4242, 0)]
 
 
+@pytest.mark.skipif(not hasattr(signal, "SIGKILL"), reason="process groups are POSIX")
 def test_a_group_left_after_the_grace_period_is_killed():
     with patch.object(opencode_runtime.os, "killpg", create=True) as killpg:
         opencode_runtime._stop_group(4242, grace=0)

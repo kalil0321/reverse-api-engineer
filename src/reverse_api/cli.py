@@ -1091,8 +1091,9 @@ def run_collector(prompt: str | None = None, model: str | None = None, output_di
 
         try:
             result = asyncio.run(collector.run())
-        except asyncio.CancelledError as exc:
-            result = getattr(exc, "partial_result", None)
+        except (asyncio.CancelledError, KeyboardInterrupt) as exc:
+            # Stopped: from the session, or by ctrl+c, which reaches here as KeyboardInterrupt over the cancellation.
+            result = getattr(exc, "partial_result", None) or getattr(exc.__context__, "partial_result", None)
             _record_collection(run_id, result)
             raise
         _record_collection(run_id, result)

@@ -1205,6 +1205,14 @@ def run_session(
         asyncio.run(session.run())
     except KeyboardInterrupt:
         pass
+    # The loop's handlers went with it; another kill while the run wraps up still exits normally, so atexit runs.
+    for name in ("SIGTERM", "SIGHUP"):
+        if hasattr(signal, name):
+            signal.signal(getattr(signal, name), exit_on_signal)
     session.wait_for_run()
     session.print_transcript()
+
+
+def exit_on_signal(signum: int, _frame: Any) -> None:
+    raise SystemExit(128 + signum)
 

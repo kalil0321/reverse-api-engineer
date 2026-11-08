@@ -2174,17 +2174,25 @@ class TestPortedScreens:
         assert plain(t).count("Done") == 3
 
     def test_a_stopped_collector_keeps_what_it_collected(self, tmp_path, monkeypatch):
+        import json
+
         from reverse_api import cli
+        from reverse_api.collector import Collector
 
         history = MagicMock()
         monkeypatch.setattr(cli, "session_manager", history)
-        stopped = asyncio.CancelledError()
-        stopped.partial_result = {"output_path": str(tmp_path), "usage": {"input_tokens": 5}}
-        with patch("reverse_api.collector.Collector") as collector, patch.object(cli.asyncio, "run", side_effect=stopped):
-            collector.return_value.run = MagicMock()
+        monkeypatch.setattr("reverse_api.collector.get_collected_dir", lambda name: tmp_path)
+        monkeypatch.setattr("reverse_api.collector.generate_folder_name", lambda prompt: "companies")
+
+        async def stopped_after_two(self):
+            self.items_path.write_text(json.dumps({"company": "Acme"}) + "\n" + json.dumps({"company": "Globex"}) + "\n")
+            raise asyncio.CancelledError  # esc in the session
+
+        with patch("reverse_api.collector.MessageStore"), patch.object(Collector, "_agent_loop", stopped_after_two):
             with pytest.raises(asyncio.CancelledError):
                 cli.run_collector(prompt="companies hiring", model="claude-haiku-5-5")
         assert history.update_run.call_args.kwargs["paths"] == {"output_path": str(tmp_path)}
+        assert len(json.loads((tmp_path / "data.json").read_text())) == 2 and (tmp_path / "data.csv").exists()
 
 
 def test_an_update_is_only_a_newer_release():
@@ -2211,3 +2219,5 @@ def test_a_kill_quits_the_session_like_ctrl_d(app_session):
         asyncio.run(session.run())
     handlers = {c.args[0]: c.args[1] for c in loop.add_signal_handler.call_args_list}
     assert handlers.get(signal.SIGTERM) == session.quit
+    if hasattr(signal, "SIGHUP"):
+        assert handlers.get(signal.SIGHUP) == session.quit
