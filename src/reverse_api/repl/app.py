@@ -7,6 +7,7 @@ the collector, on every SDK. A run works in a worker thread; the app's own threa
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import io
 import os
 import re
@@ -1154,6 +1155,12 @@ class Session:
         self.loop = asyncio.get_running_loop()
         self.app = self.build()
         activate(self.bridge)
+        # A kill or a closed terminal quits like ctrl+d: the run stops (a manual capture saves its HAR, an OpenCode
+        # run aborts its session), then run_session waits for its worker and exits normally.
+        for name in ("SIGTERM", "SIGHUP"):
+            if hasattr(signal, name):
+                with contextlib.suppress(NotImplementedError, RuntimeError):
+                    self.loop.add_signal_handler(getattr(signal, name), self.quit)
         sys.stdout = sys.stderr = cast(IO[str], self.capture)
         # The SDK warns once that bypassPermissions shadows can_use_tool; it is not for the user.
         warnings.filterwarnings("ignore", message=".*can_use_tool.*")
@@ -1194,10 +1201,6 @@ def run_session(
     session.first = first
     if runner is not None:
         session.runners[mode] = runner
-    # A kill or a closed terminal ends rae through its normal exit, so what it started (an OpenCode server) stops too.
-    for name in ("SIGTERM", "SIGHUP"):
-        if hasattr(signal, name):
-            signal.signal(getattr(signal, name), exit_on_signal)
     try:
         asyncio.run(session.run())
     except KeyboardInterrupt:
@@ -1205,6 +1208,3 @@ def run_session(
     session.wait_for_run()
     session.print_transcript()
 
-
-def exit_on_signal(signum: int, _frame: Any) -> None:
-    raise SystemExit(128 + signum)

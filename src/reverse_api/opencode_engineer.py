@@ -226,6 +226,7 @@ class OpenCodeEngineer(BaseEngineer):
             return {}
         combined_prompt = opening if self.resume_session else f"{system_prompt}\n\n{user_message}"
 
+        event_task: asyncio.Task | None = None
         try:
             auth = self._get_auth()
             async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=600.0, auth=auth) as client:
@@ -309,7 +310,7 @@ class OpenCodeEngineer(BaseEngineer):
             return result_data
 
         except asyncio.CancelledError:
-            await self._abort_on_stop()
+            await self._stopped(event_task)
             raise
 
         except httpx.HTTPStatusError as e:
@@ -684,6 +685,13 @@ class OpenCodeEngineer(BaseEngineer):
         except Exception as e:
             debug_log(f"Error checking session: {e}")
 
+    async def _stopped(self, event_task: asyncio.Task | None) -> None:
+        """A run stopped from rae: its text ends, its event stream stops updating the UI, and OpenCode stops working."""
+        self.opencode_ui.stop_streaming()
+        if event_task is not None:
+            event_task.cancel()
+        await self._abort_on_stop()
+
     async def _abort_on_stop(self) -> None:
         """A run stopped from rae: OpenCode would otherwise keep the agent and its subagents working."""
         if not self._session_id:
@@ -748,7 +756,7 @@ class OpenCodeEngineer(BaseEngineer):
                 return
 
             # Use delta for incremental updates if available
-            self.opencode_ui.update_text(text, delta)
+            self.opencode_ui.update_text(text, delta, part_id=part_id or None)
 
             # Save to message store (only significant updates)
             if len(text) > 50 and part_id not in seen_parts:

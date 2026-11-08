@@ -213,6 +213,7 @@ class ManualBrowser:
         self._using_persistent = False  # Track if using persistent context
         # Set from another thread (the session's esc); the browsing loop, on Playwright's own thread, sees it.
         self._stop = threading.Event()
+        self._ended_by_stop = False
 
     def stop(self) -> None:
         """Ends the browsing, as closing the browser does; the capture so far is saved."""
@@ -221,7 +222,22 @@ class ManualBrowser:
     @property
     def stopped(self) -> bool:
         """Whether the browsing ended by stop() rather than by closing the browser."""
-        return self._stop.is_set()
+        return self._ended_by_stop
+
+    def _browse(self, page: Page, url: str) -> None:
+        """Opens url, then waits until the user closes the browser or stop() ends the browsing."""
+        try:
+            page.goto(url, wait_until="domcontentloaded")
+        except Exception:
+            # stop() cannot interrupt a navigation; one that failed because of it still keeps what was captured.
+            if not self._stop.is_set():
+                raise
+        try:
+            while self._context and self._context.pages and not self._stop.is_set():
+                self._context.pages[0].wait_for_timeout(100)
+        except Exception:
+            pass  # the browser was closed
+        self._ended_by_stop = self._stop.is_set()
 
     def _save_metadata(self, end_time: str) -> None:
         """Save run metadata to JSON file."""
@@ -319,18 +335,7 @@ class ManualBrowser:
             # For HAR recording & context
             page = self._context.new_page()
 
-            if start_url:
-                page.goto(start_url, wait_until="domcontentloaded")
-            else:
-                page.goto("https://www.google.com", wait_until="domcontentloaded")
-
-            # Wait for browser to close
-            try:
-                while self._context.pages and not self._stop.is_set():
-                    self._context.pages[0].wait_for_timeout(100)
-            except Exception:
-                pass
-
+            self._browse(page, start_url or "https://www.google.com")
             return self.close()
 
         finally:
@@ -410,19 +415,7 @@ class ManualBrowser:
         # Open initial page
         page = self._context.new_page()
 
-        if start_url:
-            page.goto(start_url, wait_until="domcontentloaded")
-        else:
-            # For HAR recording & context
-            page.goto("about:blank")
-
-        # Wait for browser to close
-        try:
-            while self._context.pages and not self._stop.is_set():
-                self._context.pages[0].wait_for_timeout(100)
-        except Exception:
-            pass
-
+        self._browse(page, start_url or "about:blank")
         return self.close()
 
     def start(self, start_url: str | None = None) -> Path:

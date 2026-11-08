@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/messages`: `/resume` shows a past run's whole conversation, also for a run that saved no session and so cannot continue, and `/history` its details.
 
 ### Fixed
-- An OpenCode server rae started stops with rae even when rae is killed or its terminal is closed, and its whole process tree stops, not only the `npx` launcher, which could leave `opencode serve` listening.
+- An OpenCode server started by rae stops with rae even when rae is killed or its terminal is closed, and its whole process tree stops, not only the `npx` launcher, which could leave `opencode serve` listening.
 - In tool output, a line of binary data (such as a compressed response body) shows as "(binary data)", and a long line in a diff is cut instead of wrapping to the left edge.
 - The update notice no longer offers an older release: it appeared whenever PyPI's version differed from the installed one, as with 0.15.0 before its publication.
 - `agent --url` reaches the agent: its first message names the start URL, instead of the URL being checked and then dropped (#140).

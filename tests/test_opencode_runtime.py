@@ -312,6 +312,31 @@ def test_stopping_the_server_stops_its_whole_process_group():
     process.poll.return_value = None
     opencode_runtime._PROCESS = process
     with patch.object(opencode_runtime.sys, "platform", "darwin"), patch.object(opencode_runtime.os, "killpg", create=True) as killpg:
+        killpg.side_effect = [None, ProcessLookupError()]  # SIGTERM, then the group is found empty
         opencode_runtime.stop_managed_opencode_server()
     process.terminate.assert_called_once_with()
-    killpg.assert_called_once_with(4242, opencode_runtime.signal.SIGTERM)
+    assert [c.args for c in killpg.call_args_list] == [(4242, opencode_runtime.signal.SIGTERM), (4242, 0)]
+
+
+def test_a_server_whose_launcher_exited_is_still_stopped():
+    process = MagicMock(pid=4242)
+    process.poll.return_value = 0  # npx is gone, opencode may not be
+    opencode_runtime._PROCESS = process
+    with patch.object(opencode_runtime.sys, "platform", "linux"), patch.object(opencode_runtime.os, "killpg", create=True) as killpg:
+        killpg.side_effect = [None, None, ProcessLookupError()]
+        opencode_runtime.stop_managed_opencode_server()
+    process.terminate.assert_not_called()
+    assert killpg.call_args_list[0].args == (4242, opencode_runtime.signal.SIGTERM)
+
+
+def test_a_group_left_after_the_grace_period_is_killed():
+    with patch.object(opencode_runtime.os, "killpg", create=True) as killpg:
+        opencode_runtime._stop_group(4242, grace=0)
+    assert [c.args for c in killpg.call_args_list] == [(4242, opencode_runtime.signal.SIGTERM), (4242, opencode_runtime.signal.SIGKILL)]
+
+
+def test_only_a_real_process_id_is_signalled():
+    with patch.object(opencode_runtime.os, "killpg", create=True) as killpg:
+        opencode_runtime._stop_group(MagicMock())
+        opencode_runtime._stop_group(1)
+    killpg.assert_not_called()

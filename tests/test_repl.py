@@ -1036,7 +1036,13 @@ def test_long_diff_lines_and_binary_output_stay_readable(session, monkeypatch):
     ledger.receipt(["200 application/json 1094", "A�,\x00 V����j�\x12H���s�"])
     lines = [line for line in plain(t).splitlines() if line.strip()]
     assert all(line.startswith(" " * 15) for line in lines), lines
-    assert "(binary data)" in plain(t) and "�" not in plain(t)
+    assert "(binary data)" in plain(t) and "\ufffd" not in plain(t)
+    from reverse_api.repl.view import readable
+
+    assert readable("\x1b[32mPASS\x1b[0m tests/test_api.py") == "\x1b[32mPASS\x1b[0m tests/test_api.py", "colors are text"
+    ledger.diff("x" * 200, "y", "python")
+    full = t.full[-1]
+    assert all(not row.no_wrap for row in full.renderables), "ctrl+o keeps long diff lines whole"
 
 
 def test_a_long_step_stays_on_one_line_at_any_width(session, monkeypatch):
@@ -2091,6 +2097,7 @@ class TestPortedScreens:
         ui.usage_summary({"input_tokens": 100, "output_tokens": 20, "estimated_cost_usd": 0.01})
         text = plain(t)
         assert "run r1 · collector" in text and "saved" in text and "Acme" in text and "2 items collected" in text
+        assert str(tmp_path) in "".join(line.strip() for line in text.splitlines())
         assert st.run_model == "claude-haiku-5-5" and st.tokens == 120
 
     def test_esc_ends_the_browsing_and_keeps_the_capture(self, app_session, tmp_path, monkeypatch):
@@ -2129,8 +2136,55 @@ class TestPortedScreens:
             with pytest.raises(RuntimeError):
                 b.start()
         set_handler.assert_not_called()
-        b.stop()
+
+    def test_a_stop_during_the_first_navigation_keeps_the_capture(self, tmp_path):
+        from reverse_api import browser
+
+        b = browser.ManualBrowser(run_id="r1", prompt="jobs", output_dir=str(tmp_path))
+        page = MagicMock()
+
+        def stalled(url, wait_until):
+            b.stop()  # esc while the page loads
+            raise TimeoutError("navigation timed out")
+
+        page.goto.side_effect = stalled
+        b._context = MagicMock(pages=[page])
+        b._browse(page, "https://example.com")
         assert b.stopped
+
+    def test_a_browser_closed_by_the_user_is_not_a_stop(self, tmp_path):
+        from reverse_api import browser
+
+        b = browser.ManualBrowser(run_id="r1", prompt="jobs", output_dir=str(tmp_path))
+        b._context = MagicMock(pages=[])
+        b._browse(MagicMock(), "about:blank")
+        b.stop()  # esc while the HAR is written: the browsing had already ended
+        assert not b.stopped
+
+    def test_opencode_parts_are_told_apart_by_their_id(self, session):
+        _st, t, view, b = session
+        from reverse_api.repl.bridge import OpenCodeLedgerUI
+
+        ui = OpenCodeLedgerUI(b)
+        ui.update_text("Done", "Done", part_id="p1")
+        ui.update_text("Done", "Done", part_id="p2")
+        ui.update_text("Done checking", " checking", part_id="p3")
+        ui.stop_streaming()
+        view.flush_live()
+        assert plain(t).count("Done") == 3
+
+    def test_a_stopped_collector_keeps_what_it_collected(self, tmp_path, monkeypatch):
+        from reverse_api import cli
+
+        history = MagicMock()
+        monkeypatch.setattr(cli, "session_manager", history)
+        stopped = asyncio.CancelledError()
+        stopped.partial_result = {"output_path": str(tmp_path), "usage": {"input_tokens": 5}}
+        with patch("reverse_api.collector.Collector") as collector, patch.object(cli.asyncio, "run", side_effect=stopped):
+            collector.return_value.run = MagicMock()
+            with pytest.raises(asyncio.CancelledError):
+                cli.run_collector(prompt="companies hiring", model="claude-haiku-5-5")
+        assert history.update_run.call_args.kwargs["paths"] == {"output_path": str(tmp_path)}
 
 
 def test_an_update_is_only_a_newer_release():
@@ -2144,13 +2198,16 @@ def test_an_update_is_only_a_newer_release():
     with patch.object(utils.httpx, "get", return_value=response), patch.object(utils, "__version__", "0.15.0"):
         assert "0.15.0 → 0.15.1" in (utils.check_for_updates() or "")
     assert utils.version_key("0.10.0") > utils.version_key("0.9.3")
+    assert utils.version_key("0.15.0") > utils.version_key("0.15.0rc1") > utils.version_key("0.15.0.dev1")
 
 
-def test_a_kill_ends_the_session_through_its_normal_exit():
+def test_a_kill_quits_the_session_like_ctrl_d(app_session):
     import signal
 
-    from reverse_api.repl.app import exit_on_signal
-
-    with pytest.raises(SystemExit) as exited:
-        exit_on_signal(signal.SIGTERM, None)
-    assert exited.value.code == 128 + signal.SIGTERM
+    session, _history = app_session
+    loop = MagicMock()
+    with patch("reverse_api.repl.app.asyncio.get_running_loop", return_value=loop), patch.object(session, "build") as build:
+        build.return_value.run_async = AsyncMock()
+        asyncio.run(session.run())
+    handlers = {c.args[0]: c.args[1] for c in loop.add_signal_handler.call_args_list}
+    assert handlers.get(signal.SIGTERM) == session.quit

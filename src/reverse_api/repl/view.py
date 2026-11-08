@@ -135,10 +135,15 @@ def terminal_safe(text: str) -> str:
     return _DRIFT.sub("", text)
 
 
+ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
 def readable(line: str) -> str:
-    """A line of tool output, or a word for it when it is bytes rather than text, such as a compressed body."""
-    odd = sum(1 for ch in line if ch == "�" or (ord(ch) < 32 and ch != "\t"))
-    return "(binary data)" if line and odd * 10 > len(line) else line
+    """A line of tool output, or a word for it when it is bytes rather than text, such as a compressed body.
+    Terminal colors are text: a test runner's green PASS is not binary."""
+    text = ANSI.sub("", line)
+    odd = sum(1 for ch in text if ch == "\ufffd" or (ord(ch) < 32 and ch != "\t"))
+    return "(binary data)" if text and odd * 10 > len(text) else line
 
 
 def strip_markdown(text: str) -> str:
@@ -563,9 +568,9 @@ class LedgerView:
         old, new = removed.splitlines(), added.splitlines()
         rows = [Text.assemble(" " * INDENT, ("- ", f"bold {PINK}"), code_line(line)) for line in old]
         rows += [Text.assemble(" " * INDENT, ("+ ", f"bold {MINT}"), code_line(line)) for line in new]
-        for row in rows:
-            row.no_wrap, row.overflow = True, "ellipsis"  # a wrapped line would start again at the left edge
-        shown = rows[: OUTPUT_PREVIEW * 2]
+        shown = [row.copy() for row in rows[: OUTPUT_PREVIEW * 2]]
+        for row in shown:
+            row.no_wrap, row.overflow = True, "ellipsis"  # a wrapped line would start again at the left edge; ctrl+o keeps it whole
         if len(rows) > len(shown):
             self.st.folded = True
             shown.append(Text.assemble(" " * (INDENT + 2), (f"+{len(rows) - len(shown)} lines · ctrl+o full output", DIM)))

@@ -385,42 +385,72 @@ def stop_managed_opencode_server() -> None:
         _PROCESS_URL = None
         _PROCESS_ENV_OVERRIDES = {}
 
-    if process is None or process.poll() is not None:
+    if process is None:
         return
     if sys.platform == "win32":
-        # npx.cmd -> node -> opencode: terminating only the launcher leaves
-        # the server listening. Kill its tree while the parent PID still exists.
-        taskkill = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "taskkill.exe")
+        _stop_windows_tree(process)
+        return
+    # npx -> node -> opencode: the launcher can exit and leave the server listening. It was started in a session of
+    # its own, so its process group holds the whole tree, whether the launcher is still there or not.
+    if process.poll() is None:
         try:
-            result = subprocess.run(
-                [taskkill, "/PID", str(process.pid), "/T", "/F"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                timeout=5, check=False,
-            )
-            if result.returncode == 0:
-                process.wait(timeout=3)
-                return
-        except (OSError, subprocess.TimeoutExpired):
-            pass  # Best-effort parent cleanup if taskkill is unavailable.
+            process.terminate()
+        except OSError:
+            pass
+    _stop_group(process.pid)
+    if process.poll() is None:
+        try:
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=3)
+
+
+def _stop_windows_tree(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is not None:
+        return
+    # npx.cmd -> node -> opencode: terminating only the launcher leaves
+    # the server listening. Kill its tree while the parent PID still exists.
+    taskkill = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "taskkill.exe")
+    try:
+        result = subprocess.run(
+            [taskkill, "/PID", str(process.pid), "/T", "/F"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=5, check=False,
+        )
+        if result.returncode == 0:
+            process.wait(timeout=3)
+            return
+    except (OSError, subprocess.TimeoutExpired):
+        pass  # Best-effort parent cleanup if taskkill is unavailable.
     try:
         process.terminate()
     except OSError:
         return
-    _signal_group(process.pid, signal.SIGTERM)
     try:
         process.wait(timeout=3)
     except subprocess.TimeoutExpired:
         process.kill()
-        _signal_group(process.pid, signal.SIGKILL)
         process.wait(timeout=3)
 
 
-def _signal_group(pid: int, sig: int) -> None:
-    """npx -> node -> opencode: the launcher can exit and leave the server listening. It was started in a session of
-    its own, so its process group holds the whole tree."""
-    if sys.platform == "win32" or not hasattr(os, "killpg"):
+def _stop_group(pid: object, grace: float = 3.0) -> None:
+    """SIGTERM to a process group, then SIGKILL once the grace period ends with any of its members left."""
+    # Only a real child's id: process group 1 is everything the init process leads.
+    if not isinstance(pid, int) or pid <= 1 or not hasattr(os, "killpg"):
         return
     try:
-        os.killpg(pid, sig)
-    except (OSError, TypeError):
-        pass  # the group is already gone
+        os.killpg(pid, signal.SIGTERM)
+    except OSError:
+        return  # no such group: everything in it already exited
+    deadline = time.monotonic() + grace
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(pid, 0)
+        except OSError:
+            return
+        time.sleep(0.05)
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except OSError:
+        pass

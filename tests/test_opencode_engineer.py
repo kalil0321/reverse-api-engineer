@@ -1267,7 +1267,7 @@ class TestOpenCodeEngineerStreamEvents:
 
         await eng._stream_events(mock_client)
 
-        eng.opencode_ui.update_text.assert_called_once_with("Assistant answer", None)
+        eng.opencode_ui.update_text.assert_called_once_with("Assistant answer", None, part_id="part_assistant")
         assert eng._pending_text_parts == {}
 
     @pytest.mark.asyncio
@@ -1314,7 +1314,7 @@ class TestOpenCodeEngineerStreamEvents:
         await eng._stream_events(mock_client)
 
         assert eng._last_error is None
-        eng.opencode_ui.update_text.assert_called_once_with("Late assistant answer", None)
+        eng.opencode_ui.update_text.assert_called_once_with("Late assistant answer", None, part_id="part_assistant")
         assert eng._pending_text_parts == {}
         mock_client.get.assert_awaited_once_with("/session/session_abc/message")
 

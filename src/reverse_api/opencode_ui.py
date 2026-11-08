@@ -108,8 +108,9 @@ class OpenCodeUI:
 
         return display
 
-    def update_text(self, text: str, delta: str | None = None) -> None:
+    def update_text(self, text: str, delta: str | None = None, part_id: str | None = None) -> None:
         """Update the streaming text display."""
+        _ = part_id
         if delta:
             self._current_text += delta
         else:

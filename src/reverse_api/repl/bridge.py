@@ -557,23 +557,26 @@ class CursorLedgerUI(LedgerUI):
 
 class OpenCodeLedgerUI(LedgerUI):
     """Drop-in for OpenCodeUI while the session is open. OpenCode sends each text part whole again as it grows,
-    with no end: a part is complete when the next one starts, or a step, the result or an error comes."""
+    with no end: a part is complete when another one starts, or a step, the result or an error comes."""
 
     def __init__(self, bridge: Bridge, verbose: bool = True) -> None:
         super().__init__(bridge, verbose=verbose)
         self._text = ""
+        self._part: str | None = None
 
     def _settle(self) -> None:
         if self._text:
             self.view.stream_done(self._text)
             self._text = ""
             self._changed()
+        self._part = None
 
-    def update_text(self, text: str, delta: str | None = None) -> None:
-        _ = delta  # the whole part is in text; the part before it ended if this one does not continue it
-        if self._text and not text.startswith(self._text):
+    def update_text(self, text: str, delta: str | None = None, part_id: str | None = None) -> None:
+        _ = delta  # the whole part is in text
+        # Another part, by its id when OpenCode gives one; text that does not continue the part shown is one too.
+        if self._text and ((part_id is not None and part_id != self._part) or not text.startswith(self._text)):
             self._settle()
-        new, self._text = text[len(self._text) :], text
+        new, self._text, self._part = text[len(self._text) :], text, part_id
         if new:
             self.stream_text(new)
 

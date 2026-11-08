@@ -184,9 +184,18 @@ def check_for_updates() -> str | None:
     return None
 
 
+_VERSION = re.compile(r"(\d+)\.(\d+)(?:\.(\d+))?(?:(a|b|rc)(\d+))?(?:\.post(\d+))?(?:\.dev(\d+))?")
+
+
 def version_key(version: str) -> tuple[int, ...]:
-    """A release number as numbers to compare: 0.15.0 comes after 0.9.3."""
-    return tuple(int(part) for part in re.findall(r"\d+", version.split("+")[0])[:3])
+    """A release number to compare: 0.15.0 comes after 0.9.3 and after its own 0.15.0rc1 and 0.15.0.dev1."""
+    found = _VERSION.match(version.split("+")[0].strip())
+    if found is None:
+        return (0,)
+    major, minor, micro, stage, stage_n, post, dev = found.groups()
+    # dev, then a, b and rc pre-releases, then the release itself and its post-releases
+    rank = {"a": 1, "b": 2, "rc": 3}.get(stage or "", 0 if dev is not None else 4)
+    return (int(major), int(minor), int(micro or 0), rank, int(stage_n or 0), int(post or 0))
 
 
 def generate_folder_name(prompt: str, sdk: str | None = None, session_id: str | None = None) -> str:

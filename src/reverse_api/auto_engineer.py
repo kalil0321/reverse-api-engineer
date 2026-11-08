@@ -457,6 +457,7 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
             return {}
         active_prompt = opening if self.resume_session else f"{system_prompt}\n\n{user_message}"
 
+        event_task: asyncio.Task | None = None
         try:
             auth = self._get_auth()
             async with httpx.AsyncClient(base_url=self.BASE_URL, timeout=600.0, auth=auth) as client:
@@ -554,7 +555,7 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
             return result_data
 
         except asyncio.CancelledError:
-            await self._abort_on_stop()
+            await self._stopped(event_task)
             raise
 
         except httpx.HTTPStatusError as e:

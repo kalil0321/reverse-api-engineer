@@ -1049,6 +1049,16 @@ def run_agent_capture(
     )
 
 
+def _record_collection(run_id: str, result: dict[str, Any] | None) -> None:
+    if result and not result.get("error"):
+        session_manager.update_run(
+            run_id=run_id,
+            sdk="claude",
+            usage=result.get("usage", {}),
+            paths={"output_path": result.get("output_path")},
+        )
+
+
 def run_collector(prompt: str | None = None, model: str | None = None, output_dir: str | None = None) -> dict[str, Any] | None:
     """Run AI-powered data collection with Collector class."""
 
@@ -1079,16 +1089,13 @@ def run_collector(prompt: str | None = None, model: str | None = None, output_di
             output_dir=output_dir,
         )
 
-        result = asyncio.run(collector.run())
-
-        if result and not result.get("error"):
-            # Update session with results
-            session_manager.update_run(
-                run_id=run_id,
-                sdk="claude",
-                usage=result.get("usage", {}),
-                paths={"output_path": result.get("output_path")},
-            )
+        try:
+            result = asyncio.run(collector.run())
+        except asyncio.CancelledError as exc:
+            result = getattr(exc, "partial_result", None)
+            _record_collection(run_id, result)
+            raise
+        _record_collection(run_id, result)
         return result
     except Exception as e:
         console.print(f" [red]collector error: {escape(str(e))}[/red]")
