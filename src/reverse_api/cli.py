@@ -338,12 +338,14 @@ def _build_dry_run_payload(
     if sdk == "hermes":
         from .hermes_engineer import HERMES_BIN_ENV, hermes_binary
 
+        message = (
+            "the hermes backend engineers a saved capture; it does not drive the browser, "
+            "so agent capture needs another sdk — installing it does not change that"
+        )
         if hermes_binary() is None:
-            message = f"the `hermes` CLI was not found; install Hermes Agent or set {HERMES_BIN_ENV} to the binary"
-        else:
             message = (
-                "the hermes backend engineers a saved capture; it does not drive the browser, "
-                "so agent capture needs another sdk"
+                "the hermes backend engineers a saved capture and it does not drive the browser; "
+                f"agent capture needs another sdk. For engineer runs, install Hermes Agent or set {HERMES_BIN_ENV}."
             )
         checks.append({"name": "sdk:hermes", "status": "error", "message": message})
     elif sdk_env_var is None:
@@ -1158,8 +1160,9 @@ def run_auto_capture(
     if not prompt:
         raise click.UsageError("a prompt is required")
 
-    if config_manager.get("sdk", "claude") == "hermes":
-        # Say it before any browser setup: this backend never drives one.
+    if (_session_sdk(resume) or config_manager.get("sdk", "claude")) == "hermes":
+        # Say it before any browser setup: this backend never drives one. A resumed run keeps
+        # the sdk it was captured with, so switching to hermes in /settings must not block it.
         raise click.ClickException(
             "the hermes backend engineers a saved capture; it does not drive the browser yet. "
             "Capture with another sdk (claude, opencode, copilot or cursor), then engineer that run with sdk set to hermes."

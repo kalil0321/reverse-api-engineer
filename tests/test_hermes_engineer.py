@@ -169,6 +169,8 @@ async def test_run_writes_the_client_and_reports_usage(har_path: Path, tmp_path:
     ):
         out = await eng.analyze_and_generate()
 
+    # The prompt travels on stdin, never through the shell.
+    assert b"fetch the products with prices" in proc.stdin.written
     assert out is not None
     assert out["script_path"] == str(client)
     assert out["session_id"] == "sess-1"
@@ -212,6 +214,7 @@ async def test_a_failing_result_event_stops_the_run(har_path: Path, tmp_path: Pa
         events(
             {"type": "system", "subtype": "init", "session_id": "s3"},
             {"type": "result", "session_id": "s3", "exit_code": 1, "text": "provider refused the run"},
+            {"type": "text", "text": "this must never be dispatched"},
         ),
         returncode=1,
     )
@@ -222,6 +225,10 @@ async def test_a_failing_result_event_stops_the_run(har_path: Path, tmp_path: Pa
         out = await eng.analyze_and_generate()
 
     assert out is None
+    saved = eng.message_store.load()
+    errors = [m["content"] for m in saved if m["type"] == "error"]
+    assert any("provider refused the run" in str(e) for e in errors)
+    assert not any(m["type"] == "thinking" and "must never be dispatched" in str(m["content"]) for m in saved)
 
 
 @pytest.mark.asyncio
@@ -253,3 +260,71 @@ async def test_a_missing_cli_is_reported_without_starting_a_process(har_path: Pa
 
     assert out is None
     spawn.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_run_without_a_result_event_is_an_error(har_path: Path, tmp_path: Path) -> None:
+    """A stream that ends without the closing event did not finish, even at exit 0 with a client on disk."""
+    eng = make_engineer(har_path, tmp_path)
+    client = eng.scripts_dir / eng._get_client_filename()
+    client.parent.mkdir(parents=True, exist_ok=True)
+    client.write_text("# left by an earlier turn\n")
+    proc = FakeProc(events({"type": "system", "subtype": "init", "session_id": "s5"}, {"type": "text", "text": "half a run"}))
+    with (
+        patch("reverse_api.hermes_engineer.hermes_binary", return_value="/usr/bin/hermes"),
+        patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)),
+    ):
+        out = await eng.analyze_and_generate()
+
+    assert out is None
+    assert any("without a result event" in str(m["content"]) for m in eng.message_store.load() if m["type"] == "error")
+
+
+@pytest.mark.asyncio
+async def test_a_nonzero_exit_fails_even_after_a_successful_turn(har_path: Path, tmp_path: Path) -> None:
+    """Previous turns' usage must not excuse a nonzero exit."""
+    eng = make_engineer(har_path, tmp_path)
+    client = eng.scripts_dir / eng._get_client_filename()
+    client.parent.mkdir(parents=True, exist_ok=True)
+    client.write_text("# client\n")
+    eng.usage_metadata["input_tokens"] = 999  # what an earlier turn would have left behind
+    proc = FakeProc(
+        events({"type": "result", "session_id": "s6", "exit_code": 0, "tokens": {"input": 5, "output": 5}}),
+        returncode=2,
+    )
+    with (
+        patch("reverse_api.hermes_engineer.hermes_binary", return_value="/usr/bin/hermes"),
+        patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)),
+    ):
+        out = await eng.analyze_and_generate()
+
+    assert out is None
+
+
+def test_a_relative_output_dir_becomes_absolute(har_path: Path, tmp_path: Path) -> None:
+    """The CLI changes into the workspace, so the paths it receives must not be relative."""
+    eng = HermesEngineer(
+        run_id="run123",
+        har_path=har_path,
+        prompt="fetch products",
+        output_dir=str(tmp_path / "rel"),
+        sdk="hermes",
+        interactive=False,
+        verbose=False,
+    )
+    with patch("reverse_api.hermes_engineer.hermes_binary", return_value="/usr/bin/hermes"):
+        argv = eng._argv(None)
+    assert eng.scripts_dir.is_absolute()
+    assert eng.har_path.is_absolute()
+    assert Path(argv[argv.index("--in") + 1]).is_absolute()
+
+
+def test_usage_counts_each_turn_and_keeps_cost_per_invocation(har_path: Path, tmp_path: Path) -> None:
+    eng = make_engineer(har_path, tmp_path, hermes_model="claude-sonnet-4-6")
+    eng.cost_before = 1.0  # an earlier resume's spend, which the shared code adds itself
+    eng._apply_usage({"tokens": {"input": 1000, "output": 0}})
+    first = dict(eng.usage_metadata)
+    eng._apply_usage({"tokens": {"input": 1000, "output": 0}})
+    assert eng.usage_metadata["input_tokens"] == 2000
+    assert eng.usage_metadata["estimated_cost_usd"] == pytest.approx(first["estimated_cost_usd"] * 2, rel=1e-6)
+    assert eng.usage_metadata["estimated_cost_usd"] < eng.usage_metadata["cost"] + eng.cost_before

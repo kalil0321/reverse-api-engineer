@@ -25,11 +25,13 @@ import asyncio
 import json
 import os
 import shutil
+from pathlib import Path
 from typing import Any, cast
 
 from .base_engineer import BaseEngineer
 from .pricing import calculate_cost, get_model_pricing
 from .tui import ClaudeUI
+from .utils import SDK_MAX_BUFFER_SIZE
 
 # A hermes build outside PATH (a virtualenv, a wrapper script) is picked from here.
 HERMES_BIN_ENV = "RAE_HERMES_BIN"
@@ -47,7 +49,8 @@ def hermes_binary() -> str | None:
         if resolved:
             return resolved
         if os.path.isfile(override) and os.access(override, os.X_OK):
-            return override
+            # The run changes directory, so a relative override would stop resolving.
+            return str(Path(override).resolve())
         return None
     return shutil.which("hermes")
 
@@ -83,9 +86,13 @@ class HermesEngineer(BaseEngineer):
         self.hermes_model = hermes_model or None
         self.hermes_provider = hermes_provider or None
         self.hermes_max_turns = hermes_max_turns or DEFAULT_HERMES_MAX_TURNS
+        # The CLI runs with its cwd in the workspace, so every path the prompt and the argv
+        # carry must be absolute: a relative --output-dir would otherwise point outside it.
+        self.scripts_dir = Path(self.scripts_dir).expanduser().resolve()
+        self.har_path = Path(self.har_path).expanduser().resolve()
+        if self.local_scripts_dir is not None:
+            self.local_scripts_dir = Path(self.local_scripts_dir).expanduser().resolve()
         # Assistant text is buffered and flushed as one block per turn, the way Cursor's bridge does it.
-        # The base class's UI may be any backend's; ours is always the plain terminal one.
-        self.hermes_ui = cast(ClaudeUI, self.ui)
         self._narrative: list[str] = []
         self._stream_model: str | None = None
 
@@ -132,11 +139,15 @@ class HermesEngineer(BaseEngineer):
         output_tokens = _as_int(tokens.get("output"))
         cache_read = _as_int(tokens.get("cache_read"))
         cache_write = _as_int(tokens.get("cache_write"))
-        self.usage_metadata["input_tokens"] = input_tokens
-        self.usage_metadata["output_tokens"] = output_tokens
-        self.usage_metadata["cache_read_input_tokens"] = cache_read
-        self.usage_metadata["cache_creation_input_tokens"] = cache_write
-        self.usage_metadata["total_tokens"] = _as_int(tokens.get("total")) or input_tokens + output_tokens
+        # A follow-up turn adds to the run's totals instead of replacing them.
+        for key, value in (
+            ("input_tokens", input_tokens),
+            ("output_tokens", output_tokens),
+            ("cache_read_input_tokens", cache_read),
+            ("cache_creation_input_tokens", cache_write),
+            ("total_tokens", _as_int(tokens.get("total")) or input_tokens + output_tokens),
+        ):
+            self.usage_metadata[key] = self.usage_metadata.get(key, 0) + value
 
         model_id = self.hermes_model or self._stream_model
         cost = 0.0
@@ -146,7 +157,8 @@ class HermesEngineer(BaseEngineer):
             # An unpriced model keeps a 0 cost: a Sonnet fallback would invent a number.
             self.ui.console.print(f"  [dim]no price known for {model_id or 'this model'}; cost left at 0[/dim]")
         self.usage_metadata["cost"] = self.usage_metadata.get("cost", 0.0) + cost
-        self.usage_metadata["estimated_cost_usd"] = round(self.cost_before + self.usage_metadata["cost"], 6)
+        # Only this invocation's spend: the shared resume code adds cost_before itself.
+        self.usage_metadata["estimated_cost_usd"] = round(self.usage_metadata["cost"], 6)
 
     # ------------------------------------------------------------------ render
 
@@ -155,7 +167,7 @@ class HermesEngineer(BaseEngineer):
         self._narrative = []
         if not text:
             return
-        self.hermes_ui.thinking_block(text)
+        cast(ClaudeUI, self.ui).thinking_block(text)
         self.message_store.save_thinking(text)
 
     async def _dispatch(self, event: dict[str, Any]) -> tuple[bool, str | None]:
@@ -217,6 +229,8 @@ class HermesEngineer(BaseEngineer):
             stderr=asyncio.subprocess.PIPE,
             cwd=str(self.scripts_dir),
             env=os.environ.copy(),
+            # One event must fit in a single line, and a tool result can be a whole HAR.
+            limit=SDK_MAX_BUFFER_SIZE,
         )
 
         stderr_acc = bytearray()
@@ -241,12 +255,17 @@ class HermesEngineer(BaseEngineer):
         assert proc.stdout is not None
         stderr_task = asyncio.create_task(_pump_stderr())
         error: str | None = None
+        saw_result = False
         try:
             while True:
                 try:
                     line_b = await asyncio.wait_for(proc.stdout.readline(), timeout=STREAM_TIMEOUT_S)
                 except TimeoutError:
                     error = f"hermes produced no output for {int(STREAM_TIMEOUT_S)}s"
+                    break
+                except ValueError:
+                    # Only reachable past limit=: one event above the ceiling cannot be parsed line by line.
+                    error = f"a single hermes event was larger than {SDK_MAX_BUFFER_SIZE} bytes"
                     break
                 if not line_b:
                     break
@@ -255,16 +274,17 @@ class HermesEngineer(BaseEngineer):
                     continue
                 done, failure = await self._dispatch(event)
                 if done:
+                    saw_result = True
                     error = failure
                     break
         except asyncio.CancelledError:
-            self._terminate(proc)
+            await self._stop(proc)
             raise
         finally:
             try:
                 await asyncio.wait_for(proc.wait(), timeout=120.0)
             except TimeoutError:
-                self._terminate(proc)
+                await self._stop(proc)
             try:
                 await asyncio.wait_for(stderr_task, timeout=10.0)
             except Exception:
@@ -277,17 +297,38 @@ class HermesEngineer(BaseEngineer):
         if error:
             extra = stderr_acc.decode("utf-8", errors="replace").strip()
             return {"error": f"{error}\n{extra}" if extra else error}
-        if proc.returncode not in (None, 0) and not self.usage_metadata:
+        # A nonzero exit is a failed turn whatever an earlier turn already put in the usage.
+        if proc.returncode not in (None, 0):
             extra = stderr_acc.decode("utf-8", errors="replace").strip()
             return {"error": extra or f"hermes exited with code {proc.returncode}"}
+        if not saw_result:
+            # Without the closing event the run stopped early; a client left by an earlier turn
+            # would otherwise make this half-run look like a success.
+            extra = stderr_acc.decode("utf-8", errors="replace").strip()
+            return {"error": extra or "hermes ended without a result event (the run did not finish)"}
         return {}
 
     @staticmethod
-    def _terminate(proc: asyncio.subprocess.Process) -> None:
-        """Stop the CLI without leaving a half-written client behind."""
+    async def _stop(proc: asyncio.subprocess.Process) -> None:
+        """Stop the CLI for good: ask, wait, then force, so a stopped run leaves no process behind."""
+        if proc.returncode is not None:
+            return
         try:
             proc.terminate()
         except ProcessLookupError:
+            return
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=15.0)
+            return
+        except TimeoutError:
+            pass
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            return
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=15.0)
+        except TimeoutError:
             return
 
     async def analyze_and_generate(self) -> dict[str, Any] | None:

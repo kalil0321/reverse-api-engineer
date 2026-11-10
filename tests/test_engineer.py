@@ -61,6 +61,34 @@ class TestRunReverseEngineering:
                 )
                 mock_cls.assert_called_once()
 
+    def test_dispatches_to_hermes(self, tmp_path):
+        """The hermes backend gets its three settings, not the Claude ones."""
+        har_path = tmp_path / "test.har"
+        har_path.touch()
+
+        with patch("reverse_api.hermes_engineer.HermesEngineer") as mock_cls:
+            mock_instance = MagicMock()
+            mock_cls.return_value = mock_instance
+            mock_instance.start_sync = MagicMock()
+            mock_instance.stop_sync = MagicMock()
+
+            with patch("reverse_api.engineer.asyncio.run", return_value={"test": True}):
+                run_reverse_engineering(
+                    run_id="test123",
+                    har_path=har_path,
+                    prompt="test prompt",
+                    sdk="hermes",
+                    hermes_model="deepseek-v4.1-flash",
+                    hermes_provider="ollama-cloud",
+                    hermes_max_turns=12,
+                )
+                mock_cls.assert_called_once()
+                kwargs = mock_cls.call_args.kwargs
+                assert kwargs["hermes_model"] == "deepseek-v4.1-flash"
+                assert kwargs["hermes_provider"] == "ollama-cloud"
+                assert kwargs["hermes_max_turns"] == 12
+                assert kwargs["sdk"] == "hermes"
+
     def test_starts_sync(self, tmp_path):
         """Sync is started before analysis."""
         har_path = tmp_path / "test.har"
