@@ -434,6 +434,9 @@ def run_reverse_engineering(
     cursor_model: str | None = None,
     cursor_web_search: bool = True,
     cursor_setting_sources: list[str] | None = None,
+    hermes_model: str | None = None,
+    hermes_provider: str | None = None,
+    hermes_max_turns: int | None = None,
     enable_sync: bool = False,
     is_fresh: bool = False,
     output_language: str = "python",
@@ -449,13 +452,16 @@ def run_reverse_engineering(
     resume_session, cost_before and on_session reopen and record the SDK session, see BaseEngineer.
 
     Args:
-        sdk: "claude", "opencode", "copilot", or "cursor" - determines which SDK to use
+        sdk: "claude", "opencode", "copilot", "cursor", or "hermes" - determines which backend to use
         opencode_provider: Provider ID for OpenCode (e.g., "anthropic")
         opencode_model: Model ID for OpenCode (e.g., "claude-sonnet-4-6")
         copilot_model: Model ID for Copilot (e.g., "gpt-5")
         cursor_model: Model id for Cursor SDK (e.g., "composer-2.5")
         cursor_web_search: When True, load extra Cursor setting layers so WebFetch/WebSearch and plugins apply.
         cursor_setting_sources: Optional explicit list (overrides cursor_web_search), e.g. ["project","user","all"].
+        hermes_model: Model for the Hermes CLI; None keeps the model its own config selects.
+        hermes_provider: Provider for the Hermes CLI; None keeps the provider its own config selects.
+        hermes_max_turns: Turn cap for a Hermes run (default 60).
         enable_sync: Enable real-time file syncing during engineering
         is_fresh: Whether to start fresh (ignore previous scripts)
         output_language: Target language - "python", "javascript", "typescript", "go", "java", "csharp", "php", "ruby", or "c"
@@ -520,6 +526,27 @@ def run_reverse_engineering(
             output_language=output_language,
             output_mode=output_mode,
             copilot_model=copilot_model,
+            interactive=interactive,
+        )
+    elif sdk == "hermes":
+        from .hermes_engineer import HermesEngineer
+
+        engineer = HermesEngineer(
+            run_id=run_id,
+            har_path=har_path,
+            prompt=prompt,
+            model=model,
+            additional_instructions=additional_instructions,
+            output_dir=output_dir,
+            verbose=verbose,
+            enable_sync=enable_sync,
+            sdk=sdk,
+            is_fresh=is_fresh,
+            output_language=output_language,
+            output_mode=output_mode,
+            hermes_model=hermes_model,
+            hermes_provider=hermes_provider,
+            hermes_max_turns=hermes_max_turns,
             interactive=interactive,
         )
     else:
