@@ -23,7 +23,7 @@ from rich.text import Text
 
 from .. import __version__
 from ..theme import MODE_COLORS
-from ..utils import predates_effort, recorded_cost
+from ..utils import predates_effort, recorded_cost, usage_tokens
 from .logo import LOGO_COLS, logo_rows
 from .style import (
     AMBER,
@@ -632,7 +632,7 @@ class LedgerView:
         """A past run picked in /history: when and how it ran, what it cost, where its client is."""
         usage = run.get("usage") or {}
         cost = recorded_cost(usage) or 0
-        tokens = (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
+        tokens = usage_tokens(usage)  # the count the client card showed for this run
         when = str(run.get("timestamp", ""))[:16].replace("T", " ")
         facts = " · ".join(x for x in (when, model_label(run.get("model")) if run.get("model") else "", run.get("mode") or "") if x)
         spend = " · ".join(x for x in (money(cost) if cost else "", f"{k(tokens)} tokens" if tokens else "") if x)
