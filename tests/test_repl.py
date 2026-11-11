@@ -1026,6 +1026,19 @@ def test_card_path_is_a_link(session, tmp_path):
     assert handlers, "the client name in the card should be clickable"
 
 
+def test_history_details_count_the_tokens_the_card_showed(session):
+    _st, t, view, _b = session
+    usage = {
+        "input_tokens": 24,
+        "output_tokens": 3033,
+        "cache_creation_input_tokens": 14204,
+        "cache_read_input_tokens": 234206,
+        "estimated_cost_usd": 0.11,
+    }
+    view.run_details({"run_id": "c036a0e94b32", "prompt": "Top 100 games on store.steampowered.com/charts", "usage": usage})
+    assert "251.5k tokens" in plain(t), "cache reads and writes count, as on the client card"
+
+
 def test_long_diff_lines_and_binary_output_stay_readable(session, monkeypatch):
     from reverse_api.repl import transcript, view
 

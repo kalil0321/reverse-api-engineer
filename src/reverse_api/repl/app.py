@@ -44,9 +44,9 @@ from rich.console import Console, RenderableType
 from rich.text import Text
 
 from ..messages import MessageStore
-from ..utils import recorded_cost
+from ..utils import recorded_cost, usage_tokens
 from . import settings
-from .bridge import Bridge, LedgerUI, activate, first_line, short_name, usage_tokens
+from .bridge import Bridge, LedgerUI, activate, first_line, short_name
 from .style import DIM, INK, SKY, THEME, height, width
 from .transcript import Raw, Transcript, TranscriptControl, TranscriptWriter
 from .view import EFFORTS, LedgerView, Picker, SessionState, model_label, run_summary

@@ -98,6 +98,12 @@ def recorded_cost(usage: dict[str, Any] | None) -> float | None:
     return next((usage[key] for key in ("estimated_cost_usd", "total_cost", "cost") if usage.get(key) is not None), None)
 
 
+def usage_tokens(usage: dict[str, Any] | None) -> int:
+    """Every token a run's usage counts, cache reads and writes included: Claude's names, then Copilot's and Cursor's for their cache."""
+    keys = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "cache_read_tokens", "cache_write_tokens")
+    return sum(int((usage or {}).get(key, 0) or 0) for key in keys)
+
+
 def predates_effort(model: str | None) -> bool:
     """Haiku 4.5 came before the effort setting, so it never gets one."""
     return (model or "").startswith("claude-haiku-4")
