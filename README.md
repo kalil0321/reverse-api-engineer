@@ -16,7 +16,7 @@
 > **Turn websites into APIs.** Browse (or let an agent browse), and get a clean, typed client for the endpoints the site actually uses.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/kalil0321/reverse-api-engineer/main/assets/rae-autoscout.gif" alt="Agent Mode Demo">
+  <img src="https://raw.githubusercontent.com/kalil0321/reverse-api-engineer/main/assets/rae-agent-steam.gif" alt="Agent mode turning Steam's charts page into an API client">
   <br>
   <em>Agent mode</em>
 </p>
