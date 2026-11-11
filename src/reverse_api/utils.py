@@ -99,8 +99,21 @@ def recorded_cost(usage: dict[str, Any] | None) -> float | None:
 
 
 def usage_tokens(usage: dict[str, Any] | None) -> int:
-    """Every token a run's usage counts, cache reads and writes included: Claude's names, then Copilot's and Cursor's for their cache."""
-    keys = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "cache_read_tokens", "cache_write_tokens")
+    """Every token a run's usage counts, cache reads and writes included, under each SDK's names.
+
+    Claude: *_input_tokens for the cache. Copilot and Cursor: cache_read_tokens, cache_write_tokens.
+    OpenCode: cache_read_tokens, cache_creation_tokens, and reasoning_tokens apart from output_tokens.
+    """
+    keys = (
+        "input_tokens",
+        "output_tokens",
+        "reasoning_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "cache_creation_tokens",
+    )
     return sum(int((usage or {}).get(key, 0) or 0) for key in keys)
 
 

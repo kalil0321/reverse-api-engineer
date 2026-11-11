@@ -1039,6 +1039,16 @@ def test_history_details_count_the_tokens_the_card_showed(session):
     assert "251.5k tokens" in plain(t), "cache reads and writes count, as on the client card"
 
 
+def test_usage_tokens_counts_each_sdks_cache_and_reasoning_names():
+    from reverse_api.utils import usage_tokens
+
+    opencode = {"input_tokens": 100, "output_tokens": 20, "reasoning_tokens": 5, "cache_read_tokens": 1000, "cache_creation_tokens": 300}
+    copilot = {"input_tokens": 100, "output_tokens": 20, "cache_read_tokens": 1000, "cache_write_tokens": 300}
+    assert usage_tokens(opencode) == 1425
+    assert usage_tokens(copilot) == 1420
+    assert usage_tokens(None) == 0
+
+
 def test_long_diff_lines_and_binary_output_stay_readable(session, monkeypatch):
     from reverse_api.repl import transcript, view
 
