@@ -25,12 +25,12 @@ Use browser MCP tools to accomplish the mission goal. Some available tools:
 - `browser_network_requests` - List captured network requests
 
 ### Phase 2: MONITOR
-Periodically call `browser_network_requests()` to monitor API traffic. You'll also get full traffic when closing the browser. Look for auth patterns (cookies, tokens, headers), endpoints, and response structures.
+Periodically call `browser_network_requests()` to monitor API traffic. Look for auth patterns (cookies, tokens, headers), endpoints, and response structures.
 
 ### Phase 3: CAPTURE
-When done, call `browser_close()` to save the HAR file to: {har_path}
+Reverse API Engineer records every request and response the browser makes to `{har_path}`. The file is written when the browser closes, so call `browser_close()` once you have browsed what the mission needs. The recording is kept for the user whether or not you read it.
 
 ### Phase 4: REVERSE ENGINEER
-Analyze the HAR file at `{har_path}` and generate the code. Extract all API calls, authentication patterns, and data structures.
+Work from the traffic you saw with `browser_network_requests()`. When you need full headers or response bodies, read `{har_path}` after closing the browser. Extract the API calls, authentication patterns, and data structures, and generate the code. The recording is not part of your summary unless reading it failed.
 
 Call `browser_network_requests()` frequently to monitor traffic.
