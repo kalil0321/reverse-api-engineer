@@ -27,33 +27,24 @@ const DEMOS = [
 
 export function RunDemo() {
   const [active, setActive] = useState(0);
-  const [still, setStill] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
   const demo = DEMOS[active];
 
+  // Playback starts here, not from an autoplay attribute, so nothing moves before the
+  // reduced-motion preference is known. A browser that blocks it leaves the controls to the visitor.
   useEffect(() => {
-    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const apply = () => setStill(query.matches);
-    apply();
-    query.addEventListener('change', apply);
-    return () => query.removeEventListener('change', apply);
-  }, []);
-
-  useEffect(() => {
-    if (still) video.current?.pause();
-  }, [still, active]);
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    video.current?.play().catch(() => {});
+  }, [active]);
 
   return (
     <div className="mx-auto w-full max-w-5xl">
-      <div role="tablist" aria-label="Demo runs" className="flex flex-wrap justify-center gap-2">
+      <div role="group" aria-label="Demo runs" className="flex flex-wrap justify-center gap-2">
         {DEMOS.map((d, i) => (
           <button
             key={d.id}
-            id={`run-demo-tab-${d.id}`}
             type="button"
-            role="tab"
-            aria-selected={i === active}
-            aria-controls="run-demo-panel"
+            aria-pressed={i === active}
             onClick={() => setActive(i)}
             className={i === active ? 'run-demo-tab run-demo-tab-active' : 'run-demo-tab'}
           >
@@ -62,7 +53,7 @@ export function RunDemo() {
         ))}
       </div>
 
-      <div id="run-demo-panel" role="tabpanel" aria-labelledby={`run-demo-tab-${demo.id}`} className="run-demo-frame mt-6 sm:mt-8">
+      <div className="run-demo-frame mt-6 sm:mt-8">
         <video
           key={demo.id}
           ref={video}
@@ -71,8 +62,7 @@ export function RunDemo() {
           poster={`/demo/${demo.id}.jpg`}
           width={1920}
           height={1080}
-          autoPlay={!still}
-          controls={still}
+          controls
           muted
           loop
           playsInline
