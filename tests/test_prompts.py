@@ -236,7 +236,15 @@ class TestAutoTemplates:
         )
         assert "records every request and response the browser makes to `/tmp/recording.har`" in text
         assert "whether or not you read it" in text
+        assert "When you need full headers or response bodies, read `/tmp/recording.har` after closing the browser" in text
+        assert "not part of your summary unless reading it failed" in text
+        assert "Analyze the HAR file" not in text
         assert "full traffic when closing" not in text
+
+    def test_auto_system_summary_mentions_the_recording_only_when_it_failed(self):
+        text = load("auto/system", browser_tool_label="MCP", language_name="Python", codegen_instructions="", output_files="")
+        assert "any caveats about the API or the client" in text
+        assert "Mention the traffic recording only if a step with it failed" in text
 
     def test_auto_user_chrome_mcp_loads(self):
         text = load(
