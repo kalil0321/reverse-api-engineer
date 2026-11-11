@@ -80,7 +80,7 @@ jobs:
           PYREADY
           docker run --rm --network host --ipc host -v "$PWD:/website" -v /tmp:/tmp -w /website \
             mcr.microsoft.com/playwright/python:v1.58.0-noble \
-            python tests/scroll_e2e.py http://127.0.0.1:8765 out /tmp
+            sh -c "python -m pip install --quiet --break-system-packages 'playwright==1.58.0' && python tests/scroll_e2e.py http://127.0.0.1:8765 out /tmp"
 
       - name: Show browser server diagnostics on failure
         if: failure()
