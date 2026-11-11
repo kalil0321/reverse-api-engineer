@@ -21,12 +21,6 @@
   <em>Agent mode</em>
 </p>
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/kalil0321/reverse-api-engineer/main/assets/reverse-api-engineer.gif" alt="Manual Mode Demo">
-  <br>
-  <em>Manual mode</em>
-</p>
-
 ---
 
 ## How it works
