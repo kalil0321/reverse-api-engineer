@@ -33,8 +33,13 @@ export function RunDemo() {
   // Playback starts here, not from an autoplay attribute, so nothing moves before the
   // reduced-motion preference is known. A browser that blocks it leaves the controls to the visitor.
   useEffect(() => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    video.current?.play().catch(() => {});
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (!reduce.matches) video.current?.play().catch(() => {});
+    const onChange = () => {
+      if (reduce.matches) video.current?.pause();
+    };
+    reduce.addEventListener('change', onChange);
+    return () => reduce.removeEventListener('change', onChange);
   }, [active]);
 
   return (
