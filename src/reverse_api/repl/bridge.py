@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 from rich.console import Console
 
-from ..utils import predates_effort
+from ..utils import predates_effort, usage_tokens
 from .style import THEME, width
 from .transcript import Raw, TranscriptWriter
 from .view import KIND_VERB, VERB_COL, LedgerView, default_effort, language_for
@@ -57,12 +57,6 @@ ALIASES = {
 OPENCODE_MCP = re.compile(r"^(?:playwright|chrome-devtools)-(?:ses_[A-Za-z0-9]+_)?")
 # The arguments that best say what a tool we have no wording for works on, most telling first.
 TARGET_KEYS = ("url", "file_path", "filePath", "path", "query", "text", "pattern", "command", "description", "name", "id")
-
-
-def usage_tokens(usage: dict[str, Any]) -> int:
-    """Every token a run's usage counts: Claude's names, then Copilot's and Cursor's for their cache."""
-    keys = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "cache_read_tokens", "cache_write_tokens")
-    return sum(int(usage.get(key, 0) or 0) for key in keys)
 
 
 def short_name(tool_name: str) -> str:
