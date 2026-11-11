@@ -69,7 +69,19 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-${{ runner.arch }}-playwright-1.58.0
 
+      - name: Use the Ubuntu archive for apt
+        # The runner lists Azure's Ubuntu mirror first. When it stalls, apt waits on it for every
+        # one of the ~180 browser packages and the job times out, so apt goes to archive.ubuntu.com.
+        run: |
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+          fi
+          sudo find /etc/apt -name '*.list' -o -name '*.sources' | xargs -r sudo sed -i 's|http://azure\.archive\.ubuntu\.com|http://archive.ubuntu.com|g'
+          printf 'Acquire::http::Timeout "15";\nAcquire::Retries "3";\n' | sudo tee /etc/apt/apt.conf.d/80-website-ci > /dev/null
+          cat /etc/apt/apt-mirrors.txt 2>/dev/null || true
+
       - name: Install browser test dependencies
+        timeout-minutes: 15
         run: |
           python -m pip install 'playwright==1.58.0'
           python -m playwright install --with-deps chromium firefox webkit
