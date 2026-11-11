@@ -24,4 +24,4 @@ For this provider your integration surface is:
 
 {output_files}
 
-Confirm the files were created and briefly summarize: APIs discovered, auth method, whether it works, any caveats.
+Confirm the files were created and briefly summarize: APIs discovered, auth method, whether it works, any caveats about the API or the client.
