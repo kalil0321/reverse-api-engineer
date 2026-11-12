@@ -326,7 +326,8 @@ def _build_dry_run_payload(
             "message": f"unknown agent_provider {agent_provider!r}; expected 'auto', 'chrome-mcp', or 'agent-browser'",
         })
 
-    # 4. SDK + API key presence (we only check env var existence, not validity)
+    # 4. SDK + API key presence (we only check env var existence, not validity).
+    # Hermes authenticates through its own config, so the check there is its CLI, not a key.
     sdk = config_manager.get("sdk", "claude")
     sdk_env_var = {
         "claude": "ANTHROPIC_API_KEY",
@@ -334,11 +335,24 @@ def _build_dry_run_payload(
         "copilot": "GITHUB_COPILOT_TOKEN",
         "cursor": "CURSOR_API_KEY",
     }.get(sdk)
-    if sdk_env_var is None:
+    if sdk == "hermes":
+        from .hermes_engineer import HERMES_BIN_ENV, hermes_binary
+
+        message = (
+            "the hermes backend engineers a saved capture; it does not drive the browser, "
+            "so agent capture needs another sdk — installing it does not change that"
+        )
+        if hermes_binary() is None:
+            message = (
+                "the hermes backend engineers a saved capture and it does not drive the browser; "
+                f"agent capture needs another sdk. For engineer runs, install Hermes Agent or set {HERMES_BIN_ENV}."
+            )
+        checks.append({"name": "sdk:hermes", "status": "error", "message": message})
+    elif sdk_env_var is None:
         checks.append({
             "name": "sdk",
             "status": "error",
-            "message": f"unknown sdk {sdk!r}; expected 'claude', 'opencode', 'copilot', or 'cursor'",
+            "message": f"unknown sdk {sdk!r}; expected 'claude', 'opencode', 'copilot', 'cursor', or 'hermes'",
         })
     elif not os.environ.get(sdk_env_var):
         checks.append({
@@ -463,14 +477,16 @@ def _build_dry_run_payload(
         "opencode": "opencode_model",
         "copilot": "copilot_model",
         "cursor": "cursor_model",
+        "hermes": "hermes_model",
     }.get(sdk, "claude_code_model")
     sdk_default_model = {
         "claude": "claude-sonnet-4-6",
         "opencode": "claude-opus-4-6",
         "copilot": "gpt-5",
         "cursor": "composer-2.5",
+        "hermes": "hermes default",
     }.get(sdk, "claude-sonnet-4-6")
-    resolved_model = model or config_manager.get(sdk_model_key, sdk_default_model)
+    resolved_model = model or config_manager.get(sdk_model_key) or sdk_default_model
 
     return {
         "schema_version": AGENT_JSON_SCHEMA_VERSION,
@@ -1144,6 +1160,14 @@ def run_auto_capture(
     if not prompt:
         raise click.UsageError("a prompt is required")
 
+    if (_session_sdk(resume) or config_manager.get("sdk", "claude")) == "hermes":
+        # Say it before any browser setup: this backend never drives one. A resumed run keeps
+        # the sdk it was captured with, so switching to hermes in /settings must not block it.
+        raise click.ClickException(
+            "the hermes backend engineers a saved capture; it does not drive the browser yet. "
+            "Capture with another sdk (claude, opencode, copilot or cursor), then engineer that run with sdk set to hermes."
+        )
+
     if url:
         url = normalize_url(url)
 
@@ -1633,6 +1657,7 @@ def run_engineer(
         "opencode": resume_model or config_manager.get("opencode_model", DEFAULT_OPENCODE_MODEL),
         "copilot": resume_model or config_manager.get("copilot_model", "gpt-5"),
         "cursor": model or config_manager.get("cursor_model", "composer-2.5"),
+        "hermes": resume_model or config_manager.get("hermes_model") or "hermes default",
     }.get(sdk) or model or config_manager.get("claude_code_model", "claude-sonnet-4-6")
     on_session = _session_recorder(run_id, "engineer", sdk, session_model, output_dir, output_mode)
 
@@ -1666,6 +1691,28 @@ def run_engineer(
             output_dir=output_dir,
             sdk=sdk,
             copilot_model=session_model,
+            enable_sync=enable_sync,
+            additional_instructions=additional_instructions,
+            is_fresh=is_fresh,
+            output_language=output_language,
+            output_mode=output_mode,
+            interactive=interactive,
+            json_event_sink=json_event_sink,
+            resume_session=resume_session,
+            cost_before=cost_before,
+            on_session=on_session,
+        )
+    elif sdk == "hermes":
+        result = run_reverse_engineering(
+            run_id=run_id,
+            har_path=har_path,
+            prompt=prompt,
+            model=model,
+            output_dir=output_dir,
+            sdk=sdk,
+            hermes_model=None if session_model == "hermes default" else session_model,
+            hermes_provider=config_manager.get("hermes_provider"),
+            hermes_max_turns=config_manager.get("hermes_max_turns"),
             enable_sync=enable_sync,
             additional_instructions=additional_instructions,
             is_fresh=is_fresh,
