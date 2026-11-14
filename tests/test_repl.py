@@ -1831,7 +1831,7 @@ class TestEffortIsClaudeOnly:
         session, _history = app_session
         st = session.st
         st.sdk, st.model = "claude", "claude-opus-5-5"
-        assert st.has_effort and "⌃e" in "".join(text for _, text in session.view.status())
+        assert st.has_effort and st.effort_label == "medium" and "⌃e" in "".join(text for _, text in session.view.status())
         st.model = "claude-haiku-4-5"
         assert not st.has_effort
 
@@ -2041,25 +2041,20 @@ class TestReviewedAgain:
         session.quit()
         assert session.st.queue == []
 
-    def test_a_subcommands_runner_gets_the_selected_model(self, app_session):
+    @pytest.mark.parametrize(
+        ("mode", "engine"), [("agent", "run_agent_capture"), ("manual", "run_manual_capture"), ("engineer", "engineer_from_prompt")]
+    )
+    def test_the_chosen_model_is_saved_and_reaches_the_engine(self, app_session, mode, engine):
         session, _history = app_session
-        st = session.st
-        st.mode, st.model = "agent", "claude-haiku-5-5"
-        runner = MagicMock()
-        session.runners["agent"] = runner
+        session.st.mode = mode
+        session.set_model("claude-opus-5-5")
+        session.cli.config_manager.set.assert_called_with("claude_code_model", "claude-opus-5-5")
         with patch.object(session, "work") as work:
             session.start("jobs on example.com")
+        with patch.object(session.cli, engine) as run:
             work.call_args.args[0]()
-        runner.assert_called_once_with("jobs on example.com", "claude-haiku-5-5")
-
-
-def test_effort_follows_the_selected_model(app_session):
-    session, _history = app_session
-    st = session.st
-    st.model = "claude-haiku-4-5"
-    assert not st.has_effort
-    st.model = "claude-opus-5-5"
-    assert st.has_effort and st.effort_label == "medium"
+        call_ = run.call_args
+        assert (call_.kwargs["model"] if "model" in call_.kwargs else call_.args[1]) == "claude-opus-5-5"
 
 
 class TestPortedScreens:

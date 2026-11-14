@@ -252,7 +252,6 @@ class SessionState:
 
     @property
     def has_effort(self) -> bool:
-        """Effort is a Claude setting."""
         return self.sdk == "claude" and not predates_effort(self.model)
 
     @property
