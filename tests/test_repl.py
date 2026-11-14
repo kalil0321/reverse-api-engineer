@@ -2244,3 +2244,55 @@ def test_a_kill_quits_the_session_like_ctrl_d(app_session):
     assert handlers.get(signal.SIGTERM) == session.quit
     if hasattr(signal, "SIGHUP"):
         assert handlers.get(signal.SIGHUP) == session.quit
+
+
+class TestInputKeys:
+    """Option+Delete reaches the input bar as Esc then Delete, through the session's own key bindings."""
+
+    @staticmethod
+    def press(app: Any, *keys: Any) -> None:
+        from prompt_toolkit.application.current import set_app
+        from prompt_toolkit.key_binding.key_processor import KeyPress
+
+        with set_app(app):
+            app.key_processor.feed_multiple([KeyPress(key, data) for key, data in keys])
+            app.key_processor.process_keys()
+
+    async def test_option_delete_deletes_the_word_before_the_cursor(self, app_session):
+        from prompt_toolkit.keys import Keys
+
+        session, _history = app_session
+        app = session.build()
+        session.buf.insert_text("fetch all jobs at browserbase")
+        self.press(app, (Keys.Escape, "\x1b"), (Keys.Backspace, "\x7f"))
+        assert session.buf.text == "fetch all jobs at "
+
+    async def test_option_delete_on_an_empty_bar_leaves_the_run_going(self, app_session, monkeypatch):
+        from prompt_toolkit.keys import Keys
+
+        session, _history = app_session
+        app = session.build()
+        session.st.running = True
+        stop = MagicMock()
+        monkeypatch.setattr(session, "stop", stop)
+        self.press(app, (Keys.Escape, "\x1b"), (Keys.Backspace, "\x7f"))
+        stop.assert_not_called()
+
+    async def test_a_lone_esc_still_stops_the_run_at_once(self, app_session, monkeypatch):
+        from prompt_toolkit.application.current import set_app
+        from prompt_toolkit.key_binding.key_processor import KeyPress
+        from prompt_toolkit.keys import Keys
+
+        from reverse_api.repl.app import ESC_WAIT
+
+        session, _history = app_session
+        app = session.build()
+        session.st.running = True
+        stop = MagicMock()
+        monkeypatch.setattr(session, "stop", stop)
+        with set_app(app):
+            app.key_processor.feed(KeyPress(Keys.Escape, "\x1b"))
+            app.key_processor.process_keys()
+            stop.assert_not_called()  # it could still be Option+something
+            await asyncio.sleep(ESC_WAIT * 4)
+        stop.assert_called_once()

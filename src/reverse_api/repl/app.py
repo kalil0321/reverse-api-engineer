@@ -93,6 +93,7 @@ KEYS = (
 )
 ALIASES = {"/quit": "/exit", "/commands": "/help"}
 HISTORY_RUNS = 20
+ESC_WAIT = 0.05  # seconds a lone Esc waits for a key that would make it Option+something
 # Commands that open a picker are echoed once a choice shows something, not when the picker opens.
 PICKER_COMMANDS = {"/model", "/effort", "/mode", "/history", "/resume", "/settings"}
 URL_IN_PROMPT = re.compile(r"https?://([^/\s]+)|\b((?:[\w-]+\.)+(?:com|io|co|ch|de|fr|uk|org|net|dev|ai|app|so|sh|eu|jobs))\b")
@@ -1032,7 +1033,7 @@ class Session:
             ),
             focused_element=buf,
         )
-        return Application(
+        app: Application[None] = Application(
             layout=layout,
             key_bindings=merge_key_bindings([load_key_bindings(), kb]),
             style=Style.from_dict({"": INK}),
@@ -1041,6 +1042,10 @@ class Session:
             refresh_interval=0.05,
             output=create_output(stdout=sys.__stdout__),
         )
+        # Option+Delete and Option+arrows arrive as Esc and a key, so Esc waits for what follows instead of firing at
+        # once. A terminal writes such a pair in one go, so a short wait keeps a lone Esc as quick.
+        app.ttimeoutlen = app.timeoutlen = ESC_WAIT
+        return app
 
     def scroll(self, delta: int) -> None:
         self.st.scroll = max(0, self.st.scroll + delta)
@@ -1120,7 +1125,7 @@ class Session:
         def _(event: KeyPressEvent) -> None:
             self.show_output()
 
-        @kb.add("escape", eager=True)
+        @kb.add("escape")
         def _(event: KeyPressEvent) -> None:
             if st.picker is not None:
                 p, st.picker = st.picker, None
