@@ -102,6 +102,8 @@ KEYS = (
     ("pageup pagedown", "scroll, as does the mouse wheel · end jumps to the latest"),
     ("click", "open a file or a URL"),
     ("drag", "select text, copied when you let go"),
+    ("option+delete", "delete a word, with Option as Meta · or ctrl+w"),
+    ("ctrl+u", "delete to the start of the bar"),
     ("ctrl+c", "stop the run · clear the bar · quit"),
     ("ctrl+d", "quit"),
 )
