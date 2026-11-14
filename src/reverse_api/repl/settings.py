@@ -12,6 +12,7 @@ SDKS = (
     ("copilot", "GitHub Copilot SDK"),
     ("cursor", "Cursor SDK"),
     ("opencode", "an OpenCode server, with any of its providers"),
+    ("hermes", "the local Hermes CLI, with its own model and provider"),
 )
 PROVIDERS = (
     ("chrome-mcp", "your own Chrome, through Chrome DevTools MCP"),
@@ -26,6 +27,7 @@ SETTINGS = (
     ("opencode", "opencode provider / model", "opencode"),
     ("copilot_model", "copilot model", "text"),
     ("cursor_model", "cursor model", "text"),
+    ("hermes_model", "hermes model", "text"),
     ("cursor_web_search", "cursor web search", "toggle"),
     ("output_language", "output language", "choice"),
     ("output_dir", "output directory", "text"),
@@ -36,6 +38,7 @@ KINDS = {key: kind for key, _, kind in SETTINGS}
 SUGGESTIONS = {
     "copilot_model": (("gpt-5", "gpt-5", ""), ("gpt-4.1", "gpt-4.1", "")),
     "cursor_model": (("composer-2.5", "composer-2.5", ""), ("composer-2", "composer-2", "")),
+    "hermes_model": (("", "the Hermes config's own model", ""),),
     "output_dir": (("", "default", "~/.reverse-api/runs"),),
 }
 NOTES = {

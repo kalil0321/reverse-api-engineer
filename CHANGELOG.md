@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`hermes` backend**: `"sdk": "hermes"` engineers a saved capture through the local [`hermes` CLI](https://hermes-agent.nousresearch.com/docs) (`hermes chat --oneshot --format stream-json`), so a run needs no API key in rae — the model, the provider and the authentication are the user's own Hermes configuration. `hermes chat` reads the prompt on stdin, so nothing the model reads is shell-parsed; `hermes_max_turns` overrides the turn cap from the user's Hermes config; runs start with `--ignore-rules` so an `AGENTS.md`/`CLAUDE.md` cannot steer them, and estimate cost from the CLI's token counts, leaving it at 0 for a model with no known price. The backend covers `engineer` only: with `"sdk": "hermes"` the `agent` command stops before browser setup, so capture with another SDK (claude, opencode, copilot or cursor) and engineer that run with hermes; `agent --dry-run` reports the same error. The CLI is found on `PATH` or through `RAE_HERMES_BIN`, and `agent --dry-run` reports it as a check.
 - **Copy text from the session**: the session takes the mouse for the wheel and for clicking files and links, so the terminal could not select its text. Dragging over the conversation now selects it and copies it to the clipboard when you let go, with `pbcopy`, `wl-copy`, `xclip` or `xsel`, or through the terminal (OSC 52) otherwise and over SSH. A click without a drag still opens a link.
 
 ## [0.15.0] - 2026-11-08

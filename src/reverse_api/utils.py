@@ -225,7 +225,7 @@ def generate_folder_name(prompt: str, sdk: str | None = None, session_id: str | 
 
     Args:
         prompt: The task prompt to generate a folder name for
-        sdk: The SDK to use ("opencode", "claude", "copilot", or "cursor"). If None, checks config.
+        sdk: The SDK to use ("opencode", "claude", "copilot", "cursor", or "hermes"). If None, checks config.
         session_id: Optional OpenCode session ID to reuse. Only used when sdk="opencode".
     """
     from rich.console import Console
@@ -252,7 +252,7 @@ def generate_folder_name(prompt: str, sdk: str | None = None, session_id: str | 
             # Already in async context, use fallback to avoid nested asyncio.run
             return _slugify(prompt)
 
-        if sdk == "cursor":
+        if sdk in ("cursor", "hermes"):
             return _slugify(prompt)
 
         from contextlib import nullcontext

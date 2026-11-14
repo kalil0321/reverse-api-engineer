@@ -406,6 +406,12 @@ class TestGenerateFolderName:
                     result = generate_folder_name("test prompt")
                     assert isinstance(result, str)
 
+    def test_hermes_slugifies_without_calling_claude(self):
+        with patch("reverse_api.utils.asyncio.get_running_loop", side_effect=RuntimeError):
+            with patch("reverse_api.utils.asyncio.run") as run:
+                assert generate_folder_name("apple jobs api", sdk="hermes") == "apple_jobs_api"
+                run.assert_not_called()
+
     def test_opencode_calls_opencode_async(self):
         """OpenCode SDK calls _generate_folder_name_opencode_async."""
         with patch("reverse_api.utils.asyncio.get_running_loop", side_effect=RuntimeError):
