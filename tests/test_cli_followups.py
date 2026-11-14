@@ -806,59 +806,6 @@ class TestHeadlessFlag:
         assert mock_run.call_args.kwargs["headless"] is False
 
 
-class TestCollectorCommand:
-    """Direct `collector` command wiring."""
-
-    def test_collector_command_threads_prompt_model_and_output_dir(self):
-        from reverse_api.cli import collector as collector_cmd
-
-        runner = CliRunner()
-        with patch("reverse_api.cli.run_collector", return_value={"output_path": "/tmp/out"}) as mock_run:
-            result = runner.invoke(
-                collector_cmd,
-                [
-                    "--prompt",
-                    "collect one item",
-                    "--model",
-                    "claude-haiku-4-5",
-                    "--output-dir",
-                    "/tmp/rae-test",
-                ],
-            )
-        assert result.exit_code == 0, result.output
-        assert mock_run.call_args.kwargs == {
-            "prompt": "collect one item",
-            "model": "claude-haiku-4-5",
-            "output_dir": "/tmp/rae-test",
-        }
-
-    def test_collector_requires_prompt_when_not_tty(self):
-        from reverse_api.cli import collector as collector_cmd
-
-        runner = CliRunner()
-        with patch("reverse_api.cli.run_collector") as mock_run:
-            result = runner.invoke(collector_cmd, [])
-        assert result.exit_code == 2
-        assert "--prompt is required" in result.output
-        mock_run.assert_not_called()
-
-    def test_collector_exits_nonzero_on_error_result(self):
-        from reverse_api.cli import collector as collector_cmd
-
-        runner = CliRunner()
-        with patch("reverse_api.cli.run_collector", return_value={"error": "No items collected"}):
-            result = runner.invoke(collector_cmd, ["--prompt", "collect nothing"])
-        assert result.exit_code == 1
-
-    def test_collector_exits_nonzero_on_empty_result(self):
-        from reverse_api.cli import collector as collector_cmd
-
-        runner = CliRunner()
-        with patch("reverse_api.cli.run_collector", return_value=None):
-            result = runner.invoke(collector_cmd, ["--prompt", "collect nothing"])
-        assert result.exit_code == 1
-
-
 class TestHeadlessMcpConfig:
     """ClaudeAutoEngineer._get_mcp_config arg construction for headed vs headless."""
 

@@ -645,35 +645,6 @@ def get_timestamp() -> str:
     return datetime.now().isoformat()
 
 
-def get_collected_dir(folder_name: str) -> Path:
-    """Get ./collected/{folder_name}/ directory for collector mode output.
-
-    Args:
-        folder_name: Name of the collection folder (must be alphanumeric with
-            hyphens/underscores only)
-
-    Returns:
-        Path to the collection output directory
-
-    Raises:
-        ValueError: If folder_name contains invalid characters or attempts path traversal
-    """
-    _validate_path_component(folder_name, "folder_name")
-
-    base_dir = Path.cwd() / "collected"
-    path = base_dir / folder_name
-
-    # Verify the resolved path is within the base directory (defense in depth)
-    try:
-        if not path.resolve().is_relative_to(base_dir.resolve()):
-            raise ValueError(f"Path traversal detected: {folder_name}")
-    except (OSError, RuntimeError) as e:
-        raise ValueError(f"Invalid path for folder_name {folder_name}: {e}") from e
-
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
 def get_downloads_dir() -> Path:
     """Get the user's Downloads folder path (cross-platform).
 

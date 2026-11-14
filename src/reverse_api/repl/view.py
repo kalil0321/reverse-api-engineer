@@ -237,7 +237,6 @@ class SessionState:
     run_model: str | None = None
     run_sdk: str | None = None
     run_effort: str | None = None
-    collector_model: str | None = None  # collector mode runs on its own model setting
 
     @property
     def accent(self) -> str:
@@ -249,28 +248,23 @@ class SessionState:
 
     @property
     def effort_label(self) -> str:
-        return self.effort or default_effort(self.next_model)
+        return self.effort or default_effort(self.model)
 
     @property
     def has_effort(self) -> bool:
-        """Effort is a Claude setting; collector mode goes by its own model."""
-        return self.sdk == "claude" and not predates_effort(self.next_model)
+        """Effort is a Claude setting."""
+        return self.sdk == "claude" and not predates_effort(self.model)
 
     @property
     def no_effort_reason(self) -> str:
         if self.sdk == "claude":
-            return f"{model_label(self.next_model)} has no effort setting · /model picks one that does"
+            return f"{model_label(self.model)} has no effort setting · /model picks one that does"
         return f"effort is a claude setting · this session runs {self.sdk} {self.model_label}"
 
     @property
-    def next_model(self) -> str | None:
-        """What a new run in the current mode starts with."""
-        return self.collector_model if self.mode == "collector" and self.collector_model else self.model
-
-    @property
     def live_model_label(self) -> str:
-        """The model the next message goes to: the open run's, else the selection for this mode."""
-        return model_label(self.run_model or self.next_model)
+        """The model the next message goes to: the open run's, else the selected one."""
+        return model_label(self.run_model or self.model)
 
     @property
     def run_open(self) -> bool:
@@ -530,12 +524,6 @@ class LedgerView:
         for label, path in rows:
             mark = Text.from_markup(f"[{HAIRLINE}]└[/] [{DIM}]{label}[/]")
             self.out(Padding(hanging(mark, Text.from_markup(f"[{INK_SOFT}]{link(str(path), path)}[/]"), len(label) + 2), (0, 0, 0, INDENT)))
-
-    def collected(self, total: int, folder: Path) -> None:
-        """A collector run's result: how many items, and the folder with its JSON, CSV and README."""
-        items = f"{total} item{'s' if total != 1 else ''}"
-        body = Text.from_markup(f"[bold {INK}]{items}[/] [italic {PINK}]collected[/] [{INK_SOFT}]{link(str(folder), folder)}[/]")
-        self.out(Padding(hanging(Text("*", style=self.st.accent), body, 1), (0, 0, 0, 1)))
 
     def docs_ready(self, path: Path) -> None:
         body = Text.from_markup(f"[bold {INK}]{link(path.name, path)}[/] [italic {PINK}]documentation ready[/]")

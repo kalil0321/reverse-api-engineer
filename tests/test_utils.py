@@ -14,7 +14,6 @@ from reverse_api.utils import (
     generate_run_id,
     get_app_dir,
     get_base_output_dir,
-    get_collected_dir,
     get_config_path,
     get_docs_dir,
     get_har_dir,
@@ -295,35 +294,6 @@ class TestGetDocsDir:
         """Too long run_id raises ValueError."""
         with pytest.raises(ValueError, match="too long"):
             get_docs_dir("x" * 65)
-
-
-class TestGetCollectedDir:
-    """Test get_collected_dir."""
-
-    def test_creates_collected_dir(self, tmp_path):
-        """Creates collected directory."""
-        with patch("reverse_api.utils.Path.cwd", return_value=tmp_path):
-            from reverse_api.utils import get_collected_dir
-
-            path = get_collected_dir("test_collection")
-            assert path.exists()
-            assert path.name == "test_collection"
-
-    def test_empty_folder_name_raises(self):
-        """Empty folder_name raises ValueError."""
-        with pytest.raises(ValueError, match="cannot be empty"):
-            get_collected_dir("")
-
-    def test_traversal_raises(self, tmp_path):
-        """Path traversal in folder_name raises ValueError."""
-        with patch("reverse_api.utils.Path.cwd", return_value=tmp_path):
-            with pytest.raises(ValueError, match="Invalid folder_name"):
-                get_collected_dir("../../etc")
-
-    def test_too_long_raises(self):
-        """Too long folder_name raises ValueError."""
-        with pytest.raises(ValueError, match="too long"):
-            get_collected_dir("x" * 65)
 
 
 class TestCheckForUpdates:

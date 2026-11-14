@@ -8,20 +8,6 @@ from reverse_api.prompts import FOLDER_NAME_PROMPT, load, load_language_partial
 class TestLoad:
     """Test the load() template function."""
 
-    def test_load_collector_system(self):
-        text = load("collector/system")
-        assert "web data collection agent" in text
-        assert "JSON object" in text
-
-    def test_load_collector_user_with_placeholders(self):
-        text = load(
-            "collector/user",
-            prompt="collect Y Combinator startups",
-            items_path="/tmp/items.jsonl",
-        )
-        assert "Y Combinator startups" in text
-        assert "/tmp/items.jsonl" in text
-
     def test_load_chat_system(self):
         text = load(
             "chat/system",

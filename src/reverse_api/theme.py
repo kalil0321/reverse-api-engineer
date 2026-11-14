@@ -23,7 +23,6 @@ MODE_COLORS = {
     "agent": COLOR_PRIMARY,
     "manual": COLOR_MINT,
     "engineer": COLOR_SKY,
-    "collector": "#e8b86d",
 }
 
 BRAND_MARK = "*"

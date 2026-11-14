@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **`hermes` backend**: `"sdk": "hermes"` engineers a saved capture through the local [`hermes` CLI](https://hermes-agent.nousresearch.com/docs) (`hermes chat --oneshot --format stream-json`), so a run needs no API key in rae — the model, the provider and the authentication are the user's own Hermes configuration. `hermes chat` reads the prompt on stdin, so nothing the model reads is shell-parsed; `hermes_max_turns` overrides the turn cap from the user's Hermes config; runs start with `--ignore-rules` so an `AGENTS.md`/`CLAUDE.md` cannot steer them, and estimate cost from the CLI's token counts, leaving it at 0 for a model with no known price. The backend covers `engineer` only: with `"sdk": "hermes"` the `agent` command stops before browser setup, so capture with another SDK (claude, opencode, copilot or cursor) and engineer that run with hermes; `agent --dry-run` reports the same error. The CLI is found on `PATH` or through `RAE_HERMES_BIN`, and `agent --dry-run` reports it as a check.
 
+### Removed
+- **Collector mode**: the `collector` command, the session's collector mode, the `collector_model` setting and the `collector` install extra. rae stays on turning a site's traffic into an API client. Existing configs and histories still load: an old `collector_model` is ignored, past collector runs stay in `/history`, and `./collected/` folders are left as they are.
+
 ## [0.15.0] - 2026-11-08
 
 ### Changed

@@ -1710,14 +1710,14 @@ class TestEntry:
         assert "jobs on example.com" in plain(session.transcript) and session.st.running
 
     @pytest.mark.parametrize(
-        ("mode", "sdk", "verb"), [("collector", "claude", "starting"), ("manual", "claude", "recording"), ("agent", "opencode", "starting")]
+        ("mode", "sdk", "verb"), [("engineer", "claude", "starting"), ("manual", "claude", "recording"), ("agent", "opencode", "starting")]
     )
     def test_every_mode_and_sdk_runs_in_the_session(self, app_session, mode, sdk, verb):
         session, _history = app_session
         session.app = MagicMock()
         session.st.mode, session.st.sdk = mode, sdk
         run = MagicMock()
-        session.first = ("companies hiring", run)
+        session.first = ("jobs on example.com", run)
         with patch("reverse_api.utils.check_for_updates", return_value=None), patch.object(session, "work") as work:
             session.start_first()
         session.app.exit.assert_not_called()
@@ -1792,9 +1792,8 @@ class TestSubcommands:
         monkeypatch.setattr(cli, "_in_terminal", lambda: False)
         with patch.object(cli, "open_session") as session:
             agent = CliRunner().invoke(cli.main, ["agent"])
-            collector = CliRunner().invoke(cli.main, ["collector"])
         session.assert_not_called()
-        assert agent.exit_code == 2 and collector.exit_code == 2
+        assert agent.exit_code == 2
 
     def test_json_never_opens_the_session(self, monkeypatch):
         from click.testing import CliRunner
@@ -2042,38 +2041,24 @@ class TestReviewedAgain:
         session.quit()
         assert session.st.queue == []
 
-    def test_collector_mode_runs_and_shows_its_own_model(self, app_session):
+    def test_a_subcommands_runner_gets_the_selected_model(self, app_session):
         session, _history = app_session
         st = session.st
-        st.mode, st.collector_model = "collector", "claude-haiku-5-5"
-        assert st.live_model_label == "haiku 5.5"
-        session.set_model("claude-opus-5-5")
-        assert st.collector_model == "claude-opus-5-5" and st.model == "claude-sonnet-5-5"
-        session.cli.config_manager.set.assert_called_with("collector_model", "claude-opus-5-5")
-        with patch.object(session, "work") as work:
-            session.start("companies hiring")
-        with patch.object(session.cli, "run_collector") as run:
-            work.call_args.args[0]()
-        assert run.call_args.kwargs["model"] == "claude-opus-5-5"
-
-    def test_a_collector_runner_gets_the_collectors_model(self, app_session):
-        session, _history = app_session
-        st = session.st
-        st.mode, st.collector_model = "collector", "claude-haiku-5-5"
+        st.mode, st.model = "agent", "claude-haiku-5-5"
         runner = MagicMock()
-        session.runners["collector"] = runner
+        session.runners["agent"] = runner
         with patch.object(session, "work") as work:
-            session.start("companies hiring")
+            session.start("jobs on example.com")
             work.call_args.args[0]()
-        runner.assert_called_once_with("companies hiring", "claude-haiku-5-5")
+        runner.assert_called_once_with("jobs on example.com", "claude-haiku-5-5")
 
 
-def test_collector_mode_effort_follows_the_collectors_model(app_session):
+def test_effort_follows_the_selected_model(app_session):
     session, _history = app_session
     st = session.st
-    st.mode, st.collector_model = "collector", "claude-haiku-4-5"
+    st.model = "claude-haiku-4-5"
     assert not st.has_effort
-    st.collector_model = "claude-opus-5-5"
+    st.model = "claude-opus-5-5"
     assert st.has_effort and st.effort_label == "medium"
 
 
@@ -2107,21 +2092,6 @@ class TestPortedScreens:
         ui.error("provider refused", unexpected=False)
         text = "".join(line.strip() for line in plain(t).splitlines())
         assert "└ in" in plain(t) and str(tmp_path) in text and "provider refused" in text
-
-    def test_the_collector_reports_its_items_and_folder(self, session, tmp_path):
-        st, t, _view, b = session
-        from reverse_api.repl.bridge import CollectorLedgerUI
-
-        ui = CollectorLedgerUI(b)
-        ui.header("r1", "companies hiring", "claude-haiku-5-5", mode="collector")
-        ui.tool_start("WebFetch", {"url": "https://example.com/jobs"})
-        ui.item_saved('{"company": "Acme"}')
-        ui.collection_complete(2, str(tmp_path))
-        ui.usage_summary({"input_tokens": 100, "output_tokens": 20, "estimated_cost_usd": 0.01})
-        text = plain(t)
-        assert "run r1 · collector" in text and "saved" in text and "Acme" in text and "2 items collected" in text
-        assert str(tmp_path) in "".join(line.strip() for line in text.splitlines())
-        assert st.run_model == "claude-haiku-5-5" and st.tokens == 120
 
     def test_esc_ends_the_browsing_and_keeps_the_capture(self, app_session, tmp_path, monkeypatch):
         from reverse_api import cli
@@ -2195,27 +2165,6 @@ class TestPortedScreens:
         ui.stop_streaming()
         view.flush_live()
         assert plain(t).count("Done") == 3
-
-    def test_a_stopped_collector_keeps_what_it_collected(self, tmp_path, monkeypatch):
-        import json
-
-        from reverse_api import cli
-        from reverse_api.collector import Collector
-
-        history = MagicMock()
-        monkeypatch.setattr(cli, "session_manager", history)
-        monkeypatch.setattr("reverse_api.collector.get_collected_dir", lambda name: tmp_path)
-        monkeypatch.setattr("reverse_api.collector.generate_folder_name", lambda prompt: "companies")
-
-        async def stopped_after_two(self):
-            self.items_path.write_text(json.dumps({"company": "Acme"}) + "\n" + json.dumps({"company": "Globex"}) + "\n")
-            raise asyncio.CancelledError  # esc in the session
-
-        with patch("reverse_api.collector.MessageStore"), patch.object(Collector, "_agent_loop", stopped_after_two):
-            with pytest.raises(asyncio.CancelledError):
-                cli.run_collector(prompt="companies hiring", model="claude-haiku-5-5")
-        assert history.update_run.call_args.kwargs["paths"] == {"output_path": str(tmp_path)}
-        assert len(json.loads((tmp_path / "data.json").read_text())) == 2 and (tmp_path / "data.csv").exists()
 
 
 def test_an_update_is_only_a_newer_release():

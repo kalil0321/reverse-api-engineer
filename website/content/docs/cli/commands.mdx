@@ -10,9 +10,9 @@ menu; `Tab` completes and `Enter` runs the highlighted command.
 | Command                | What it does                                                        |
 |------------------------|---------------------------------------------------------------------|
 | `/new`                 | End the open run and start a new capture.                           |
-| `/model`               | Choose the model. In collector mode, the collector's own model.     |
+| `/model`               | Choose the model.                                                   |
 | `/effort`              | How hard the agent thinks, for Claude models (`low` to `max`).      |
-| `/mode`                | Switch between agent, manual, engineer and collector.               |
+| `/mode`                | Switch between agent, manual and engineer.                          |
 | `/settings`            | SDK, agent provider, models, output and sync, changed in place.     |
 | `/history`             | Past runs with their cost; open one to resume or re-engineer it.    |
 | `/resume [run_id]`     | Show a past run's conversation as it was and continue it, on any SDK. |
@@ -23,7 +23,7 @@ menu; `Tab` completes and `Enter` runs the highlighted command.
 | `/exit`                | Quit. Alias: `/quit`.                                               |
 
 `/resume` works for runs that saved their SDK session, which agent and engineer
-runs do from this release on. Older runs and collector runs cannot be resumed.
+runs do from this release on. Older runs cannot be resumed.
 
 ## Keys
 
@@ -33,7 +33,7 @@ runs do from this release on. Older runs and collector runs cannot be resumed.
 | `Esc`                | Stop the run, or close a menu.                             |
 | `↑` / `↓`            | Earlier prompts; in a menu, move, around from either end.  |
 | `Tab`                | Complete a command.                                        |
-| `Shift+Tab`          | Cycle the mode: agent → manual → engineer → collector.     |
+| `Shift+Tab`          | Cycle the mode: agent → manual → engineer.                 |
 | `Ctrl+E`             | Cycle the effort level.                                    |
 | `Ctrl+O`             | Show the full output of folded steps.                      |
 | `PageUp` / `PageDown`| Scroll the conversation. `End` jumps back to the latest.   |
@@ -58,17 +58,15 @@ Outside the session, you can use direct subcommands:
 | Command       | What it does                                               |
 |---------------|------------------------------------------------------------|
 | `agent`       | Run an autonomous browser capture and generation pipeline. |
-| `collector`   | Run AI-powered data collection and export JSON/CSV files.  |
 | `engineer`    | Re-run generation against an existing capture.             |
 | `list`        | List generated scripts and runs; supports `--json`.        |
 | `show`        | Inspect one run; supports `--json`.                        |
 | `run`         | Execute a generated client with its language toolchain.    |
 
-In a terminal, `agent`, `engineer` and `collector` open the session in their
-mode and start the run, keeping options such as `--headless` and
-`--output-dir` for the prompts you type next. `agent` and `engineer` print
-plain output instead with `--json`, `--json-stream` or `--no-interactive`;
-`collector` does when it runs outside a terminal.
+In a terminal, `agent` and `engineer` open the session in their mode and
+start the run, keeping options such as `--headless` and `--output-dir` for
+the prompts you type next. They print plain output instead with `--json`,
+`--json-stream` or `--no-interactive`.
 
 Scripted flags are command-specific: `agent`, `engineer`, and `run` support
 `--json` and `--json-stream`; `list` and `show` support `--json`; and `run`
