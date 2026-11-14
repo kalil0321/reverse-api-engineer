@@ -4,17 +4,76 @@ from __future__ import annotations
 
 import io
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from typing import Any
 
 from prompt_toolkit.formatted_text import ANSI, FormattedText, to_formatted_text
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
+from prompt_toolkit.utils import get_cwidth
 from rich.console import Console, RenderableType
 
 from .style import THEME, pt_style, width
 
 Line = list[tuple[Any, ...]]
+Point = tuple[int, int]  # (line, column) in the conversation's lines
+
+
+@dataclass
+class Selection:
+    """Text dragged over in the conversation, from where the drag began to where the pointer is."""
+
+    anchor: Point
+    head: Point
+    dragging: bool = True
+
+    @property
+    def span(self) -> tuple[Point, Point]:
+        return min(self.anchor, self.head), max(self.anchor, self.head)
+
+    def columns(self, line: int) -> tuple[int, int | None] | None:
+        """The columns selected on a line, both included (None: to its end), or None when it is outside."""
+        (l0, c0), (l1, c1) = self.span
+        if not l0 <= line <= l1:
+            return None
+        return (c0 if line == l0 else 0), (c1 if line == l1 else None)
+
+
+def cells(line: Line) -> Iterator[tuple[int, int, str]]:
+    """Each character of a line with the first and last column it covers; wide characters take two."""
+    col = 0
+    for _style, text, *_ in line:
+        for ch in text:
+            w = get_cwidth(ch)
+            yield col, col + max(w, 1) - 1, ch  # a combining mark sits on the column before it moves on
+            col += w
+
+
+def picked(first: int, last: int, lo: int, hi: int | None) -> bool:
+    """Whether a character covering columns ``first`` to ``last`` touches the selected ``lo`` to ``hi``."""
+    return last >= lo and (hi is None or first <= hi)
+
+
+def selected_text(lines: list[Line], selection: Selection) -> str:
+    """The selected text, one row per line, without the padding a terminal would also leave out."""
+    (l0, _), (l1, _) = selection.span
+    rows = []
+    for i in range(l0, min(l1, len(lines) - 1) + 1):
+        lo, hi = selection.columns(i) or (0, None)
+        rows.append("".join(ch for first, last, ch in cells(lines[i]) if picked(first, last, lo, hi)).rstrip())
+    return "\n".join(rows)
+
+
+def highlight(line: Line, lo: int, hi: int | None) -> Line:
+    """The line with its characters from column ``lo`` to ``hi`` drawn reversed; link handlers are kept."""
+    out: Line = []
+    chars = cells(line)
+    for style, text, *handler in line:
+        for ch in text:
+            first, last, _ = next(chars)
+            out.append((f"{style} reverse" if picked(first, last, lo, hi) else style, ch, *handler))
+    return out
 
 
 class Raw:
@@ -157,11 +216,17 @@ class TranscriptWriter(io.TextIOBase):
 
 
 class TranscriptControl(FormattedTextControl):
-    """The wheel scrolls the conversation; clicks go to the link under the pointer."""
+    """The wheel scrolls the conversation, a drag selects text, and a click goes to the link under the pointer."""
 
-    def __init__(self, get_text: Callable[[], FormattedText], on_scroll: Callable[[int], None]) -> None:
+    def __init__(
+        self,
+        get_text: Callable[[], FormattedText],
+        on_scroll: Callable[[int], None],
+        on_drag: Callable[[MouseEvent], bool] = lambda _event: False,
+    ) -> None:
         super().__init__(get_text, focusable=False, show_cursor=False)
         self.on_scroll = on_scroll
+        self.on_drag = on_drag  # True when the event was part of a selection
 
     def mouse_handler(self, mouse_event: MouseEvent) -> object:
         if mouse_event.event_type == MouseEventType.SCROLL_UP:
@@ -169,5 +234,7 @@ class TranscriptControl(FormattedTextControl):
             return None
         if mouse_event.event_type == MouseEventType.SCROLL_DOWN:
             self.on_scroll(-3)
+            return None
+        if self.on_drag(mouse_event):
             return None
         return super().mouse_handler(mouse_event)

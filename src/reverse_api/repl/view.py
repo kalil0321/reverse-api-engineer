@@ -229,6 +229,7 @@ class SessionState:
     queue: list[str] = field(default_factory=list)
     scroll: int = 0  # lines scrolled up from the latest output
     folded: bool = False  # some output was cut short, so ctrl+o has more to show
+    flash: tuple[str, float] | None = None  # a short confirmation for the status row, until its time
     palette_index: int = 0
     picker: Picker | None = None
     question: Any = None  # a free-text question waiting for the next Enter
@@ -754,7 +755,9 @@ class LedgerView:
             left += self.pill(CHIP_LAVENDER, gauge) + [(f"fg:{DIM}", " ⌃e  ")]
         if st.cost:
             left += self.pill(CHIP_YELLOW, [(f"fg:{CHIP_INK} bold", f" {money(st.cost)} ")]) + [("", "  ")]
-        if st.scroll:
+        if st.flash and time.time() < st.flash[1]:
+            hint = [(f"fg:{PASTEL_WRITE}", f"{st.flash[0]} ")]
+        elif st.scroll:
             hint = [(f"fg:{AMBER}", "end ↓ back to the latest ")]
         elif st.question is not None:
             hint = [(f"fg:{AMBER}", "type your answer · esc skips ")]

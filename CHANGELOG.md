@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Copy text from the session**: the session takes the mouse for the wheel and for clicking files and links, so the terminal could not select its text. Dragging over the conversation now selects it and copies it to the clipboard when you let go, with `pbcopy`, `wl-copy`, `xclip` or `xsel`, or through the terminal (OSC 52) otherwise and over SSH. A click without a drag still opens a link.
+
 ## [0.15.0] - 2026-11-08
 
 ### Changed

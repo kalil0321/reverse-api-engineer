@@ -38,6 +38,7 @@ from prompt_toolkit.layout import ConditionalContainer, HSplit, Layout, VSplit, 
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.processors import AfterInput, ConditionalProcessor
 from prompt_toolkit.lexers import Lexer
+from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
 from prompt_toolkit.output import create_output
 from prompt_toolkit.styles import Style
 from rich.console import Console, RenderableType
@@ -45,10 +46,10 @@ from rich.text import Text
 
 from ..messages import MessageStore
 from ..utils import recorded_cost, usage_tokens
-from . import settings
+from . import clipboard, settings
 from .bridge import Bridge, LedgerUI, activate, first_line, short_name
 from .style import DIM, INK, SKY, THEME, height, width
-from .transcript import Raw, Transcript, TranscriptControl, TranscriptWriter
+from .transcript import Line, Raw, Selection, Transcript, TranscriptControl, TranscriptWriter, highlight, selected_text
 from .view import EFFORTS, LedgerView, Picker, SessionState, model_label, run_summary
 
 MODES = {
@@ -88,6 +89,7 @@ KEYS = (
     ("ctrl+o", "everything from this session, unfolded"),
     ("pageup pagedown", "scroll, as does the mouse wheel · end jumps to the latest"),
     ("click", "open a file or a URL"),
+    ("drag", "select text, copied when you let go"),
     ("ctrl+c", "stop the run · clear the bar · quit"),
     ("ctrl+d", "quit"),
 )
@@ -221,6 +223,12 @@ class Session:
         self.worker: threading.Thread | None = None
         self.update_checked = False
         self.buf.on_text_changed += self._reset_palette
+        # The selection, by (line, column) in the lines last drawn: the header and the conversation.
+        self.selection: Selection | None = None
+        self.view_lines: list[Line] = []
+        self.view_start = 0  # the first of them on screen
+        self.view_width = 0
+        self.buf.on_text_changed += self._drop_selection
         # Stray prints read as notices: dim and indented like the rest of the ledger.
         self.capture = TranscriptWriter(self._captured, plain_style=f"fg:{DIM}", indent="   ")
 
@@ -235,6 +243,9 @@ class Session:
         self.st.palette_index = 0
         if self.st.picker is not None and self.st.picker.search:
             self.st.picker.index = 0
+
+    def _drop_selection(self, _buf: Buffer) -> None:
+        self.selection = None
 
     def _captured(self, raw: Raw) -> None:
         self.view.out(raw)
@@ -421,6 +432,7 @@ class Session:
                     self.end_run()
                 view.flush_live()
                 self.transcript.clear()
+                self.selection = None
                 st.scroll, st.folded, st.cost, st.tokens, st.step = 0, False, 0.0, 0, 0
                 st.last_client, st.client_name, st.host, st.run_id = None, "", "", None
                 self.bridge.cost_base = 0.0
@@ -960,10 +972,51 @@ class Session:
         rows = window.render_info.window_height if window.render_info else height() - 5
         st.scroll = max(0, min(st.scroll, len(lines) - rows))
         end = len(lines) - st.scroll
+        if self.view_width != width():
+            self.selection = None  # the conversation wraps anew, so its lines no longer match
+        self.view_lines, self.view_start, self.view_width = lines, max(0, end - rows), width()
         out: list[Any] = []
-        for i, line in enumerate(lines[max(0, end - rows) : end]):
-            out += ([("", "\n")] if i else []) + line
+        for i, line in enumerate(lines[self.view_start : end]):
+            picked = self.selection.columns(self.view_start + i) if self.selection else None
+            out += ([("", "\n")] if i else []) + (highlight(line, *picked) if picked else line)
         return FormattedText(out)
+
+    def drag(self, event: MouseEvent) -> bool:
+        """A drag over the conversation selects text, copied on release; a click without one still opens a link."""
+        at = (self.view_start + event.position.y, event.position.x)
+        kind, sel = event.event_type, self.selection
+        if kind == MouseEventType.MOUSE_DOWN:
+            self.selection = Selection(at, at) if event.button == MouseButton.LEFT else None
+            return False
+        if sel is None or not sel.dragging:
+            return False
+        if kind == MouseEventType.MOUSE_MOVE and event.button == MouseButton.LEFT:
+            sel.head = at
+            return True
+        # A release here, or a move with no button held: it was let go over another part of the screen.
+        if kind == MouseEventType.MOUSE_UP:
+            sel.head = at
+        sel.dragging = False
+        if sel.anchor == sel.head:
+            self.selection = None
+            return False
+        self.copy_selection()
+        return True
+
+    def copy_selection(self) -> None:
+        if self.selection is None:
+            return
+        text = selected_text(self.view_lines, self.selection)
+        if not text.strip():
+            return
+        clipboard.copy(text, self.write_raw)
+        rows = text.count("\n") + 1
+        self.st.flash = (f"copied {rows} lines" if rows > 1 else f"copied {len(text)} characters", time.time() + 2)
+
+    def write_raw(self, data: str) -> None:
+        if self.app is not None:
+            self.app.output.write_raw(data)
+            self.app.output.flush()
 
     def build(self) -> Application:
         st, view, buf = self.st, self.view, self.buf
@@ -988,7 +1041,7 @@ class Session:
             return view.menu(rows, title=p.title, empty="nothing matches what you typed")
 
         transcript_window: Window = Window(wrap_lines=False)
-        transcript_window.content = TranscriptControl(lambda: self.transcript_view(transcript_window), self.scroll)
+        transcript_window.content = TranscriptControl(lambda: self.transcript_view(transcript_window), self.scroll, self.drag)
         kb = self.bindings(palette_open, picker_open)
 
         def text_window(fn: Callable[[], Any]) -> Window:
