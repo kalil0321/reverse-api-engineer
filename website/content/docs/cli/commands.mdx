@@ -37,8 +37,14 @@ runs do from this release on. Older runs and collector runs cannot be resumed.
 | `Ctrl+E`             | Cycle the effort level.                                    |
 | `Ctrl+O`             | Show the full output of folded steps.                      |
 | `PageUp` / `PageDown`| Scroll the conversation. `End` jumps back to the latest.   |
+| `Option+Delete`      | Delete the word before the cursor (also `Ctrl+W`).         |
+| `Ctrl+U`             | Delete to the start of the input.                          |
 | `Ctrl+C`             | Stop the run, else clear the input, else quit.             |
 | `Ctrl+D`             | Quit.                                                      |
+
+`Option+Delete` needs the terminal to send Option as Meta: in Terminal, Settings >
+Profiles > Keyboard > Use Option as Meta key. `Cmd+Delete` doesn't reach the
+session in Terminal or Warp; use `Ctrl+U`.
 
 Click a file or URL in the conversation to open it. Drag over text to select
 it: it is copied to the clipboard when you let go. RAE copies with `pbcopy`
