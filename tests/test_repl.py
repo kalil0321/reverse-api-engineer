@@ -2455,6 +2455,20 @@ def test_a_highlight_keeps_the_link_under_it():
 class TestInputKeys:
     """Option+Delete reaches the input bar as Esc then Delete, through the session's own key bindings."""
 
+    @pytest.fixture
+    def built(self, app_session, monkeypatch):
+        """The session and its app, on a dummy terminal: a Windows runner has no console to draw on."""
+        from prompt_toolkit.application.current import create_app_session
+        from prompt_toolkit.input.base import DummyInput
+        from prompt_toolkit.output.base import DummyOutput
+
+        from reverse_api.repl import app
+
+        session, _history = app_session
+        monkeypatch.setattr(app, "create_output", lambda stdout: DummyOutput())
+        with create_app_session(input=DummyInput(), output=DummyOutput()):
+            yield session, session.build()
+
     @staticmethod
     def press(app: Any, *keys: Any) -> None:
         from prompt_toolkit.application.current import set_app
@@ -2464,35 +2478,32 @@ class TestInputKeys:
             app.key_processor.feed_multiple([KeyPress(key, data) for key, data in keys])
             app.key_processor.process_keys()
 
-    async def test_option_delete_deletes_the_word_before_the_cursor(self, app_session):
+    async def test_option_delete_deletes_the_word_before_the_cursor(self, built):
         from prompt_toolkit.keys import Keys
 
-        session, _history = app_session
-        app = session.build()
+        session, app = built
         session.buf.insert_text("fetch all jobs at browserbase")
         self.press(app, (Keys.Escape, "\x1b"), (Keys.Backspace, "\x7f"))
         assert session.buf.text == "fetch all jobs at "
 
-    async def test_option_delete_on_an_empty_bar_leaves_the_run_going(self, app_session, monkeypatch):
+    async def test_option_delete_on_an_empty_bar_leaves_the_run_going(self, built, monkeypatch):
         from prompt_toolkit.keys import Keys
 
-        session, _history = app_session
-        app = session.build()
+        session, app = built
         session.st.running = True
         stop = MagicMock()
         monkeypatch.setattr(session, "stop", stop)
         self.press(app, (Keys.Escape, "\x1b"), (Keys.Backspace, "\x7f"))
         stop.assert_not_called()
 
-    async def test_a_lone_esc_still_stops_the_run_at_once(self, app_session, monkeypatch):
+    async def test_a_lone_esc_still_stops_the_run_at_once(self, built, monkeypatch):
         from prompt_toolkit.application.current import set_app
         from prompt_toolkit.key_binding.key_processor import KeyPress
         from prompt_toolkit.keys import Keys
 
         from reverse_api.repl.app import ESC_WAIT
 
-        session, _history = app_session
-        app = session.build()
+        session, app = built
         session.st.running = True
         stop = MagicMock()
         monkeypatch.setattr(session, "stop", stop)
