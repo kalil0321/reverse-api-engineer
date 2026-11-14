@@ -831,7 +831,7 @@ class TestSettings:
         session, config = settings_session
         session.run_command("/settings")
         pick(session.st, "sdk")
-        assert [v for v, _, _ in session.st.picker.items] == ["claude", "copilot", "cursor", "opencode"]
+        assert [v for v, _, _ in session.st.picker.items] == ["claude", "copilot", "cursor", "opencode", "hermes"]
         pick(session.st, "opencode")
         assert config.get("sdk") == "opencode" and session.st.sdk == "opencode"
         assert "◇ sdk  claude → opencode" in plain(session.transcript)

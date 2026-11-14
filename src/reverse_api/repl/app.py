@@ -455,7 +455,8 @@ class Session:
 
         def picked(value: str | None) -> None:
             if value is not None:
-                self.save_setting(key, None if key == "output_dir" and not value else value)  # "" is the default folder
+                # "" clears the setting, not sets it: the default folder, and the Hermes config's own model.
+                self.save_setting(key, None if key in ("output_dir", "hermes_model") and not value else value)
             self.open_settings(key)
 
         if kind == "toggle":
