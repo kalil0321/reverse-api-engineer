@@ -2269,7 +2269,7 @@ class TestSelection:
         session.loop = Loop()
         copies: list[str] = []
         monkeypatch.setattr(app.clipboard, "copy", lambda text, write_raw: copies.append(text))
-        monkeypatch.setattr(app.threading, "Thread", lambda target, **kwargs: MagicMock(start=target))
+        session.copier = MagicMock(submit=lambda copy: copy())
         session.view.notice("GET /api/jobs returned 200")
         session.view.notice("the client is ready")
         session.transcript_view(MagicMock(render_info=None))
@@ -2327,15 +2327,47 @@ class TestSelection:
         from reverse_api.repl import app
 
         session, _history = app_session
-        started: list[Any] = []
-        monkeypatch.setattr(app.threading, "Thread", lambda target, **kwargs: started.append(target) or MagicMock())
+        session.copier = MagicMock()
         monkeypatch.setattr(app.clipboard, "copy", MagicMock())
         session.view.notice("GET /api/jobs")
         session.transcript_view(MagicMock(render_info=None))
         row = next(i for i, line in enumerate(session.view_lines) if "GET" in text_of(line)) - session.view_start
         session.drag(self.mouse(MouseEventType.MOUSE_DOWN, 3, row))
         session.drag(self.mouse(MouseEventType.MOUSE_UP, 9, row))
-        assert len(started) == 1 and not app.clipboard.copy.called
+        assert session.copier.submit.call_count == 1 and not app.clipboard.copy.called
+
+    def test_copies_land_in_order_and_skip_a_selection_already_replaced(self, app_session, monkeypatch):
+        from reverse_api.repl import app
+
+        session, _history = app_session
+        session.loop = Loop()
+        first_running, release = threading.Event(), threading.Event()
+        landed: list[str] = []
+
+        def slow_first(text: str, write_raw: Any) -> None:
+            if not landed:
+                first_running.set()
+                release.wait(5)
+            landed.append(text)
+
+        monkeypatch.setattr(app.clipboard, "copy", slow_first)
+        for word in ("one", "two", "three"):
+            session.view.notice(word)
+        session.transcript_view(MagicMock(render_info=None))
+
+        def select(word: str) -> None:
+            i = next(i for i, line in enumerate(session.view_lines) if text_of(line).strip() == word)
+            start = text_of(session.view_lines[i]).index(word)
+            session.drag(self.mouse(MouseEventType.MOUSE_DOWN, start, i - session.view_start))
+            session.drag(self.mouse(MouseEventType.MOUSE_UP, start + len(word) - 1, i - session.view_start))
+
+        select("one")
+        assert first_running.wait(5)
+        select("two")
+        select("three")
+        release.set()
+        session.copier.shutdown(wait=True)
+        assert landed == ["one", "three"], "two was replaced before its turn came"
 
     def test_typing_or_a_new_width_drops_the_selection(self, shown, monkeypatch):
         session, _copies, (row, _) = shown

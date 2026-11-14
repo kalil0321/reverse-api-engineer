@@ -18,7 +18,7 @@ import threading
 import time
 import warnings
 from collections.abc import Callable
-from concurrent.futures import Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import IO, Any, cast
@@ -240,6 +240,10 @@ class Session:
         self.view_lines: list[Line] = []
         self.view_start = self.view_end = 0  # the first of them on screen, and the one past the last
         self.view_width = 0
+        # Off the app's loop, so a slow clipboard command never holds up the screen, and one copy at a time, so an
+        # older selection cannot land on the clipboard after a newer one.
+        self.copier = ThreadPoolExecutor(max_workers=1, thread_name_prefix="rae-copy")
+        self.copies_asked = 0
         self.buf.on_text_changed += self._drop_selection
         # Stray prints read as notices: dim and indented like the rest of the ledger.
         self.capture = TranscriptWriter(self._captured, plain_style=f"fg:{DIM}", indent="   ")
@@ -1043,13 +1047,16 @@ class Session:
             return
         rows = text.count("\n") + 1
         done = f"copied {rows} lines" if rows > 1 else f"copied {len(text)} characters"
+        self.copies_asked += 1
+        ticket = self.copies_asked
 
         def copy() -> None:
-            # Off the app's loop, so a slow clipboard command never holds up the screen.
+            if ticket != self.copies_asked:
+                return  # a newer selection came while this one waited its turn
             clipboard.copy(text, lambda data: self.call_soon(lambda: self.write_raw(data)))
             self.call_soon(lambda: self.flash(done))
 
-        threading.Thread(target=copy, name="rae-copy", daemon=True).start()
+        self.copier.submit(copy)
 
     def flash(self, message: str) -> None:
         self.st.flash = (message, time.time() + 2)
