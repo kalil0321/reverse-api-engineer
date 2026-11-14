@@ -2513,3 +2513,10 @@ class TestInputKeys:
             stop.assert_not_called()  # it could still be Option+something
             await asyncio.sleep(ESC_WAIT * 4)
         stop.assert_called_once()
+
+    def test_the_terminal_reader_waits_as_briefly_for_the_key_after_esc(self, built):
+        """The reader's own wait for what follows a lone Esc, which keys fed to the key processor never reach."""
+        from reverse_api.repl.app import ESC_WAIT
+
+        _session, app = built
+        assert app.ttimeoutlen == ESC_WAIT == app.timeoutlen
