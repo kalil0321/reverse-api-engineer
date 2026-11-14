@@ -35,7 +35,6 @@ from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent, merge_key_bindings
 from prompt_toolkit.key_binding.defaults import load_key_bindings
 from prompt_toolkit.layout import ConditionalContainer, HSplit, Layout, VSplit, Window
-from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.processors import AfterInput, ConditionalProcessor
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
@@ -49,7 +48,20 @@ from ..utils import recorded_cost, usage_tokens
 from . import clipboard, settings
 from .bridge import Bridge, LedgerUI, activate, first_line, short_name
 from .style import DIM, INK, SKY, THEME, height, width
-from .transcript import Line, Raw, Selection, Transcript, TranscriptControl, TranscriptWriter, highlight, selected_text
+from .transcript import (
+    LINE_END,
+    InputBelow,
+    Line,
+    Raw,
+    Selection,
+    TextBelow,
+    Transcript,
+    TranscriptControl,
+    TranscriptWriter,
+    highlight,
+    selected_text,
+    text_of,
+)
 from .view import EFFORTS, LedgerView, Picker, SessionState, model_label, run_summary
 
 MODES = {
@@ -226,7 +238,7 @@ class Session:
         # The selection, by (line, column) in the lines last drawn: the header and the conversation.
         self.selection: Selection | None = None
         self.view_lines: list[Line] = []
-        self.view_start = 0  # the first of them on screen
+        self.view_start = self.view_end = 0  # the first of them on screen, and the one past the last
         self.view_width = 0
         self.buf.on_text_changed += self._drop_selection
         # Stray prints read as notices: dim and indented like the rest of the ledger.
@@ -974,11 +986,13 @@ class Session:
         end = len(lines) - st.scroll
         if self.view_width != width():
             self.selection = None  # the conversation wraps anew, so its lines no longer match
-        self.view_lines, self.view_start, self.view_width = lines, max(0, end - rows), width()
+        self.view_lines, self.view_start, self.view_end, self.view_width = lines, max(0, end - rows), end, width()
         out: list[Any] = []
         for i, line in enumerate(lines[self.view_start : end]):
-            picked = self.selection.columns(self.view_start + i) if self.selection else None
-            out += ([("", "\n")] if i else []) + (highlight(line, *picked) if picked else line)
+            picked = self.selection.chars(self.view_start + i) if self.selection else None
+            # A line with no character gives the pointer no position: the window would report the first line.
+            shown = (highlight(line, *picked) if picked else line) if text_of(line) else [("", " ")]
+            out += ([("", "\n")] if i else []) + shown
         return FormattedText(out)
 
     def drag(self, event: MouseEvent) -> bool:
@@ -993,11 +1007,28 @@ class Session:
         if kind == MouseEventType.MOUSE_MOVE and event.button == MouseButton.LEFT:
             sel.head = at
             return True
-        # A release here, or a move with no button held: it was let go over another part of the screen.
+        # A release here, or a move with no button held, after a release the session did not see.
         if kind == MouseEventType.MOUSE_UP:
             sel.head = at
-        sel.dragging = False
-        if sel.anchor == sel.head:
+        return self.end_drag()
+
+    def drag_below(self, event: MouseEvent) -> bool:
+        """Mouse events under the conversation: a drag there reaches the end of its last line on screen."""
+        sel = self.selection
+        if sel is None or not sel.dragging or event.event_type not in (MouseEventType.MOUSE_MOVE, MouseEventType.MOUSE_UP):
+            return False
+        sel.head = (self.view_end - 1, LINE_END)
+        if event.event_type == MouseEventType.MOUSE_MOVE and event.button == MouseButton.LEFT:
+            return True
+        self.end_drag()
+        return True
+
+    def end_drag(self) -> bool:
+        """Copies what the drag went over; a press and release on one spot was a click."""
+        if self.selection is None:
+            return False
+        self.selection.dragging = False
+        if self.selection.anchor == self.selection.head:
             self.selection = None
             return False
         self.copy_selection()
@@ -1009,9 +1040,19 @@ class Session:
         text = selected_text(self.view_lines, self.selection)
         if not text.strip():
             return
-        clipboard.copy(text, self.write_raw)
         rows = text.count("\n") + 1
-        self.st.flash = (f"copied {rows} lines" if rows > 1 else f"copied {len(text)} characters", time.time() + 2)
+        done = f"copied {rows} lines" if rows > 1 else f"copied {len(text)} characters"
+
+        def copy() -> None:
+            # Off the app's loop, so a slow clipboard command never holds up the screen.
+            clipboard.copy(text, lambda data: self.call_soon(lambda: self.write_raw(data)))
+            self.call_soon(lambda: self.flash(done))
+
+        threading.Thread(target=copy, name="rae-copy", daemon=True).start()
+
+    def flash(self, message: str) -> None:
+        self.st.flash = (message, time.time() + 2)
+        self.invalidate()
 
     def write_raw(self, data: str) -> None:
         if self.app is not None:
@@ -1045,7 +1086,7 @@ class Session:
         kb = self.bindings(palette_open, picker_open)
 
         def text_window(fn: Callable[[], Any]) -> Window:
-            return Window(FormattedTextControl(fn), dont_extend_height=True)
+            return Window(TextBelow(fn, self.drag_below), dont_extend_height=True)
 
         picker_hinted = Condition(lambda: bool(st.picker and st.picker.hint))
         placeholder = ConditionalProcessor(
@@ -1068,9 +1109,11 @@ class Session:
                     text_window(lambda: FormattedText(view.seam())),
                     VSplit(
                         [
-                            Window(FormattedTextControl(lambda: FormattedText(view.marker())), dont_extend_width=True, dont_extend_height=True),
+                            Window(TextBelow(lambda: FormattedText(view.marker()), self.drag_below), dont_extend_width=True, dont_extend_height=True),
                             Window(
-                                BufferControl(buffer=buf, lexer=InputLexer(st), input_processors=[placeholder, follow_hint, picker_hint]),
+                                InputBelow(
+                                    self.drag_below, buffer=buf, lexer=InputLexer(st), input_processors=[placeholder, follow_hint, picker_hint]
+                                ),
                                 dont_extend_height=True,
                                 wrap_lines=True,
                             ),

@@ -34,7 +34,9 @@ def copy(text: str, write_raw: Callable[[str], None]) -> None:
         # pbcopy reads its input in the locale's encoding.
         env = {**os.environ, "LC_CTYPE": "UTF-8"} if command[0] == "pbcopy" else None
         try:
-            subprocess.run(command, input=text.encode(), env=env, check=True, capture_output=True, timeout=2)
+            # xclip stays in the background to serve the clipboard, holding open any output pipe it was given.
+            out = subprocess.DEVNULL
+            subprocess.run(command, input=text.encode(), env=env, check=True, stdout=out, stderr=out, timeout=2)
             return
         except (OSError, subprocess.SubprocessError):
             pass

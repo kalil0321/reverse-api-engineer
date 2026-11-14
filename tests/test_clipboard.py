@@ -33,6 +33,8 @@ def test_macos_copies_with_pbcopy_in_utf_8(local):
     (command,), kwargs = local.call_args
     assert command == ["pbcopy"] and kwargs["input"] == "GET /api/jobs · 200 ✓".encode()
     assert kwargs["env"]["LC_CTYPE"] == "UTF-8" and written == []
+    # xclip keeps any output pipe open from the background, so a captured one would wait out the timeout.
+    assert kwargs["stdout"] is subprocess.DEVNULL and kwargs["stderr"] is subprocess.DEVNULL
 
 
 def test_over_ssh_the_terminal_copies_on_the_users_machine(local, monkeypatch):
