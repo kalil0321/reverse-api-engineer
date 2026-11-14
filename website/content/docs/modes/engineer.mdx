@@ -26,8 +26,17 @@ Interactive:
 
 ```bash
 reverse-api-engineer
-# switch to engineer mode with Shift+Tab, then enter <run_id>
+# switch to engineer mode with Shift+Tab
 ```
+
+Engineer mode works on your latest run with a HAR. The line above the input
+names it, with its id and prompt. Type what should change, such as
+`add pagination`, and rae regenerates that run's client with it. `/engineer`
+lists the runs that have a HAR to pick another one, and a run id typed on its
+own regenerates that run as it was.
+
+The run's cost in `/history` includes every re-engineer of it, and the client
+card shows what the last one cost.
 
 Direct:
 

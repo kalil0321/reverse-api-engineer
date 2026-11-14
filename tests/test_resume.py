@@ -443,6 +443,31 @@ class TestStoppedEngineerRuns:
         assert history.update_run.call_args.kwargs["paths"] == {"script_path": "/tmp/scripts/r1/api_client.py"}
 
 
+class TestReengineeredRunCost:
+    @pytest.fixture
+    def history(self, monkeypatch, tmp_path):
+        from reverse_api.session import SessionManager
+
+        config = MagicMock()
+        config.get.side_effect = lambda key, default=None: {"sdk": "claude", "real_time_sync": True}.get(key, default)
+        monkeypatch.setattr(cli, "config_manager", config)
+        (tmp_path / "recording.har").write_text("{}")
+        sm = SessionManager(tmp_path / "history.json")
+        sm.add_run("r1", "jobs", mode="auto", paths={"har_dir": str(tmp_path)}, usage={"estimated_cost_usd": 0.5, "input_tokens": 1000})
+        monkeypatch.setattr(cli, "session_manager", sm)
+        return sm
+
+    def test_a_reengineer_adds_to_what_the_run_spent(self, history, tmp_path):
+        result = {"script_path": str(tmp_path / "api_client.py"), "usage": {"estimated_cost_usd": 0.25, "input_tokens": 400}}
+        with patch.object(cli, "run_reverse_engineering", return_value=result):
+            cli.run_engineer("r1", additional_instructions="add pagination")
+            cli.run_engineer("r1", additional_instructions="add retries")
+        from reverse_api.session import SessionManager
+
+        usage = SessionManager(tmp_path / "history.json").get_run("r1")["usage"]
+        assert usage == {"estimated_cost_usd": pytest.approx(1.0), "input_tokens": 1800}
+
+
 def test_haiku_4_5_never_gets_an_effort():
     from reverse_api import utils
 

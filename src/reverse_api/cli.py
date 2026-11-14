@@ -714,16 +714,18 @@ def open_session(
     model: str | None = None,
     prompt: str | None = None,
     run: Callable[[], Any] | None = None,
-    runner: Callable[[str, str | None], Any] | None = None,
+    runner: Callable[..., Any] | None = None,
+    target: str | None = None,
 ) -> None:
     """The interactive CLI: the full-screen session, in ``mode``.
 
     A subcommand hands over ``run``, its ``prompt`` with every option bound, and ``runner(prompt, model)``,
     which starts later prompts in that mode with the options that still apply, such as --headless.
+    In engineer mode, ``target`` is the run it works on, and the runner also takes it.
     """
     from .repl.app import run_session
 
-    run_session(mode=mode, model=model, first=(prompt, run) if prompt and run else None, runner=runner)
+    run_session(mode=mode, model=model, first=(prompt, run) if prompt and run else None, runner=runner, target=target)
 
 
 @main.command(
@@ -1443,7 +1445,8 @@ def engineer(
             lambda: run_engineer(
                 run_id, prompt=main_prompt, additional_instructions=additional, model=model, output_dir=output_dir, is_fresh=fresh
             ),
-            lambda p, m: engineer_from_prompt(p, m or model, output_dir),
+            lambda p, m, target=None: engineer_from_prompt(p, m or model, output_dir, target),
+            target=run_id,
         )
         return
     if not machine_output:
@@ -1497,15 +1500,33 @@ def engineer(
     sys.exit(0 if payload["status"] == "ok" else 1)
 
 
-def engineer_from_prompt(text: str, model: str | None = None, output_dir: str | None = None) -> dict[str, Any] | None:
-    """A prompt in engineer mode: a known run id re-engineers that run; anything else is an instruction for the latest run."""
+NO_CAPTURE = "no run has a HAR to engineer yet · manual mode records one, as does agent mode with agent_provider auto"
+
+
+def has_capture(run: dict[str, Any]) -> bool:
+    """Whether engineer can work on a run: its HAR is still on disk."""
+    try:
+        har_dir = Path((run.get("paths") or {}).get("har_dir") or get_har_dir(str(run["run_id"]), None))
+    except (KeyError, TypeError, ValueError):
+        return False
+    return (har_dir / "recording.har").exists()
+
+
+def latest_capture() -> dict[str, Any] | None:
+    return next((r for r in session_manager.get_history(limit=len(session_manager.history)) if has_capture(r)), None)
+
+
+def engineer_from_prompt(
+    text: str, model: str | None = None, output_dir: str | None = None, run_id: str | None = None
+) -> dict[str, Any] | None:
+    """A prompt in engineer mode: a known run id re-engineers that run; anything else is an instruction for
+    ``run_id``, else for the latest run with a HAR."""
     if session_manager.get_run(text):
         return run_engineer(text, model=model, output_dir=output_dir)
-    # Histories can still hold collector runs, which captured no traffic; run_engineer explains any other run that has none.
-    latest = next((r for r in session_manager.get_history(limit=50) if r.get("mode") != "collector"), None)
-    if latest is None:
-        raise RuntimeError("no captured runs yet · start one in agent or manual mode")
-    return run_engineer(latest["run_id"], model=model, output_dir=output_dir, additional_instructions=text)
+    target = run_id or (latest_capture() or {}).get("run_id")
+    if target is None:
+        raise RuntimeError(NO_CAPTURE)
+    return run_engineer(target, model=model, output_dir=output_dir, additional_instructions=text)
 
 
 def run_engineer(
@@ -1556,6 +1577,8 @@ def run_engineer(
     enable_sync = config_manager.get("real_time_sync", True)
     output_language = config_manager.get("output_language", "python")
     resume_session, cost_before = _resume_point(resume) if resume else (None, 0.0)
+    # The run keeps what it spent before, its capture included: a re-engineer adds to it.
+    spent_before = dict((resume or session_manager.get_run(run_id) or {}).get("usage") or {})
     # OpenCode and Copilot take their model from settings, except when reopening a session made with another.
     resume_model = (resume or {}).get("sdk_session", {}).get("model")
     session_model = {
@@ -1734,7 +1757,7 @@ def run_engineer(
             run_id=run_id,
             sdk=sdk,
             output_mode=output_mode,
-            usage=_run_totals(resume.get("usage") or {}, usage) if resume else usage,
+            usage=_run_totals(spent_before, usage),
             paths={"script_path": result.get("script_path")},
         )
         _keep_session_cost(run_id, cost_before, usage)

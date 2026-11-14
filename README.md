@@ -75,7 +75,7 @@ Cycle modes with **Shift+Tab**:
 |------|--------------|
 | `manual` | You drive the browser; AI generates the client from captured traffic. |
 | `agent` | An AI agent drives capture autonomously (Playwright or Chrome MCP, or Vercel agent-browser CLI). |
-| `engineer` | Re-run generation on a previous capture (`engineer <run_id>`). Needs a HAR, so it works on `auto`, `agent-browser` and manual runs, not chrome-mcp runs. |
+| `engineer` | Re-run generation on a previous capture (`engineer <run_id>`). In the session it works on your latest run with a HAR, named above the input; `/engineer` picks another. Needs a HAR, so it works on `auto`, `agent-browser` and manual runs, not chrome-mcp runs. |
 
 Agent mode providers:
 - **chrome-mcp** (default for new configs; an existing `config.json` keeps its provider): drives your real Chrome so you keep existing sessions/cookies. Needs Node.js 20.19+; headed runs also need Chrome 146+ open with auto-connect enabled at `chrome://inspect/#remote-debugging`, and someone at the machine to accept Chrome's connection prompt when the run starts. For headed runs, rae checks before launching that Chrome's remote debugging port is reachable (not the Chrome or Node version) and stops with setup steps if it isn't; `agent --dry-run` shows the same check. Headless runs skip it. `--headless` starts a separate headless Chrome without your sessions. No HAR file is saved, so `engineer <run_id>` cannot regenerate these runs; run `agent` again instead.
@@ -132,6 +132,7 @@ Settings live in `~/.reverse-api/config.json` and can be edited via `/settings` 
 
 `reverse-api-engineer` opens a full-screen session; `agent` and `engineer` open it too when run in a terminal, and stay plain with `--json` or `--no-interactive`. Type `/` for the commands:
 - `/model`, `/effort`, `/mode`: switch the model, how hard it thinks, and the mode (also Shift+Tab, ctrl+e).
+- `/engineer [run_id]`: the run engineer mode works on, by default the latest with a HAR.
 - `/settings`: SDK, agent provider, models, output and sync, changed in place in the session.
 - `/history`: past runs with their details, to resume or re-engineer.
 - `/resume [run_id]`: show a past run's conversation as it was and continue it where it stopped, on any SDK. Works for agent and engineer runs from this version on, which save their SDK session.
