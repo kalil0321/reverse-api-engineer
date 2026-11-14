@@ -5,16 +5,70 @@ from __future__ import annotations
 import io
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from prompt_toolkit.formatted_text import ANSI, FormattedText, to_formatted_text
-from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
 from rich.console import Console, RenderableType
 
 from .style import THEME, pt_style, width
 
 Line = list[tuple[Any, ...]]
+# (line, character) in the conversation's lines. A window hands its control the index of the character
+# under the pointer, the whole of a wide one, rather than a screen column.
+Point = tuple[int, int]
+LINE_END = 1 << 30  # past the last character of any line
+
+
+@dataclass
+class Selection:
+    """Text dragged over in the conversation, from where the drag began to where the pointer is."""
+
+    anchor: Point
+    head: Point
+    dragging: bool = True
+
+    @property
+    def span(self) -> tuple[Point, Point]:
+        return min(self.anchor, self.head), max(self.anchor, self.head)
+
+    def chars(self, line: int) -> tuple[int, int | None] | None:
+        """The characters selected on a line, both included (None: to its end), or None when it is outside."""
+        (l0, c0), (l1, c1) = self.span
+        if not l0 <= line <= l1:
+            return None
+        return (c0 if line == l0 else 0), (c1 if line == l1 else None)
+
+
+def text_of(line: Line) -> str:
+    return "".join(text for _style, text, *_ in line)
+
+
+def selected_text(lines: list[Line], selection: Selection) -> str:
+    """The selected text, one row per line, without the padding a terminal would also leave out.
+
+    Blank rows at its end are dropped: pasted into a shell, a final newline would run the command.
+    """
+    (l0, _), (l1, _) = selection.span
+    rows = []
+    for i in range(l0, min(l1, len(lines) - 1) + 1):
+        lo, hi = selection.chars(i) or (0, None)
+        rows.append(text_of(lines[i])[lo : None if hi is None else hi + 1].rstrip())
+    return "\n".join(rows).rstrip("\n")
+
+
+def highlight(line: Line, lo: int, hi: int | None) -> Line:
+    """The line with its characters ``lo`` to ``hi`` drawn reversed; link handlers are kept."""
+    out: Line = []
+    i = 0
+    for style, text, *handler in line:
+        for ch in text:
+            picked = i >= lo and (hi is None or i <= hi)
+            out.append((f"{style} reverse" if picked else style, ch, *handler))
+            i += 1
+    return out
 
 
 class Raw:
@@ -157,11 +211,17 @@ class TranscriptWriter(io.TextIOBase):
 
 
 class TranscriptControl(FormattedTextControl):
-    """The wheel scrolls the conversation; clicks go to the link under the pointer."""
+    """The wheel scrolls the conversation, a drag selects text, and a click goes to the link under the pointer."""
 
-    def __init__(self, get_text: Callable[[], FormattedText], on_scroll: Callable[[int], None]) -> None:
+    def __init__(
+        self,
+        get_text: Callable[[], FormattedText],
+        on_scroll: Callable[[int], None],
+        on_drag: Callable[[MouseEvent], bool] = lambda _event: False,
+    ) -> None:
         super().__init__(get_text, focusable=False, show_cursor=False)
         self.on_scroll = on_scroll
+        self.on_drag = on_drag  # True when the event was part of a selection
 
     def mouse_handler(self, mouse_event: MouseEvent) -> object:
         if mouse_event.event_type == MouseEventType.SCROLL_UP:
@@ -170,4 +230,27 @@ class TranscriptControl(FormattedTextControl):
         if mouse_event.event_type == MouseEventType.SCROLL_DOWN:
             self.on_scroll(-3)
             return None
+        if self.on_drag(mouse_event):
+            return None
         return super().mouse_handler(mouse_event)
+
+
+# The rest of the screen is under the conversation: a drag that reaches it goes on, and ends where it is let go.
+
+
+class TextBelow(FormattedTextControl):
+    def __init__(self, get_text: Callable[[], Any], on_drag: Callable[[MouseEvent], bool]) -> None:
+        super().__init__(get_text)
+        self.on_drag = on_drag
+
+    def mouse_handler(self, mouse_event: MouseEvent) -> object:
+        return None if self.on_drag(mouse_event) else super().mouse_handler(mouse_event)
+
+
+class InputBelow(BufferControl):
+    def __init__(self, on_drag: Callable[[MouseEvent], bool], **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.on_drag = on_drag
+
+    def mouse_handler(self, mouse_event: MouseEvent) -> object:
+        return None if self.on_drag(mouse_event) else super().mouse_handler(mouse_event)
