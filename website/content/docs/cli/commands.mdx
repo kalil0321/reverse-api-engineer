@@ -40,7 +40,10 @@ runs do from this release on. Older runs and collector runs cannot be resumed.
 | `Ctrl+C`             | Stop the run, else clear the input, else quit.             |
 | `Ctrl+D`             | Quit.                                                      |
 
-Click a file or URL in the conversation to open it.
+Click a file or URL in the conversation to open it. Drag over text to select
+it: it is copied to the clipboard when you let go. RAE copies with `pbcopy`
+on macOS and `wl-copy`, `xclip` or `xsel` on Linux; otherwise, and over SSH,
+it asks the terminal to copy (OSC 52), which most modern terminals do.
 
 The status row under the input shows the run's id, which `/resume` and
 `reverse-api-engineer show` take. Once the agent has verified

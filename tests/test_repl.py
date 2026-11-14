@@ -9,11 +9,14 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
+from prompt_toolkit.data_structures import Point
+from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
 from rich.console import Console
 
 from reverse_api.repl import bridge as bridge_mod
 from reverse_api.repl.bridge import Bridge, LedgerUI, describe, short_name
-from reverse_api.repl.transcript import Raw, Transcript, TranscriptWriter, raw_lines
+from reverse_api.repl.transcript import Raw, Selection, Transcript, TranscriptControl, TranscriptWriter, highlight, raw_lines, selected_text, text_of
 from reverse_api.repl.view import LedgerView, SessionState, default_effort, first_definition, model_label, terminal_safe
 
 
@@ -2244,3 +2247,206 @@ def test_a_kill_quits_the_session_like_ctrl_d(app_session):
     assert handlers.get(signal.SIGTERM) == session.quit
     if hasattr(signal, "SIGHUP"):
         assert handlers.get(signal.SIGHUP) == session.quit
+
+
+class TestSelection:
+    """Dragging over the conversation selects its text and copies it on release."""
+
+    @staticmethod
+    def mouse(kind: MouseEventType, x: int, y: int, button: MouseButton = MouseButton.LEFT) -> MouseEvent:
+        return MouseEvent(position=Point(x=x, y=y), event_type=kind, button=button, modifiers=frozenset())
+
+    @staticmethod
+    def status(session: Any) -> str:
+        return "".join(text for _, text in session.view.status())
+
+    @pytest.fixture
+    def shown(self, app_session, monkeypatch):
+        """A session showing two notices, copying at once; returns (session, copies, screen row of each notice)."""
+        from reverse_api.repl import app
+
+        session, _history = app_session
+        session.loop = Loop()
+        copies: list[str] = []
+        monkeypatch.setattr(app.clipboard, "copy", lambda text, write_raw: copies.append(text))
+        session.copier = MagicMock(submit=lambda copy: copy())
+        session.view.notice("GET /api/jobs returned 200")
+        session.view.notice("the client is ready")
+        session.transcript_view(MagicMock(render_info=None))
+        texts = [text_of(line) for line in session.view_lines]
+        rows = [next(i for i, t in enumerate(texts) if needle in t) - session.view_start for needle in ("GET /api", "the client")]
+        return session, copies, rows
+
+    def test_a_drag_copies_what_it_went_over_and_stays_highlighted(self, shown):
+        session, copies, (row, _) = shown
+        start = text_of(session.view_lines[session.view_start + row]).index("GET")
+        assert session.drag(self.mouse(MouseEventType.MOUSE_DOWN, start, row)) is False, "a click may still open a link"
+        assert session.drag(self.mouse(MouseEventType.MOUSE_MOVE, start + 5, row))
+        assert session.drag(self.mouse(MouseEventType.MOUSE_UP, start + 12, row))
+        assert copies == ["GET /api/jobs"]
+        drawn = session.transcript_view(MagicMock(render_info=None))
+        assert "".join(text for style, text, *_ in drawn if "reverse" in style) == "GET /api/jobs"
+        assert "copied 13 characters" in self.status(session)
+
+    def test_a_drag_over_lines_copies_each_row_without_its_padding(self, shown):
+        session, copies, (first, second) = shown
+        session.drag(self.mouse(MouseEventType.MOUSE_DOWN, 30, second))
+        session.drag(self.mouse(MouseEventType.MOUSE_MOVE, 3, first))
+        session.drag(self.mouse(MouseEventType.MOUSE_UP, 3, first))
+        assert copies == ["GET /api/jobs returned 200\n" + "\n" * (second - first - 1) + "   the client is ready"]
+        assert "lines" in self.status(session)
+
+    def test_a_click_without_a_drag_leaves_links_to_open(self, shown):
+        session, copies, (row, _) = shown
+        assert session.drag(self.mouse(MouseEventType.MOUSE_DOWN, 5, row)) is False
+        assert session.drag(self.mouse(MouseEventType.MOUSE_UP, 5, row)) is False
+        assert session.selection is None and copies == []
+
+    def test_a_drag_let_go_under_the_conversation_copies_to_the_end_of_its_last_line(self, shown):
+        session, copies, (_, row) = shown
+        start = text_of(session.view_lines[session.view_start + row]).index("the client")
+        session.drag(self.mouse(MouseEventType.MOUSE_DOWN, start, row))
+        session.drag(self.mouse(MouseEventType.MOUSE_MOVE, start + 3, row))
+        assert session.drag_below(self.mouse(MouseEventType.MOUSE_MOVE, 2, 0)), "the input bar passes the drag on"
+        assert copies == []
+        assert session.drag_below(self.mouse(MouseEventType.MOUSE_UP, 2, 0))
+        assert copies == ["the client is ready"] and not session.selection.dragging
+
+    def test_the_rest_of_the_screen_leaves_its_own_mouse_events_alone_without_a_drag(self, shown):
+        session, _copies, _rows = shown
+        assert session.drag_below(self.mouse(MouseEventType.MOUSE_UP, 2, 0)) is False
+
+    def test_a_release_the_session_missed_ends_the_drag_on_the_next_move(self, shown):
+        session, copies, (row, _) = shown
+        session.drag(self.mouse(MouseEventType.MOUSE_DOWN, 3, row))
+        session.drag(self.mouse(MouseEventType.MOUSE_MOVE, 8, row))
+        assert session.drag(self.mouse(MouseEventType.MOUSE_MOVE, 20, row, MouseButton.NONE))
+        assert copies == ["GET /a"]
+
+    def test_the_clipboard_is_written_off_the_apps_loop(self, app_session, monkeypatch):
+        from reverse_api.repl import app
+
+        session, _history = app_session
+        session.copier = MagicMock()
+        monkeypatch.setattr(app.clipboard, "copy", MagicMock())
+        session.view.notice("GET /api/jobs")
+        session.transcript_view(MagicMock(render_info=None))
+        row = next(i for i, line in enumerate(session.view_lines) if "GET" in text_of(line)) - session.view_start
+        session.drag(self.mouse(MouseEventType.MOUSE_DOWN, 3, row))
+        session.drag(self.mouse(MouseEventType.MOUSE_UP, 9, row))
+        assert session.copier.submit.call_count == 1 and not app.clipboard.copy.called
+
+    def test_copies_land_in_order_and_skip_a_selection_already_replaced(self, app_session, monkeypatch):
+        from reverse_api.repl import app
+
+        session, _history = app_session
+        session.loop = Loop()
+        first_running, release = threading.Event(), threading.Event()
+        landed: list[str] = []
+
+        def slow_first(text: str, write_raw: Any) -> None:
+            if not landed:
+                first_running.set()
+                release.wait(5)
+            landed.append(text)
+
+        monkeypatch.setattr(app.clipboard, "copy", slow_first)
+        for word in ("one", "two", "three"):
+            session.view.notice(word)
+        session.transcript_view(MagicMock(render_info=None))
+
+        def select(word: str) -> None:
+            i = next(i for i, line in enumerate(session.view_lines) if text_of(line).strip() == word)
+            start = text_of(session.view_lines[i]).index(word)
+            session.drag(self.mouse(MouseEventType.MOUSE_DOWN, start, i - session.view_start))
+            session.drag(self.mouse(MouseEventType.MOUSE_UP, start + len(word) - 1, i - session.view_start))
+
+        select("one")
+        assert first_running.wait(5)
+        select("two")
+        select("three")
+        release.set()
+        session.copier.shutdown(wait=True)
+        assert landed == ["one", "three"], "two was replaced before its turn came"
+
+    def test_typing_or_a_new_width_drops_the_selection(self, shown, monkeypatch):
+        session, _copies, (row, _) = shown
+        session.drag(self.mouse(MouseEventType.MOUSE_DOWN, 3, row))
+        session.buf.insert_text("x")
+        assert session.selection is None
+        session.drag(self.mouse(MouseEventType.MOUSE_DOWN, 3, row))
+        monkeypatch.setattr("reverse_api.repl.app.width", lambda: session.view_width + 10)
+        session.transcript_view(MagicMock(render_info=None))
+        assert session.selection is None
+
+    @staticmethod
+    def on_screen(session: Any, height: int = 60) -> Any:
+        """Draws the conversation through prompt_toolkit's own window, which hands its control character indexes
+        rather than screen columns; returns the screen and a function that sends a mouse event to a cell."""
+        from prompt_toolkit.application import Application
+        from prompt_toolkit.application.current import set_app
+        from prompt_toolkit.input.base import DummyInput
+        from prompt_toolkit.layout import Layout, Window
+        from prompt_toolkit.layout.mouse_handlers import MouseHandlers
+        from prompt_toolkit.layout.screen import Screen, WritePosition
+        from prompt_toolkit.output.base import DummyOutput
+
+        from reverse_api.repl.style import width
+
+        window = Window(wrap_lines=False)
+        window.content = TranscriptControl(lambda: session.transcript_view(window), session.scroll, session.drag)
+        app = Application(layout=Layout(window), input=DummyInput(), output=DummyOutput())
+        with set_app(app):
+            for _ in range(2):  # the second pass sizes the conversation to the window the first one measured
+                screen, handlers = Screen(), MouseHandlers()
+                window.write_to_screen(screen, handlers, WritePosition(xpos=0, ypos=0, width=width(), height=height), "", False, None)
+
+        def send(kind: MouseEventType, x: int, y: int) -> None:
+            with set_app(app):
+                handlers.mouse_handlers[y][x](TestSelection.mouse(kind, x, y))
+
+        return screen, send
+
+    @staticmethod
+    def find(screen: Any, char: str) -> tuple[int, int]:
+        from reverse_api.repl.style import width
+
+        return next((x, y) for y in range(60) for x in range(width()) if screen.data_buffer[y][x].char == char)
+
+    def test_wide_characters_copy_what_was_under_the_pointer_on_screen(self, shown):
+        session, copies, _rows = shown
+        session.view.notice("日本 ok")
+        session.view.out("")
+        screen, send = self.on_screen(session)
+        (hon, y), (k, _) = self.find(screen, "本"), self.find(screen, "k")
+        send(MouseEventType.MOUSE_DOWN, hon + 1, y)  # the right half of 本
+        send(MouseEventType.MOUSE_MOVE, k, y)
+        send(MouseEventType.MOUSE_UP, k, y)
+        assert copies == ["本 ok"]
+
+    def test_a_drag_onto_a_blank_line_stays_where_the_pointer_is(self, shown):
+        session, copies, (_, client) = shown
+        screen, send = self.on_screen(session)
+        x, y = self.find(screen, "G")  # GET /api/jobs returned 200
+        blank = client + 1  # the blank line between the conversation and the bar
+        assert not text_of(session.view_lines[session.view_start + blank])
+        send(MouseEventType.MOUSE_DOWN, x, y)
+        send(MouseEventType.MOUSE_MOVE, 4, blank)
+        send(MouseEventType.MOUSE_UP, 4, blank)
+        assert copies == ["GET /api/jobs returned 200\n   the client is ready"], "not the header above it"
+
+    def test_the_control_hands_a_selection_its_events_and_links_the_rest(self):
+        events: list[MouseEventType] = []
+        control = TranscriptControl(lambda: FormattedText([]), on_scroll=lambda _: None, on_drag=lambda e: events.append(e.event_type) or True)
+        assert control.mouse_handler(self.mouse(MouseEventType.MOUSE_MOVE, 1, 0)) is None
+        assert events == [MouseEventType.MOUSE_MOVE]
+
+
+def test_a_selection_picks_characters_not_screen_columns():
+    assert selected_text([[("", "日本 ok")]], Selection((0, 1), (0, 4))) == "本 ok"
+
+
+def test_a_highlight_keeps_the_link_under_it():
+    handler = MagicMock()
+    out = highlight([("fg:red", "ab", handler)], 1, None)
+    assert out == [("fg:red", "a", handler), ("fg:red reverse", "b", handler)]
