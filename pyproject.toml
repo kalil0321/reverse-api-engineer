@@ -119,9 +119,8 @@ exclude = [
     "examples/**",
     "design/**",
     "uv.lock",
-    ".claude/settings.local.json",
-    ".claude/worktrees/**",
-    ".claude/plans/**",
+    # Local tooling (e2e harness, settings, worktrees, plans), never part of a release.
+    ".claude/**",
     "src/reverse_api/cursor_bridge/node_modules/**",
     "website/**",
 ]
