@@ -376,16 +376,21 @@ class LedgerUI:
     def header(self, run_id: str, prompt: str, model: str | None = None, sdk: str | None = None, mode: str | None = None) -> None:
         self.b.bind_task()
         st = self.st
-        st.run_id, st.step, st.tokens = run_id, 0, 0
+        st.run_id, st.step, st.tokens, st.run_cost = run_id, 0, 0, 0.0
         st.running, st.waiting, st.verb, st.kind = True, False, "starting", "other"
         self.b.cost_base = st.cost
+        if mode == "engineer":
+            # The run being engineered stays the target of engineer mode; a new agent capture hands it to the latest.
+            st.engineer_target, st.engineer_chosen = (run_id, prompt), True
+        elif mode == "agent":
+            st.engineer_chosen = False
         self.b.verified, self.b.workspace = False, None
         self.b.reset_plan()
         # The run's own model and SDK; the selection in st.model stays for the next run.
         st.run_model, st.run_sdk = model or st.model, sdk or st.sdk
         claude = st.run_sdk == "claude" and not predates_effort(st.run_model)
         st.run_effort = (st.effort or default_effort(st.run_model)) if claude else None
-        self.view.run_line(run_id, mode)
+        self.view.run_line(run_id, mode, prompt)
         self._changed()
 
     def start_analysis(self) -> None:
@@ -512,7 +517,8 @@ class LedgerUI:
         st.tokens = usage_tokens(usage)
         cost = usage.get("estimated_cost_usd")
         if isinstance(cost, (int, float)):
-            st.cost = self.b.cost_base + float(cost)
+            st.run_cost = float(cost)
+            st.cost = self.b.cost_base + st.run_cost
         self.b.flush_card()
 
     def error(self, message: str) -> None:

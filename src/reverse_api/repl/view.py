@@ -220,8 +220,9 @@ class SessionState:
     verb: str = "thinking"
     kind: str = "other"
     started: float = 0.0
-    tokens: int = 0
-    cost: float = 0.0
+    tokens: int = 0  # the open run's
+    cost: float = 0.0  # the session's spend
+    run_cost: float = 0.0  # the open run's, next to its tokens on the client card
     step: int = 0
     host: str = ""
     client_name: str = ""
@@ -238,6 +239,9 @@ class SessionState:
     run_model: str | None = None
     run_sdk: str | None = None
     run_effort: str | None = None
+    # The run engineer mode works on, (run id, prompt): the one chosen, else the latest with a HAR.
+    engineer_target: tuple[str, str] | None = None
+    engineer_chosen: bool = False
 
     @property
     def accent(self) -> str:
@@ -479,8 +483,11 @@ class LedgerView:
         self.gap()
         self.out(f" [{DIM}]›[/] [{self.st.accent}]{escape(cmd)}[/]" + (f" [{INK_SOFT}]{escape(arg)}[/]" if arg else ""))
 
-    def run_line(self, run_id: str, mode: str | None) -> None:
-        self.out(f"   [{DIM}]run {escape(run_id)} · {escape(mode or self.st.mode)}[/]")
+    def run_line(self, run_id: str, mode: str | None, prompt: str = "") -> None:
+        mode = mode or self.st.mode
+        # In engineer mode the user typed only what should change: the line names the run it changes.
+        about = f" · {first_words(prompt, max(10, width() - len(run_id) - 24))}" if prompt and mode == self.st.mode == "engineer" else ""
+        self.out(f"   [{DIM}]run {escape(run_id)} · {escape(mode)}{escape(about)}[/]")
         self.out("")
 
     def note(self, text: str) -> None:
@@ -595,7 +602,7 @@ class LedgerView:
         main = [
             (f"[{st.accent}]*[/] [bold {INK}]{link(path.name, path)}[/] [italic {PINK}]ready[/]", f"* {path.name} ready"),
             (f"  [{INK_SOFT}]{lang} · {lines_written} lines[/]", f"  {lang} · {lines_written} lines"),
-            (f"  [{DIM}]{k(st.tokens)} tokens · {money(st.cost)}[/]", f"  {k(st.tokens)} tokens · {money(st.cost)}"),
+            (f"  [{DIM}]{k(st.tokens)} tokens · {money(st.run_cost)}[/]", f"  {k(st.tokens)} tokens · {money(st.run_cost)}"),
         ]
         model, effort, sdk = st.live_model_label, st.run_effort, st.run_sdk or st.sdk
         stub = [
@@ -710,11 +717,24 @@ class LedgerView:
         return out + [("", "\n")]  # a blank row between the tape and the input
 
     def seam(self) -> list[tuple[str, str]]:
-        """The line above the input, a fieldset legend: the mode on the left, the model on the right."""
+        """The line above the input, a fieldset legend: the mode on the left, the model on the right.
+
+        In engineer mode the run it works on follows the mode, unless another run is open.
+        """
         st = self.st
         left = [(f"fg:{HAIRLINE}", " ┄┄ "), (f"fg:{st.accent} italic", st.mode), ("", " ")]
         right = [("", " "), (f"fg:{INK_SOFT}", st.live_model_label), (f"fg:{HAIRLINE}", " ┄┄")]
         used = sum(len(t) for _, t in left) + sum(len(t) for _, t in right)
+        target = st.engineer_target
+        other_run_open = st.run_open and st.run_id is not None and st.run_id != (target[0] if target else None)
+        if st.mode == "engineer" and not other_run_open:
+            if target is None:
+                about = [(f"fg:{DIM}", "· no run with a HAR yet ")]
+            else:
+                room = width() - used - len(target[0]) - 8
+                prompt = first_words(target[1], room) if room >= 12 else ""
+                about = [(f"fg:{DIM}", f"· {target[0]} "), (f"fg:{INK_SOFT}", f"{prompt} " if prompt else "")]
+            left, used = left + about, used + sum(len(t) for _, t in about)
         return left + [(f"fg:{HAIRLINE}", "┄" * max(1, width() - used - 1))] + right
 
     def seam_under(self) -> list[tuple[str, str]]:

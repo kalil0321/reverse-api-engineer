@@ -277,6 +277,21 @@ class TestLedgerUI:
         ui.usage({"input_tokens": 10, "output_tokens": 5, "estimated_cost_usd": 0.01})
         assert "ready" not in plain(t), "a client path that does not exist gets no card"
 
+    def test_each_card_shows_its_own_run_cost_and_the_chip_the_session_spend(self, session, tmp_path):
+        st, t, view, b = session
+        ui = LedgerUI(b)
+        for run_id, cost in (("run1", 0.5), ("run2", 0.25)):
+            ui.header(run_id, "prompt", model="claude-sonnet-5-5")
+            client = tmp_path / f"{run_id}.py"
+            client.write_text("a\n", encoding="utf-8")
+            ui.tool_start("mcp__verification__report_client_verified", {"summary": "ok"})
+            ui.tool_result("mcp__verification__report_client_verified", output="Recorded")
+            ui.success(str(client))
+            ui.usage({"input_tokens": 1200, "output_tokens": 0, "estimated_cost_usd": cost})
+        text = plain(t)
+        assert "1.2k tokens · $0.50" in text and "1.2k tokens · $0.25" in text and "$0.75" not in text
+        assert "$0.75" in "".join(frag[1] for frag in view.status())
+
     def test_verified_shows_where_the_files_are(self, session):
         _st, t, _view, b = session
         ui = LedgerUI(b)
@@ -1737,6 +1752,106 @@ class TestEntry:
         assert "update available: 0.14.0 → 0.15.0" in plain(session.transcript)
 
 
+class TestEngineerTarget:
+    @pytest.fixture
+    def runs(self, app_session, tmp_path):
+        """A history whose newest run, from chrome-mcp, saved no HAR; the two before it did."""
+        session, history = app_session
+
+        def run(run_id: str, prompt: str, har: bool) -> dict[str, Any]:
+            if har:
+                (tmp_path / run_id).mkdir()
+                (tmp_path / run_id / "recording.har").write_text("{}", encoding="utf-8")
+            return {"run_id": run_id, "prompt": prompt, "timestamp": "2026-11-14T10:00:00", "paths": {"har_dir": str(tmp_path / run_id)}}
+
+        history.history = [
+            run("chrome1", "jobs at stripe", har=False),
+            run("jobs1", "all open jobs on jobs.ashbyhq.com/openai", har=True),
+            run("nba1", "last night's NBA scores", har=True),
+        ]
+        history.get_history.side_effect = lambda limit=10: history.history[:limit]
+        history.get_run.side_effect = lambda run_id: next((r for r in history.history if r["run_id"] == run_id), None)
+        return session
+
+    @staticmethod
+    def seam(session) -> str:
+        return "".join(text for _, text in session.view.seam())
+
+    def test_engineer_mode_works_on_the_latest_run_with_a_har_and_shows_it(self, runs):
+        runs.set_mode("engineer")
+        assert runs.st.engineer_target == ("jobs1", "all open jobs on jobs.ashbyhq.com/openai")
+        assert "engineer · jobs1 all open jobs on jobs.ashbyhq.com/openai" in self.seam(runs)
+        assert runs.placeholder().startswith("what should change")
+        runs.set_mode("agent")
+        assert "jobs1" not in self.seam(runs) and runs.placeholder().startswith("describe the API")
+
+    def test_engineer_lists_the_runs_with_a_har_and_the_choice_holds_until_a_new_capture(self, runs):
+        runs.run_command("/engineer")
+        assert runs.st.picker is not None and [v for v, _, _ in runs.st.picker.items] == ["jobs1", "nba1"]
+        pick(runs.st, "nba1")
+        assert runs.st.mode == "engineer" and runs.st.engineer_target == ("nba1", "last night's NBA scores")
+        assert "last night's NBA scores" in plain(runs.transcript)
+        runs.set_mode("agent")
+        runs.set_mode("engineer")
+        assert runs.st.engineer_target[0] == "nba1"
+        LedgerUI(runs.bridge).header("new1", "jobs", mode="agent")
+        runs.set_mode("agent")
+        runs.set_mode("engineer")
+        assert runs.st.engineer_target[0] == "jobs1"
+
+    def test_the_run_list_waits_for_a_run_wrapping_up_to_record_its_cost(self, runs):
+        runs.st.running, runs.bridge.stopping = True, True
+        runs.run_command("/history")
+        assert runs.st.picker is None and runs.after_run is not None
+        runs.st.running, runs.bridge.stopping = False, False
+        runs.after_run()
+        assert runs.st.picker is not None and runs.st.picker.title == "past runs"
+
+    def test_a_run_without_a_har_cannot_be_chosen(self, runs):
+        runs.run_command("/engineer chrome1")
+        assert runs.st.mode == "agent" and not runs.st.engineer_chosen
+        assert "run chrome1 has no HAR" in plain(runs.transcript)
+
+    def test_a_prompt_goes_to_the_run_engineer_mode_works_on(self, runs):
+        runs.run_command("/engineer nba1")
+        with patch.object(runs, "work") as work:
+            runs.start("add pagination")
+        with patch.object(runs.cli, "engineer_from_prompt") as engineer:
+            work.call_args.args[0]()
+        assert engineer.call_args == call("add pagination", runs.st.model, run_id="nba1")
+
+    def test_an_engineer_run_names_the_run_it_changes(self, runs):
+        runs.set_mode("engineer")
+        runs.st.run_id = "nba1"  # the previous run
+        with patch.object(runs, "work"):
+            runs.start("add pagination")
+        assert runs.st.run_id is None and "jobs1" in self.seam(runs), "the new run's id comes with its header"
+        LedgerUI(runs.bridge).header("jobs1", "all open jobs on jobs.ashbyhq.com/openai", model="claude-sonnet-5-5", mode="engineer")
+        assert "run jobs1 · engineer · all open jobs on jobs.ashbyhq.com/openai" in plain(runs.transcript)
+        assert "jobs1" in self.seam(runs)
+        # Another run open in engineer mode, such as a resumed agent run, is not the target.
+        LedgerUI(runs.bridge).header("chrome1", "jobs at stripe", mode="agent")
+        assert "jobs1" not in self.seam(runs)
+
+    def test_the_engineer_subcommand_starts_on_its_run(self, runs, monkeypatch):
+        from reverse_api.repl import app as app_mod
+
+        monkeypatch.setattr(app_mod, "Session", lambda: runs)
+        monkeypatch.setattr(runs, "run", AsyncMock())
+        monkeypatch.setattr(runs, "wait_for_run", lambda: None)
+        monkeypatch.setattr(runs, "print_transcript", lambda: None)
+        app_mod.run_session(mode="engineer", target="nba1")
+        assert runs.st.engineer_target == ("nba1", "last night's NBA scores")
+
+    def test_without_any_har_engineer_mode_says_how_to_get_one(self, app_session):
+        session, _history = app_session
+        session.set_mode("engineer")
+        assert session.st.engineer_target is None
+        assert "no run with a HAR yet" in self.seam(session) and session.placeholder().startswith("no HAR yet")
+        session.run_command("/engineer")
+        assert session.st.picker is None and "no run has a HAR to engineer yet" in plain(session.transcript)
+
+
 class TestSubcommands:
     def test_agent_in_a_terminal_opens_the_session_with_every_option(self, monkeypatch):
         from click.testing import CliRunner
@@ -1768,23 +1883,34 @@ class TestSubcommands:
         with patch.object(cli, "open_session") as session, patch.object(cli, "engineer_from_prompt") as later:
             CliRunner().invoke(cli.main, ["engineer", "abc123", "-o", "/out"])
             runner = session.call_args.args[4]
-            runner("add pagination", None)
-        later.assert_called_once_with("add pagination", None, "/out")
+            runner("add pagination", None, "abc123")
+        assert session.call_args.kwargs["target"] == "abc123"
+        later.assert_called_once_with("add pagination", None, "/out", "abc123")
 
-    def test_an_engineer_prompt_is_a_run_id_or_an_instruction_for_the_latest_capture(self, monkeypatch):
+    def test_an_engineer_prompt_is_a_run_id_or_an_instruction_for_its_target(self, monkeypatch, tmp_path):
         from reverse_api import cli
 
+        def run(run_id: str, har: bool) -> dict[str, Any]:
+            if har:
+                (tmp_path / run_id).mkdir()
+                (tmp_path / run_id / "recording.har").write_text("{}", encoding="utf-8")
+            return {"run_id": run_id, "paths": {"har_dir": str(tmp_path / run_id)}}
+
+        # The newest run is a chrome-mcp one, which saved no HAR.
         history = MagicMock()
+        history.history = [run("chrome1", har=False), run("capture1", har=True), run("capture0", har=True)]
+        history.get_history.side_effect = lambda limit=10: history.history[:limit]
         history.get_run.side_effect = lambda text: {"run_id": text} if text == "abc123" else None
-        history.get_history.return_value = [{"run_id": "collect1", "mode": "collector"}, {"run_id": "capture1", "mode": "agent"}]
         monkeypatch.setattr(cli, "session_manager", history)
         with patch.object(cli, "run_engineer") as engineer:
             cli.engineer_from_prompt("abc123", "m", "/out")
             cli.engineer_from_prompt("add pagination", "m", "/out")
+            cli.engineer_from_prompt("add pagination", "m", "/out", run_id="capture0")
         assert engineer.call_args_list[0] == call("abc123", model="m", output_dir="/out")
         assert engineer.call_args_list[1] == call("capture1", model="m", output_dir="/out", additional_instructions="add pagination")
-        history.get_history.return_value = history.get_history.return_value[:1]
-        with pytest.raises(RuntimeError, match="no captured runs yet"):
+        assert engineer.call_args_list[2] == call("capture0", model="m", output_dir="/out", additional_instructions="add pagination")
+        history.history = history.history[:1]
+        with pytest.raises(RuntimeError, match="no run has a HAR"):
             cli.engineer_from_prompt("add pagination")
 
     def test_without_a_terminal_a_prompt_is_required(self, monkeypatch):

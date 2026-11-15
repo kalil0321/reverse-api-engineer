@@ -81,6 +81,7 @@ COMMANDS = {
     "/model": "choose the model",
     "/effort": "how hard the agent thinks",
     "/mode": "choose the mode",
+    "/engineer": "choose the run engineer mode works on",
     "/settings": "all settings",
     "/history": "past runs: their details, resume or re-engineer",
     "/resume": "a past run's conversation, to continue it",
@@ -110,7 +111,7 @@ ALIASES = {"/quit": "/exit", "/commands": "/help"}
 HISTORY_RUNS = 20
 ESC_WAIT = 0.05  # seconds a lone Esc waits for a key that would make it Option+something
 # Commands that open a picker are echoed once a choice shows something, not when the picker opens.
-PICKER_COMMANDS = {"/model", "/effort", "/mode", "/history", "/resume", "/settings"}
+PICKER_COMMANDS = {"/model", "/effort", "/mode", "/engineer", "/history", "/resume", "/settings"}
 URL_IN_PROMPT = re.compile(r"https?://([^/\s]+)|\b((?:[\w-]+\.)+(?:com|io|co|ch|de|fr|uk|org|net|dev|ai|app|so|sh|eu|jobs))\b")
 
 
@@ -231,8 +232,9 @@ class Session:
         self.real_out, self.real_err = sys.stdout, sys.stderr
         self.after_run: Callable[[], None] | None = None  # what starts once the open run has wrapped up
         self.first: tuple[str, Callable[[], Any]] | None = None  # a run a subcommand handed over
-        # Per mode, how a subcommand's options (--headless, --output-dir...) start each prompt: runner(prompt, model).
-        self.runners: dict[str, Callable[[str, str | None], Any]] = {}
+        # Per mode, how a subcommand's options (--headless, --output-dir...) start each prompt: runner(prompt, model),
+        # and in engineer mode runner(prompt, model, target run).
+        self.runners: dict[str, Callable[..., Any]] = {}
         self.worker: threading.Thread | None = None
         self.update_checked = False
         self.buf.on_text_changed += self._reset_palette
@@ -384,7 +386,41 @@ class Session:
     def set_mode(self, value: str | None) -> None:
         if value and value != self.st.mode:
             old, self.st.mode = self.st.mode, value
+            self.find_target()
             self.view.event("mode", old, value)
+
+    def find_target(self) -> None:
+        """Unless a run was chosen, engineer mode works on the latest one with a HAR."""
+        st = self.st
+        if st.mode == "engineer" and not st.engineer_chosen:
+            run = self.cli.latest_capture()
+            st.engineer_target = (run["run_id"], str(run.get("prompt") or "")) if run else None
+
+    def placeholder(self) -> str:
+        """The empty bar's hint: in engineer mode, what to type about the run it works on."""
+        if self.st.mode != "engineer":
+            return "describe the API you want, e.g. all open jobs on jobs.ashbyhq.com/openai"
+        if self.st.engineer_target is None:
+            return "no HAR yet · manual mode records one, as does agent with agent_provider auto"
+        return "what should change, e.g. add pagination · /engineer picks another run"
+
+    def choose_target(self, run_id: str | None) -> None:
+        """/engineer: the run engineer mode works on, until another one is engineered or captured."""
+        if not run_id:
+            return
+        st, view = self.st, self.view
+        run = self.cli.session_manager.get_run(run_id)
+        view.command("/engineer", run_id)
+        if run is None:
+            view.notice(f"no run {run_id}")
+        elif not self.cli.has_capture(run):
+            view.notice(f"run {run_id} has no HAR, so engineer cannot work on it · /engineer lists the runs that have one")
+        else:
+            st.engineer_target, st.engineer_chosen = (run_id, str(run.get("prompt") or "")), True
+            self.set_mode("engineer")
+            view.run_details(run)
+            view.notice("type what should change in its client" + (" · from the next run, /new ends this one" if st.run_open else ""))
+        self.invalidate()
 
     def cycle_effort(self) -> None:
         if not self.st.has_effort:
@@ -429,6 +465,12 @@ class Session:
             self.open_picker("how hard the agent thinks", [(e, e, EFFORT_NOTES[e]) for e in EFFORTS], st.effort_label, self.set_effort)
         elif cmd == "/mode":
             self.open_picker("choose a mode", [(m, m, d) for m, d in MODES.items()], st.mode, self.set_mode)
+        elif cmd == "/engineer":
+            if arg:
+                self.choose_target(arg)
+            else:
+                current = st.engineer_target[0] if st.engineer_target else None
+                self.pick_run(cmd, "engineer which run", self.choose_target, keep=self.cli.has_capture, empty=self.cli.NO_CAPTURE, current=current)
         elif cmd == "/output":
             self.show_output()
         elif cmd == "/open":
@@ -642,7 +684,12 @@ class Session:
         then: Callable[[str], None],
         keep: Callable[[dict[str, Any]], bool] | None = None,
         empty: str = "no runs yet",
+        current: str | None = None,
     ) -> None:
+        if self.st.running and self.bridge.stopping:
+            # A run wrapping up records its cost last: the list waits for it rather than show the cost before.
+            self.after_run = lambda: self.pick_run(cmd, title, then, keep, empty, current)
+            return
         runs = self.cli.session_manager.get_history(limit=len(self.cli.session_manager.history))
         runs = [r for r in runs if keep is None or keep(r)][:HISTORY_RUNS]
         if not runs:
@@ -650,7 +697,7 @@ class Session:
             self.view.notice(empty)
             return
         items = [(r["run_id"], r["run_id"], run_summary(r)) for r in runs]
-        self.open_picker(title, items, None, lambda value: then(value) if value else None)
+        self.open_picker(title, items, current, lambda value: then(value) if value else None)
 
     def show_run(self, run_id: str) -> None:
         run = self.cli.session_manager.get_run(run_id)
@@ -721,14 +768,14 @@ class Session:
         if not messages:
             return False
         st, b, ui = self.st, self.bridge, LedgerUI(self.bridge)
-        saved = (st.step, st.tokens, st.cost, st.started, st.run_model, st.run_sdk, st.run_effort, st.kind, st.verb, st.host, st.client_name)
+        saved = (st.step, st.tokens, st.run_cost, st.started, st.run_model, st.run_sdk, st.run_effort, st.kind, st.verb, st.host, st.client_name)
         # A conversation that waits for a follow-up keeps its own client card and folder.
         bridge_saved = (b.verified, b.workspace, b.pending_card, b.plan, b.plan_calls, b.plan_made, b.plan_changed, b.plan_shown)
         b.verified, b.pending_card = False, None
         b.reset_plan()
         # The client card reads the run's own numbers, not this session's; each result sets them as they were then.
         usage, session = run.get("usage") or {}, run.get("sdk_session") or {}
-        st.step, st.tokens, st.cost = 0, usage_tokens(usage), recorded_cost(usage) or 0.0
+        st.step, st.tokens, st.run_cost = 0, usage_tokens(usage), recorded_cost(usage) or 0.0
         st.run_model, st.run_sdk, st.run_effort = session.get("model") or run.get("model"), run.get("sdk"), session.get("effort")
         script = (run.get("paths") or {}).get("script_path")
         b.workspace = (Path(script).parent, None) if script else None
@@ -764,13 +811,13 @@ class Session:
                     self.view.error(str(content))
                 elif kind == "result" and isinstance(content, dict) and content.get("script_path"):
                     if isinstance(content.get("usage"), dict):
-                        st.tokens, st.cost = usage_tokens(content["usage"]), recorded_cost(content["usage"]) or st.cost
+                        st.tokens, st.run_cost = usage_tokens(content["usage"]), recorded_cost(content["usage"]) or st.run_cost
                     st.run_model = content.get("model") or session.get("model") or run.get("model")
                     ui.success(str(content["script_path"]))
                     b.flush_card()  # drawn now, with the numbers of its own moment
             b.flush_card()
         finally:
-            st.step, st.tokens, st.cost, st.started, st.run_model, st.run_sdk, st.run_effort, st.kind, st.verb, st.host, st.client_name = saved
+            st.step, st.tokens, st.run_cost, st.started, st.run_model, st.run_sdk, st.run_effort, st.kind, st.verb, st.host, st.client_name = saved
             b.verified, b.workspace, b.pending_card, b.plan, b.plan_calls, b.plan_made, b.plan_changed, b.plan_shown = bridge_saved
         return True
 
@@ -811,12 +858,13 @@ class Session:
         model = self.st.model if self.st.sdk == "claude" else None
         run: Callable[[], Any]
         runner = self.runners.get(mode)
+        target = self.st.engineer_target[0] if self.st.engineer_target else None
         if runner is not None:
-            run = lambda: runner(prompt, model)  # noqa: E731
+            run = (lambda: runner(prompt, model, target)) if mode == "engineer" else (lambda: runner(prompt, model))
         elif mode == "manual":
             run = lambda: cli.run_manual_capture(prompt=prompt, url=None, reverse_engineer=True, model=model)  # noqa: E731
         elif mode == "engineer":
-            run = lambda: cli.engineer_from_prompt(prompt, model)  # noqa: E731
+            run = lambda: cli.engineer_from_prompt(prompt, model, run_id=target)  # noqa: E731
         else:
             run = lambda: cli.run_agent_capture(prompt=prompt, model=model)  # noqa: E731
         self.launch(prompt, run, mode, echo)
@@ -825,7 +873,8 @@ class Session:
         """Start a run in the session; its engine's UI calls stream into the conversation."""
         st = self.st
         mode = mode or st.mode
-        st.host, st.client_name = host_in(prompt), ""
+        # The new run's id comes with its header; until then the status row names none.
+        st.host, st.client_name, st.run_id = host_in(prompt), "", None
         if echo:
             self.view.user(prompt)
         # Manual capture first waits for the user to browse; the engine takes over the verb when it starts.
@@ -1091,7 +1140,7 @@ class Session:
 
         picker_hinted = Condition(lambda: bool(st.picker and st.picker.hint))
         placeholder = ConditionalProcessor(
-            AfterInput("describe the API you want, e.g. all open jobs on jobs.ashbyhq.com/openai", style=f"fg:{DIM} italic"),
+            AfterInput(self.placeholder, style=f"fg:{DIM} italic"),
             filter=Condition(lambda: not buf.text and not st.waiting and st.question is None) & ~picker_hinted,
         )
         picker_hint = ConditionalProcessor(
@@ -1211,6 +1260,7 @@ class Session:
         def _(event: KeyPressEvent) -> None:
             modes = list(MODES)
             st.mode = modes[(modes.index(st.mode) + 1) % len(modes)]
+            self.find_target()
 
         @kb.add("c-e")
         def _(event: KeyPressEvent) -> None:
@@ -1286,12 +1336,14 @@ def run_session(
     mode: str = "agent",
     model: str | None = None,
     first: tuple[str, Callable[[], Any]] | None = None,
-    runner: Callable[[str, str | None], Any] | None = None,
+    runner: Callable[..., Any] | None = None,
+    target: str | None = None,
 ) -> None:
     """Entry point for the interactive CLI: the full-screen session.
 
     A subcommand hands over its options: ``first`` is its prompt and run, with every option bound, and
     ``runner(prompt, model)`` starts the prompts typed later in ``mode`` with the options that still apply.
+    ``target`` is the run engineer mode works on.
     """
     session = Session()
     session.st.mode = mode
@@ -1300,6 +1352,10 @@ def run_session(
     session.first = first
     if runner is not None:
         session.runners[mode] = runner
+    run = session.cli.session_manager.get_run(target) if target else None
+    if run is not None:
+        session.st.engineer_target, session.st.engineer_chosen = (str(target), str(run.get("prompt") or "")), True
+    session.find_target()
     try:
         asyncio.run(session.run())
     except KeyboardInterrupt:
