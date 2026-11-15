@@ -58,7 +58,10 @@ session_manager = SessionManager(get_history_path())
 
 
 class ModelChoice(click.Choice):
-    """The models in the pickers, plus retired ids that configs and scripts still pass; help lists only the current ones."""
+    """The models in the pickers, plus retired ids that configs and scripts still pass; help lists only the current ones.
+
+    These are Claude's: with another sdk configured, the value is that sdk's own model id, such as a Codex model.
+    """
 
     def __init__(self) -> None:
         self.current = [c["value"] for c in get_model_choices()]
@@ -66,6 +69,11 @@ class ModelChoice(click.Choice):
 
     def get_metavar(self, *args: Any, **kwargs: Any) -> str:
         return "[" + "|".join(self.current) + "]"
+
+    def convert(self, value: Any, param: Any, ctx: Any) -> Any:
+        if str(config_manager.get("sdk", "claude") or "claude").lower() != "claude":
+            return value
+        return super().convert(value, param, ctx)
 
 
 def default_model_for_configured_sdk(sdk: str | None = None) -> str:

@@ -822,6 +822,25 @@ def test_agent_hands_codex_its_model_effort_and_home(tmp_path, saved_model):
     assert history.get_history(1)[0]["sdk"] == "codex", "the run records its SDK"
 
 
+def test_agent_model_flag_picks_a_codex_model_for_the_run(tmp_path):
+    from unittest.mock import AsyncMock
+
+    from reverse_api.config import ConfigManager
+
+    config = ConfigManager(tmp_path / "config.json")
+    config.config.update({"sdk": "codex", "agent_provider": "auto", "real_time_sync": False, "codex_model": "gpt-6-astra"})
+    engine = MagicMock()
+    engine.analyze_and_generate = AsyncMock(return_value=None)
+    with (
+        patch("reverse_api.cli.config_manager", config),
+        patch("reverse_api.cli.session_manager", SessionManager(tmp_path / "history.json")),
+        patch("reverse_api.codex_engineer.CodexAutoEngineer", return_value=engine) as engine_cls,
+    ):
+        done = CliRunner().invoke(main, ["agent", "-p", "fetch job postings", "-m", "gpt-6.1-sol", "-o", str(tmp_path), "--json"])
+    assert "Invalid value" not in done.output
+    assert engine_cls.call_args.kwargs["codex_model"] == "gpt-6.1-sol"
+
+
 def test_agent_bare_host_url_gets_https_scheme(tmp_path):
     from unittest.mock import AsyncMock
 

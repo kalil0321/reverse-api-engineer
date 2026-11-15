@@ -436,6 +436,15 @@ class TestBrowserServers:
     def test_agent_browser_has_no_mcp_server(self, tmp_path):
         assert engineer(tmp_path, CodexAutoEngineer, agent_provider="agent-browser")._browser_servers() == {}
 
+    async def test_a_relative_output_dir_reaches_codex_as_absolute_paths(self, tmp_path, fake_codex, monkeypatch):
+        fake = fake_codex([FakeTurn([turn_end()])])
+        monkeypatch.chdir(tmp_path)
+        eng = engineer(tmp_path, CodexAutoEngineer, agent_provider="auto", output_dir=".")
+        await eng.analyze_and_generate()
+        assert fake.started is not None and fake.started["cwd"] == str(tmp_path / "scripts" / "run1")
+        prompts = fake.started["developer_instructions"] + fake.messages[0]
+        assert str(tmp_path / "har" / "run1" / "recording.har") in prompts and str(tmp_path / "scripts" / "run1") in prompts
+
     async def test_agent_mode_registers_the_browser_and_the_verify_tool(self, tmp_path, fake_codex):
         fake = fake_codex([FakeTurn([turn_end()])])
         eng = engineer(tmp_path, CodexAutoEngineer, agent_provider="auto")

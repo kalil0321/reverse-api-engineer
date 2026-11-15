@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/history` opened while a run wraps up waits for it, instead of listing that run's cost from before.
 - **A slow page no longer ends a Chrome DevTools MCP run**: a page that misses Chrome DevTools MCP's 10 second navigation timeout, as browserbase.com/careers does on a cold load, made the agent stop and ask the user to accept Chrome's connection prompt. The agent now opens the page again; only a timeout waiting for the browser connection means the prompt.
 - **Agent runs record their SDK**: `history`, `show` and replays in the session showed no SDK for agent runs, so a replayed card named the SDK the session was on. Runs now record it, and older runs read it from their SDK session.
+- **`--model` with another SDK**: `agent` and `engineer` only accepted Claude's model ids, so a Codex, OpenCode, Copilot or Cursor run could not pick its model per command. With another `sdk` configured, `--model` now takes that SDK's own model id.
 - **Leaving the session while a run stops**: a second `ctrl+c` while a run wraps up now quits once its cleanup is done, instead of repeating "still wrapping up", and a `ctrl+c` while rae waits for that cleanup on the way out still leaves the transcript in the terminal.
 
 ## [0.15.0] - 2026-11-08

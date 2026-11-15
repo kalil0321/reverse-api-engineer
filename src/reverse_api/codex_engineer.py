@@ -230,6 +230,8 @@ class CodexEngineer(BaseEngineer):
         **kwargs: Any,
     ) -> None:
         super().__init__(run_id=run_id, har_path=har_path, prompt=prompt, **kwargs)
+        # Codex works in the run's own folder, so the paths its prompts name cannot be relative to rae's.
+        self.scripts_dir, self.har_path = self.scripts_dir.absolute(), self.har_path.absolute()
         self.codex_model = codex_model or None  # None runs Codex's default model
         self.codex_effort = codex_effort or None  # None runs the model's default effort
         self.codex_home = codex_home
