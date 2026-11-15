@@ -596,9 +596,13 @@ class Session:
         self.call_soon(go)
 
     def settings_failed(self, message: str, key: str | None = "opencode") -> None:
+        """Says why a list could not load and leaves its loading list: for the settings at ``key``, else closed."""
         self.view.notice(message)
         if key:
             self.open_settings(key)
+        else:
+            self.st.picker = None
+            self.invalidate()
 
     def pick_opencode(self) -> None:
         """OpenCode's providers and models come from its server, which may have to start first."""

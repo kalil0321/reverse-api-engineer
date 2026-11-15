@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -492,7 +491,7 @@ class TestCodexHome:
         monkeypatch.chdir(user.parent)
         monkeypatch.setenv("CODEX_HOME", user.name)
         codex_home()
-        assert Path(os.readlink(home / "auth.json")) == user / "auth.json"
+        assert (home / "auth.json").resolve() == (user / "auth.json").resolve()
 
     def test_a_sign_in_made_in_raes_home_is_kept(self, homes):
         home, user = homes
@@ -501,6 +500,25 @@ class TestCodexHome:
         (home / "auth.json").write_text('{"raes": true}')
         codex_home()
         assert not (home / "auth.json").is_symlink() and (home / "auth.json").read_text() == '{"raes": true}'
+
+    def test_a_link_already_on_the_sign_in_is_left_alone(self, homes, monkeypatch):
+        home, user = homes
+        (user / "auth.json").write_text("{}")
+        codex_home()
+
+        def relink(self: Path, target: Path) -> None:
+            raise AssertionError(f"relinked {self} to {target}")
+
+        monkeypatch.setattr(Path, "symlink_to", relink)
+        codex_home()
+
+    def test_codex_home_set_to_raes_own_keeps_its_link(self, homes, monkeypatch):
+        home, user = homes
+        (user / "auth.json").write_text('{"theirs": true}')
+        codex_home()
+        monkeypatch.setenv("CODEX_HOME", str(home))
+        codex_home()
+        assert (home / "auth.json").read_text() == '{"theirs": true}', "not a link to itself"
 
     def test_a_link_another_run_just_made_is_fine(self, homes):
         home, user = homes

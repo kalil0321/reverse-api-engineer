@@ -47,14 +47,13 @@ reverse-api-engineer agent \
 Common event types for `agent` and `engineer`: `run_started` (includes `run_id`, `sdk`; agent runs also include `mode`, `url`, `command`), `tool_start`, `tool_end`, `thinking`, `ask_user_skipped`, `client_executed`, `result`.
 
 `client_executed` (`{"event": "client_executed", "script_path": "..."}`) fires
-when Claude calls the dedicated `report_client_verified` tool after reporting
+when the agent calls the dedicated `report_client_verified` tool after reporting
 that it ran the generated client live and confirmed it works. The tool emits
-the event at most once per SDK session; it records Claude's verification
+the event at most once per SDK session; it records the agent's verification
 report rather than running the client itself. Wrapper scripts can use this
 early signal to react before the run otherwise ends, since a long session can
-continue with unrelated cleanup or documentation work. Claude SDK only
-(`agent`/`engineer` with the default `sdk`); not emitted by the OpenCode,
-Codex, Copilot, or Cursor backends.
+continue with unrelated cleanup or documentation work. Emitted by the Claude
+and Codex backends; not by the OpenCode, Copilot, Cursor, or Hermes backends.
 
 ### Validate an agent run without launching a browser
 

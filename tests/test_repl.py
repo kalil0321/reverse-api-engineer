@@ -1088,6 +1088,15 @@ class TestSettings:
         loads[0]()  # the models arrive after esc
         assert session.st.picker.title.startswith("settings")
 
+    def test_effort_that_fails_to_load_says_why_and_closes(self, settings_session, inline_threads, monkeypatch):
+        session, config = settings_session
+        monkeypatch.setattr("reverse_api.codex_engineer.codex_models", AsyncMock(side_effect=RuntimeError("not signed in")))
+        config.set("sdk", "codex")
+        session.reload_settings()
+        session.run_command("/effort")
+        assert "could not load codex models: not signed in" in plain(session.transcript)
+        assert session.st.picker is None, "no list left loading, with no settings to go back to"
+
     def test_effort_lists_what_the_codex_model_offers(self, settings_session, inline_threads, monkeypatch):
         session, config = settings_session
         monkeypatch.setattr("reverse_api.codex_engineer.codex_models", AsyncMock(return_value=self.CODEX_MODELS))

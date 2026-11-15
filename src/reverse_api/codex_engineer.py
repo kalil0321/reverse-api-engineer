@@ -63,8 +63,9 @@ def codex_home(configured: str | None = None) -> Path:
     home.mkdir(parents=True, exist_ok=True)
     link, auth = home / "auth.json", user_codex_home() / "auth.json"
     # A sign-in made in rae's home itself is kept; a link follows the user's Codex home when CODEX_HOME moves it.
-    linked = Path(os.readlink(link)) if link.is_symlink() else None
-    if auth.is_file() and (linked is not None or not link.exists()) and linked != auth:
+    # Compared resolved: Windows reports link targets with a \\?\ prefix, and CODEX_HOME may name rae's home itself.
+    linked = link.resolve() if link.is_symlink() else None
+    if auth.is_file() and (linked is not None or not link.exists()) and linked != auth.resolve():
         staged = home / f".auth.json.{os.getpid()}.{secrets.token_hex(4)}"
         try:
             staged.symlink_to(auth)
