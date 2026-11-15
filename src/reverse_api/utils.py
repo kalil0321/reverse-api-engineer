@@ -98,6 +98,25 @@ def recorded_cost(usage: dict[str, Any] | None) -> float | None:
     return next((usage[key] for key in ("estimated_cost_usd", "total_cost", "cost") if usage.get(key) is not None), None)
 
 
+def usage_tokens(usage: dict[str, Any] | None) -> int:
+    """Every token a run's usage counts, cache reads and writes included, under each SDK's names.
+
+    Claude: *_input_tokens for the cache. Copilot and Cursor: cache_read_tokens, cache_write_tokens. Codex: cache_read_tokens.
+    OpenCode: cache_read_tokens, cache_creation_tokens, and reasoning_tokens apart from output_tokens.
+    """
+    keys = (
+        "input_tokens",
+        "output_tokens",
+        "reasoning_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "cache_creation_tokens",
+    )
+    return sum(int((usage or {}).get(key, 0) or 0) for key in keys)
+
+
 def predates_effort(model: str | None) -> bool:
     """Haiku 4.5 came before the effort setting, so it never gets one."""
     return (model or "").startswith("claude-haiku-4")
@@ -206,7 +225,7 @@ def generate_folder_name(prompt: str, sdk: str | None = None, session_id: str | 
 
     Args:
         prompt: The task prompt to generate a folder name for
-        sdk: The SDK to use ("opencode", "claude", "copilot", "cursor", or "codex"). If None, checks config.
+        sdk: The SDK to use ("opencode", "claude", "copilot", "cursor", "codex", or "hermes"). If None, checks config.
         session_id: Optional OpenCode session ID to reuse. Only used when sdk="opencode".
     """
     from rich.console import Console
@@ -233,7 +252,7 @@ def generate_folder_name(prompt: str, sdk: str | None = None, session_id: str | 
             # Already in async context, use fallback to avoid nested asyncio.run
             return _slugify(prompt)
 
-        if sdk in ("cursor", "codex"):
+        if sdk in ("cursor", "codex", "hermes"):
             return _slugify(prompt)
 
         from contextlib import nullcontext
@@ -624,35 +643,6 @@ def get_messages_path(run_id: str, output_dir: str | None = None) -> Path:
 def get_timestamp() -> str:
     """Get current timestamp in ISO format."""
     return datetime.now().isoformat()
-
-
-def get_collected_dir(folder_name: str) -> Path:
-    """Get ./collected/{folder_name}/ directory for collector mode output.
-
-    Args:
-        folder_name: Name of the collection folder (must be alphanumeric with
-            hyphens/underscores only)
-
-    Returns:
-        Path to the collection output directory
-
-    Raises:
-        ValueError: If folder_name contains invalid characters or attempts path traversal
-    """
-    _validate_path_component(folder_name, "folder_name")
-
-    base_dir = Path.cwd() / "collected"
-    path = base_dir / folder_name
-
-    # Verify the resolved path is within the base directory (defense in depth)
-    try:
-        if not path.resolve().is_relative_to(base_dir.resolve()):
-            raise ValueError(f"Path traversal detected: {folder_name}")
-    except (OSError, RuntimeError) as e:
-        raise ValueError(f"Invalid path for folder_name {folder_name}: {e}") from e
-
-    path.mkdir(parents=True, exist_ok=True)
-    return path
 
 
 def get_downloads_dir() -> Path:

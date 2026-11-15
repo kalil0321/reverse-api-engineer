@@ -579,6 +579,52 @@ body {
   box-shadow: 0 0 0 0 color-mix(in oklch, var(--color-ink) 14%, transparent);
 }
 
+/* ─── Demo runs: a print like the hero's, tabs like the buttons ────────── */
+
+.run-demo-frame {
+  padding: 0.5rem;
+  border: 3px solid var(--color-ink);
+  background: #fff;
+  box-shadow: 10px 10px 0 0 var(--color-fd-primary);
+}
+
+.run-demo-tab {
+  height: 2.25rem;
+  padding: 0 0.9rem;
+  border-radius: 0.5rem;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-ink-soft);
+  background-color: var(--color-cream);
+  border: 1px solid color-mix(in oklch, var(--color-ink) 15%, transparent);
+  cursor: pointer;
+  transition: transform 180ms cubic-bezier(0, 0, 0.2, 1),
+              box-shadow 180ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.run-demo-tab:hover {
+  color: var(--color-ink);
+  transform: translateY(1px);
+}
+
+.run-demo-tab:focus-visible {
+  outline: 2px solid var(--color-fd-ring);
+  outline-offset: 2px;
+}
+
+.run-demo-tab-active,
+.run-demo-tab-active:hover {
+  color: var(--color-cream);
+  background-color: var(--color-ink);
+  border-color: var(--color-ink);
+  box-shadow: 3px 3px 0 0 var(--color-fd-primary);
+  transform: none;
+}
+
+@media (max-width: 39.999rem) {
+  .run-demo-frame { padding: 0.25rem; box-shadow: 6px 6px 0 0 var(--color-fd-primary); }
+}
+
 /* ─── Landing-specific cards ────────────────────────────────────────────── */
 
 .hero-visual {

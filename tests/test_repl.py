@@ -9,12 +9,15 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
+from prompt_toolkit.data_structures import Point
+from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
 from rich.console import Console
 
 from reverse_api.codex_engineer import CodexModel
 from reverse_api.repl import bridge as bridge_mod
 from reverse_api.repl.bridge import Bridge, LedgerUI, describe, short_name
-from reverse_api.repl.transcript import Raw, Transcript, TranscriptWriter, raw_lines
+from reverse_api.repl.transcript import Raw, Selection, Transcript, TranscriptControl, TranscriptWriter, highlight, raw_lines, selected_text, text_of
 from reverse_api.repl.view import LedgerView, SessionState, default_effort, first_definition, model_label, terminal_safe
 
 
@@ -274,6 +277,21 @@ class TestLedgerUI:
         ui.success(str(tmp_path / "never_written.py"))
         ui.usage({"input_tokens": 10, "output_tokens": 5, "estimated_cost_usd": 0.01})
         assert "ready" not in plain(t), "a client path that does not exist gets no card"
+
+    def test_each_card_shows_its_own_run_cost_and_the_chip_the_session_spend(self, session, tmp_path):
+        st, t, view, b = session
+        ui = LedgerUI(b)
+        for run_id, cost in (("run1", 0.5), ("run2", 0.25)):
+            ui.header(run_id, "prompt", model="claude-sonnet-5-5")
+            client = tmp_path / f"{run_id}.py"
+            client.write_text("a\n", encoding="utf-8")
+            ui.tool_start("mcp__verification__report_client_verified", {"summary": "ok"})
+            ui.tool_result("mcp__verification__report_client_verified", output="Recorded")
+            ui.success(str(client))
+            ui.usage({"input_tokens": 1200, "output_tokens": 0, "estimated_cost_usd": cost})
+        text = plain(t)
+        assert "1.2k tokens · $0.50" in text and "1.2k tokens · $0.25" in text and "$0.75" not in text
+        assert "$0.75" in "".join(frag[1] for frag in view.status())
 
     def test_verified_shows_where_the_files_are(self, session):
         _st, t, _view, b = session
@@ -832,7 +850,7 @@ class TestSettings:
         session, config = settings_session
         session.run_command("/settings")
         pick(session.st, "sdk")
-        assert [v for v, _, _ in session.st.picker.items] == ["claude", "codex", "copilot", "cursor", "opencode"]
+        assert [v for v, _, _ in session.st.picker.items] == ["claude", "codex", "copilot", "cursor", "opencode", "hermes"]
         pick(session.st, "opencode")
         assert config.get("sdk") == "opencode" and session.st.sdk == "opencode"
         assert "◇ sdk  claude → opencode" in plain(session.transcript)
@@ -1135,6 +1153,29 @@ def test_card_path_is_a_link(session, tmp_path):
     view.card(Path(client), 3, "python")
     handlers = [frag for line in t.lines() for frag in line if len(frag) == 3]
     assert handlers, "the client name in the card should be clickable"
+
+
+def test_history_details_count_the_tokens_the_card_showed(session):
+    _st, t, view, _b = session
+    usage = {
+        "input_tokens": 24,
+        "output_tokens": 3033,
+        "cache_creation_input_tokens": 14204,
+        "cache_read_input_tokens": 234206,
+        "estimated_cost_usd": 0.11,
+    }
+    view.run_details({"run_id": "c036a0e94b32", "prompt": "Top 100 games on store.steampowered.com/charts", "usage": usage})
+    assert "251.5k tokens" in plain(t), "cache reads and writes count, as on the client card"
+
+
+def test_usage_tokens_counts_each_sdks_cache_and_reasoning_names():
+    from reverse_api.utils import usage_tokens
+
+    opencode = {"input_tokens": 100, "output_tokens": 20, "reasoning_tokens": 5, "cache_read_tokens": 1000, "cache_creation_tokens": 300}
+    copilot = {"input_tokens": 100, "output_tokens": 20, "cache_read_tokens": 1000, "cache_write_tokens": 300}
+    assert usage_tokens(opencode) == 1425
+    assert usage_tokens(copilot) == 1420
+    assert usage_tokens(None) == 0
 
 
 def test_long_diff_lines_and_binary_output_stay_readable(session, monkeypatch):
@@ -1824,14 +1865,14 @@ class TestEntry:
         assert "jobs on example.com" in plain(session.transcript) and session.st.running
 
     @pytest.mark.parametrize(
-        ("mode", "sdk", "verb"), [("collector", "claude", "starting"), ("manual", "claude", "recording"), ("agent", "opencode", "starting")]
+        ("mode", "sdk", "verb"), [("engineer", "claude", "starting"), ("manual", "claude", "recording"), ("agent", "opencode", "starting")]
     )
     def test_every_mode_and_sdk_runs_in_the_session(self, app_session, mode, sdk, verb):
         session, _history = app_session
         session.app = MagicMock()
         session.st.mode, session.st.sdk = mode, sdk
         run = MagicMock()
-        session.first = ("companies hiring", run)
+        session.first = ("jobs on example.com", run)
         with patch("reverse_api.utils.check_for_updates", return_value=None), patch.object(session, "work") as work:
             session.start_first()
         session.app.exit.assert_not_called()
@@ -1846,6 +1887,106 @@ class TestEntry:
         with patch("reverse_api.utils.check_for_updates", return_value="update available: 0.14.0 → 0.15.0"):
             threads[0]()
         assert "update available: 0.14.0 → 0.15.0" in plain(session.transcript)
+
+
+class TestEngineerTarget:
+    @pytest.fixture
+    def runs(self, app_session, tmp_path):
+        """A history whose newest run, from chrome-mcp, saved no HAR; the two before it did."""
+        session, history = app_session
+
+        def run(run_id: str, prompt: str, har: bool) -> dict[str, Any]:
+            if har:
+                (tmp_path / run_id).mkdir()
+                (tmp_path / run_id / "recording.har").write_text("{}", encoding="utf-8")
+            return {"run_id": run_id, "prompt": prompt, "timestamp": "2026-11-14T10:00:00", "paths": {"har_dir": str(tmp_path / run_id)}}
+
+        history.history = [
+            run("chrome1", "jobs at stripe", har=False),
+            run("jobs1", "all open jobs on jobs.ashbyhq.com/openai", har=True),
+            run("nba1", "last night's NBA scores", har=True),
+        ]
+        history.get_history.side_effect = lambda limit=10: history.history[:limit]
+        history.get_run.side_effect = lambda run_id: next((r for r in history.history if r["run_id"] == run_id), None)
+        return session
+
+    @staticmethod
+    def seam(session) -> str:
+        return "".join(text for _, text in session.view.seam())
+
+    def test_engineer_mode_works_on_the_latest_run_with_a_har_and_shows_it(self, runs):
+        runs.set_mode("engineer")
+        assert runs.st.engineer_target == ("jobs1", "all open jobs on jobs.ashbyhq.com/openai")
+        assert "engineer · jobs1 all open jobs on jobs.ashbyhq.com/openai" in self.seam(runs)
+        assert runs.placeholder().startswith("what should change")
+        runs.set_mode("agent")
+        assert "jobs1" not in self.seam(runs) and runs.placeholder().startswith("describe the API")
+
+    def test_engineer_lists_the_runs_with_a_har_and_the_choice_holds_until_a_new_capture(self, runs):
+        runs.run_command("/engineer")
+        assert runs.st.picker is not None and [v for v, _, _ in runs.st.picker.items] == ["jobs1", "nba1"]
+        pick(runs.st, "nba1")
+        assert runs.st.mode == "engineer" and runs.st.engineer_target == ("nba1", "last night's NBA scores")
+        assert "last night's NBA scores" in plain(runs.transcript)
+        runs.set_mode("agent")
+        runs.set_mode("engineer")
+        assert runs.st.engineer_target[0] == "nba1"
+        LedgerUI(runs.bridge).header("new1", "jobs", mode="agent")
+        runs.set_mode("agent")
+        runs.set_mode("engineer")
+        assert runs.st.engineer_target[0] == "jobs1"
+
+    def test_the_run_list_waits_for_a_run_wrapping_up_to_record_its_cost(self, runs):
+        runs.st.running, runs.bridge.stopping = True, True
+        runs.run_command("/history")
+        assert runs.st.picker is None and runs.after_run is not None
+        runs.st.running, runs.bridge.stopping = False, False
+        runs.after_run()
+        assert runs.st.picker is not None and runs.st.picker.title == "past runs"
+
+    def test_a_run_without_a_har_cannot_be_chosen(self, runs):
+        runs.run_command("/engineer chrome1")
+        assert runs.st.mode == "agent" and not runs.st.engineer_chosen
+        assert "run chrome1 has no HAR" in plain(runs.transcript)
+
+    def test_a_prompt_goes_to_the_run_engineer_mode_works_on(self, runs):
+        runs.run_command("/engineer nba1")
+        with patch.object(runs, "work") as work:
+            runs.start("add pagination")
+        with patch.object(runs.cli, "engineer_from_prompt") as engineer:
+            work.call_args.args[0]()
+        assert engineer.call_args == call("add pagination", runs.st.model, run_id="nba1")
+
+    def test_an_engineer_run_names_the_run_it_changes(self, runs):
+        runs.set_mode("engineer")
+        runs.st.run_id = "nba1"  # the previous run
+        with patch.object(runs, "work"):
+            runs.start("add pagination")
+        assert runs.st.run_id is None and "jobs1" in self.seam(runs), "the new run's id comes with its header"
+        LedgerUI(runs.bridge).header("jobs1", "all open jobs on jobs.ashbyhq.com/openai", model="claude-sonnet-5-5", mode="engineer")
+        assert "run jobs1 · engineer · all open jobs on jobs.ashbyhq.com/openai" in plain(runs.transcript)
+        assert "jobs1" in self.seam(runs)
+        # Another run open in engineer mode, such as a resumed agent run, is not the target.
+        LedgerUI(runs.bridge).header("chrome1", "jobs at stripe", mode="agent")
+        assert "jobs1" not in self.seam(runs)
+
+    def test_the_engineer_subcommand_starts_on_its_run(self, runs, monkeypatch):
+        from reverse_api.repl import app as app_mod
+
+        monkeypatch.setattr(app_mod, "Session", lambda: runs)
+        monkeypatch.setattr(runs, "run", AsyncMock())
+        monkeypatch.setattr(runs, "wait_for_run", lambda: None)
+        monkeypatch.setattr(runs, "print_transcript", lambda: None)
+        app_mod.run_session(mode="engineer", target="nba1")
+        assert runs.st.engineer_target == ("nba1", "last night's NBA scores")
+
+    def test_without_any_har_engineer_mode_says_how_to_get_one(self, app_session):
+        session, _history = app_session
+        session.set_mode("engineer")
+        assert session.st.engineer_target is None
+        assert "no run with a HAR yet" in self.seam(session) and session.placeholder().startswith("no HAR yet")
+        session.run_command("/engineer")
+        assert session.st.picker is None and "no run has a HAR to engineer yet" in plain(session.transcript)
 
 
 class TestSubcommands:
@@ -1879,23 +2020,34 @@ class TestSubcommands:
         with patch.object(cli, "open_session") as session, patch.object(cli, "engineer_from_prompt") as later:
             CliRunner().invoke(cli.main, ["engineer", "abc123", "-o", "/out"])
             runner = session.call_args.args[4]
-            runner("add pagination", None)
-        later.assert_called_once_with("add pagination", None, "/out")
+            runner("add pagination", None, "abc123")
+        assert session.call_args.kwargs["target"] == "abc123"
+        later.assert_called_once_with("add pagination", None, "/out", "abc123")
 
-    def test_an_engineer_prompt_is_a_run_id_or_an_instruction_for_the_latest_capture(self, monkeypatch):
+    def test_an_engineer_prompt_is_a_run_id_or_an_instruction_for_its_target(self, monkeypatch, tmp_path):
         from reverse_api import cli
 
+        def run(run_id: str, har: bool) -> dict[str, Any]:
+            if har:
+                (tmp_path / run_id).mkdir()
+                (tmp_path / run_id / "recording.har").write_text("{}", encoding="utf-8")
+            return {"run_id": run_id, "paths": {"har_dir": str(tmp_path / run_id)}}
+
+        # The newest run is a chrome-mcp one, which saved no HAR.
         history = MagicMock()
+        history.history = [run("chrome1", har=False), run("capture1", har=True), run("capture0", har=True)]
+        history.get_history.side_effect = lambda limit=10: history.history[:limit]
         history.get_run.side_effect = lambda text: {"run_id": text} if text == "abc123" else None
-        history.get_history.return_value = [{"run_id": "collect1", "mode": "collector"}, {"run_id": "capture1", "mode": "agent"}]
         monkeypatch.setattr(cli, "session_manager", history)
         with patch.object(cli, "run_engineer") as engineer:
             cli.engineer_from_prompt("abc123", "m", "/out")
             cli.engineer_from_prompt("add pagination", "m", "/out")
+            cli.engineer_from_prompt("add pagination", "m", "/out", run_id="capture0")
         assert engineer.call_args_list[0] == call("abc123", model="m", output_dir="/out")
         assert engineer.call_args_list[1] == call("capture1", model="m", output_dir="/out", additional_instructions="add pagination")
-        history.get_history.return_value = history.get_history.return_value[:1]
-        with pytest.raises(RuntimeError, match="no captured runs yet"):
+        assert engineer.call_args_list[2] == call("capture0", model="m", output_dir="/out", additional_instructions="add pagination")
+        history.history = history.history[:1]
+        with pytest.raises(RuntimeError, match="no run has a HAR"):
             cli.engineer_from_prompt("add pagination")
 
     def test_without_a_terminal_a_prompt_is_required(self, monkeypatch):
@@ -1906,9 +2058,8 @@ class TestSubcommands:
         monkeypatch.setattr(cli, "_in_terminal", lambda: False)
         with patch.object(cli, "open_session") as session:
             agent = CliRunner().invoke(cli.main, ["agent"])
-            collector = CliRunner().invoke(cli.main, ["collector"])
         session.assert_not_called()
-        assert agent.exit_code == 2 and collector.exit_code == 2
+        assert agent.exit_code == 2
 
     def test_json_never_opens_the_session(self, monkeypatch):
         from click.testing import CliRunner
@@ -1946,7 +2097,7 @@ class TestEffortIsClaudeOnly:
         session, _history = app_session
         st = session.st
         st.sdk, st.model = "claude", "claude-opus-5-5"
-        assert st.has_effort and "⌃e" in "".join(text for _, text in session.view.status())
+        assert st.has_effort and st.effort_label == "medium" and "⌃e" in "".join(text for _, text in session.view.status())
         st.model = "claude-haiku-4-5"
         assert not st.has_effort
 
@@ -2179,39 +2330,20 @@ class TestReviewedAgain:
         session.quit()
         assert session.st.queue == []
 
-    def test_collector_mode_runs_and_shows_its_own_model(self, app_session):
+    @pytest.mark.parametrize(
+        ("mode", "engine"), [("agent", "run_agent_capture"), ("manual", "run_manual_capture"), ("engineer", "engineer_from_prompt")]
+    )
+    def test_the_chosen_model_is_saved_and_reaches_the_engine(self, app_session, mode, engine):
         session, _history = app_session
-        st = session.st
-        st.mode, st.collector_model = "collector", "claude-haiku-5-5"
-        assert st.live_model_label == "haiku 5.5"
+        session.st.mode = mode
         session.set_model("claude-opus-5-5")
-        assert st.collector_model == "claude-opus-5-5" and st.model == "claude-sonnet-5-5"
-        session.cli.config_manager.set.assert_called_with("collector_model", "claude-opus-5-5")
+        session.cli.config_manager.set.assert_called_with("claude_code_model", "claude-opus-5-5")
         with patch.object(session, "work") as work:
-            session.start("companies hiring")
-        with patch.object(session.cli, "run_collector") as run:
+            session.start("jobs on example.com")
+        with patch.object(session.cli, engine) as run:
             work.call_args.args[0]()
-        assert run.call_args.kwargs["model"] == "claude-opus-5-5"
-
-    def test_a_collector_runner_gets_the_collectors_model(self, app_session):
-        session, _history = app_session
-        st = session.st
-        st.mode, st.collector_model = "collector", "claude-haiku-5-5"
-        runner = MagicMock()
-        session.runners["collector"] = runner
-        with patch.object(session, "work") as work:
-            session.start("companies hiring")
-            work.call_args.args[0]()
-        runner.assert_called_once_with("companies hiring", "claude-haiku-5-5")
-
-
-def test_collector_mode_effort_follows_the_collectors_model(app_session):
-    session, _history = app_session
-    st = session.st
-    st.mode, st.collector_model = "collector", "claude-haiku-4-5"
-    assert not st.has_effort
-    st.collector_model = "claude-opus-5-5"
-    assert st.has_effort and st.effort_label == "medium"
+        call_ = run.call_args
+        assert (call_.kwargs["model"] if "model" in call_.kwargs else call_.args[1]) == "claude-opus-5-5"
 
 
 class TestPortedScreens:
@@ -2244,21 +2376,6 @@ class TestPortedScreens:
         ui.error("provider refused", unexpected=False)
         text = "".join(line.strip() for line in plain(t).splitlines())
         assert "└ in" in plain(t) and str(tmp_path) in text and "provider refused" in text
-
-    def test_the_collector_reports_its_items_and_folder(self, session, tmp_path):
-        st, t, _view, b = session
-        from reverse_api.repl.bridge import CollectorLedgerUI
-
-        ui = CollectorLedgerUI(b)
-        ui.header("r1", "companies hiring", "claude-haiku-5-5", mode="collector")
-        ui.tool_start("WebFetch", {"url": "https://example.com/jobs"})
-        ui.item_saved('{"company": "Acme"}')
-        ui.collection_complete(2, str(tmp_path))
-        ui.usage_summary({"input_tokens": 100, "output_tokens": 20, "estimated_cost_usd": 0.01})
-        text = plain(t)
-        assert "run r1 · collector" in text and "saved" in text and "Acme" in text and "2 items collected" in text
-        assert str(tmp_path) in "".join(line.strip() for line in text.splitlines())
-        assert st.run_model == "claude-haiku-5-5" and st.tokens == 120
 
     def test_esc_ends_the_browsing_and_keeps_the_capture(self, app_session, tmp_path, monkeypatch):
         from reverse_api import cli
@@ -2333,27 +2450,6 @@ class TestPortedScreens:
         view.flush_live()
         assert plain(t).count("Done") == 3
 
-    def test_a_stopped_collector_keeps_what_it_collected(self, tmp_path, monkeypatch):
-        import json
-
-        from reverse_api import cli
-        from reverse_api.collector import Collector
-
-        history = MagicMock()
-        monkeypatch.setattr(cli, "session_manager", history)
-        monkeypatch.setattr("reverse_api.collector.get_collected_dir", lambda name: tmp_path)
-        monkeypatch.setattr("reverse_api.collector.generate_folder_name", lambda prompt: "companies")
-
-        async def stopped_after_two(self):
-            self.items_path.write_text(json.dumps({"company": "Acme"}) + "\n" + json.dumps({"company": "Globex"}) + "\n")
-            raise asyncio.CancelledError  # esc in the session
-
-        with patch("reverse_api.collector.MessageStore"), patch.object(Collector, "_agent_loop", stopped_after_two):
-            with pytest.raises(asyncio.CancelledError):
-                cli.run_collector(prompt="companies hiring", model="claude-haiku-5-5")
-        assert history.update_run.call_args.kwargs["paths"] == {"output_path": str(tmp_path)}
-        assert len(json.loads((tmp_path / "data.json").read_text())) == 2 and (tmp_path / "data.csv").exists()
-
 
 def test_an_update_is_only_a_newer_release():
     from reverse_api import utils
@@ -2381,3 +2477,276 @@ def test_a_kill_quits_the_session_like_ctrl_d(app_session):
     assert handlers.get(signal.SIGTERM) == session.quit
     if hasattr(signal, "SIGHUP"):
         assert handlers.get(signal.SIGHUP) == session.quit
+
+
+class TestSelection:
+    """Dragging over the conversation selects its text and copies it on release."""
+
+    @staticmethod
+    def mouse(kind: MouseEventType, x: int, y: int, button: MouseButton = MouseButton.LEFT) -> MouseEvent:
+        return MouseEvent(position=Point(x=x, y=y), event_type=kind, button=button, modifiers=frozenset())
+
+    @staticmethod
+    def status(session: Any) -> str:
+        return "".join(text for _, text in session.view.status())
+
+    @pytest.fixture
+    def shown(self, app_session, monkeypatch):
+        """A session showing two notices, copying at once; returns (session, copies, screen row of each notice)."""
+        from reverse_api.repl import app
+
+        session, _history = app_session
+        session.loop = Loop()
+        copies: list[str] = []
+        monkeypatch.setattr(app.clipboard, "copy", lambda text, write_raw: copies.append(text))
+        session.copier = MagicMock(submit=lambda copy: copy())
+        session.view.notice("GET /api/jobs returned 200")
+        session.view.notice("the client is ready")
+        session.transcript_view(MagicMock(render_info=None))
+        texts = [text_of(line) for line in session.view_lines]
+        rows = [next(i for i, t in enumerate(texts) if needle in t) - session.view_start for needle in ("GET /api", "the client")]
+        return session, copies, rows
+
+    def test_a_drag_copies_what_it_went_over_and_stays_highlighted(self, shown):
+        session, copies, (row, _) = shown
+        start = text_of(session.view_lines[session.view_start + row]).index("GET")
+        assert session.drag(self.mouse(MouseEventType.MOUSE_DOWN, start, row)) is False, "a click may still open a link"
+        assert session.drag(self.mouse(MouseEventType.MOUSE_MOVE, start + 5, row))
+        assert session.drag(self.mouse(MouseEventType.MOUSE_UP, start + 12, row))
+        assert copies == ["GET /api/jobs"]
+        drawn = session.transcript_view(MagicMock(render_info=None))
+        assert "".join(text for style, text, *_ in drawn if "reverse" in style) == "GET /api/jobs"
+        assert "copied 13 characters" in self.status(session)
+
+    def test_a_drag_over_lines_copies_each_row_without_its_padding(self, shown):
+        session, copies, (first, second) = shown
+        session.drag(self.mouse(MouseEventType.MOUSE_DOWN, 30, second))
+        session.drag(self.mouse(MouseEventType.MOUSE_MOVE, 3, first))
+        session.drag(self.mouse(MouseEventType.MOUSE_UP, 3, first))
+        assert copies == ["GET /api/jobs returned 200\n" + "\n" * (second - first - 1) + "   the client is ready"]
+        assert "lines" in self.status(session)
+
+    def test_a_click_without_a_drag_leaves_links_to_open(self, shown):
+        session, copies, (row, _) = shown
+        assert session.drag(self.mouse(MouseEventType.MOUSE_DOWN, 5, row)) is False
+        assert session.drag(self.mouse(MouseEventType.MOUSE_UP, 5, row)) is False
+        assert session.selection is None and copies == []
+
+    def test_a_drag_let_go_under_the_conversation_copies_to_the_end_of_its_last_line(self, shown):
+        session, copies, (_, row) = shown
+        start = text_of(session.view_lines[session.view_start + row]).index("the client")
+        session.drag(self.mouse(MouseEventType.MOUSE_DOWN, start, row))
+        session.drag(self.mouse(MouseEventType.MOUSE_MOVE, start + 3, row))
+        assert session.drag_below(self.mouse(MouseEventType.MOUSE_MOVE, 2, 0)), "the input bar passes the drag on"
+        assert copies == []
+        assert session.drag_below(self.mouse(MouseEventType.MOUSE_UP, 2, 0))
+        assert copies == ["the client is ready"] and not session.selection.dragging
+
+    def test_the_rest_of_the_screen_leaves_its_own_mouse_events_alone_without_a_drag(self, shown):
+        session, _copies, _rows = shown
+        assert session.drag_below(self.mouse(MouseEventType.MOUSE_UP, 2, 0)) is False
+
+    def test_a_release_the_session_missed_ends_the_drag_on_the_next_move(self, shown):
+        session, copies, (row, _) = shown
+        session.drag(self.mouse(MouseEventType.MOUSE_DOWN, 3, row))
+        session.drag(self.mouse(MouseEventType.MOUSE_MOVE, 8, row))
+        assert session.drag(self.mouse(MouseEventType.MOUSE_MOVE, 20, row, MouseButton.NONE))
+        assert copies == ["GET /a"]
+
+    def test_the_clipboard_is_written_off_the_apps_loop(self, app_session, monkeypatch):
+        from reverse_api.repl import app
+
+        session, _history = app_session
+        session.copier = MagicMock()
+        monkeypatch.setattr(app.clipboard, "copy", MagicMock())
+        session.view.notice("GET /api/jobs")
+        session.transcript_view(MagicMock(render_info=None))
+        row = next(i for i, line in enumerate(session.view_lines) if "GET" in text_of(line)) - session.view_start
+        session.drag(self.mouse(MouseEventType.MOUSE_DOWN, 3, row))
+        session.drag(self.mouse(MouseEventType.MOUSE_UP, 9, row))
+        assert session.copier.submit.call_count == 1 and not app.clipboard.copy.called
+
+    def test_copies_land_in_order_and_skip_a_selection_already_replaced(self, app_session, monkeypatch):
+        from reverse_api.repl import app
+
+        session, _history = app_session
+        session.loop = Loop()
+        first_running, release = threading.Event(), threading.Event()
+        landed: list[str] = []
+
+        def slow_first(text: str, write_raw: Any) -> None:
+            if not landed:
+                first_running.set()
+                release.wait(5)
+            landed.append(text)
+
+        monkeypatch.setattr(app.clipboard, "copy", slow_first)
+        for word in ("one", "two", "three"):
+            session.view.notice(word)
+        session.transcript_view(MagicMock(render_info=None))
+
+        def select(word: str) -> None:
+            i = next(i for i, line in enumerate(session.view_lines) if text_of(line).strip() == word)
+            start = text_of(session.view_lines[i]).index(word)
+            session.drag(self.mouse(MouseEventType.MOUSE_DOWN, start, i - session.view_start))
+            session.drag(self.mouse(MouseEventType.MOUSE_UP, start + len(word) - 1, i - session.view_start))
+
+        select("one")
+        assert first_running.wait(5)
+        select("two")
+        select("three")
+        release.set()
+        session.copier.shutdown(wait=True)
+        assert landed == ["one", "three"], "two was replaced before its turn came"
+
+    def test_typing_or_a_new_width_drops_the_selection(self, shown, monkeypatch):
+        session, _copies, (row, _) = shown
+        session.drag(self.mouse(MouseEventType.MOUSE_DOWN, 3, row))
+        session.buf.insert_text("x")
+        assert session.selection is None
+        session.drag(self.mouse(MouseEventType.MOUSE_DOWN, 3, row))
+        monkeypatch.setattr("reverse_api.repl.app.width", lambda: session.view_width + 10)
+        session.transcript_view(MagicMock(render_info=None))
+        assert session.selection is None
+
+    @staticmethod
+    def on_screen(session: Any, height: int = 60) -> Any:
+        """Draws the conversation through prompt_toolkit's own window, which hands its control character indexes
+        rather than screen columns; returns the screen and a function that sends a mouse event to a cell."""
+        from prompt_toolkit.application import Application
+        from prompt_toolkit.application.current import set_app
+        from prompt_toolkit.input.base import DummyInput
+        from prompt_toolkit.layout import Layout, Window
+        from prompt_toolkit.layout.mouse_handlers import MouseHandlers
+        from prompt_toolkit.layout.screen import Screen, WritePosition
+        from prompt_toolkit.output.base import DummyOutput
+
+        from reverse_api.repl.style import width
+
+        window = Window(wrap_lines=False)
+        window.content = TranscriptControl(lambda: session.transcript_view(window), session.scroll, session.drag)
+        app = Application(layout=Layout(window), input=DummyInput(), output=DummyOutput())
+        with set_app(app):
+            for _ in range(2):  # the second pass sizes the conversation to the window the first one measured
+                screen, handlers = Screen(), MouseHandlers()
+                window.write_to_screen(screen, handlers, WritePosition(xpos=0, ypos=0, width=width(), height=height), "", False, None)
+
+        def send(kind: MouseEventType, x: int, y: int) -> None:
+            with set_app(app):
+                handlers.mouse_handlers[y][x](TestSelection.mouse(kind, x, y))
+
+        return screen, send
+
+    @staticmethod
+    def find(screen: Any, char: str) -> tuple[int, int]:
+        from reverse_api.repl.style import width
+
+        return next((x, y) for y in range(60) for x in range(width()) if screen.data_buffer[y][x].char == char)
+
+    def test_wide_characters_copy_what_was_under_the_pointer_on_screen(self, shown):
+        session, copies, _rows = shown
+        session.view.notice("日本 ok")
+        session.view.out("")
+        screen, send = self.on_screen(session)
+        (hon, y), (k, _) = self.find(screen, "本"), self.find(screen, "k")
+        send(MouseEventType.MOUSE_DOWN, hon + 1, y)  # the right half of 本
+        send(MouseEventType.MOUSE_MOVE, k, y)
+        send(MouseEventType.MOUSE_UP, k, y)
+        assert copies == ["本 ok"]
+
+    def test_a_drag_onto_a_blank_line_stays_where_the_pointer_is(self, shown):
+        session, copies, (_, client) = shown
+        screen, send = self.on_screen(session)
+        x, y = self.find(screen, "G")  # GET /api/jobs returned 200
+        blank = client + 1  # the blank line between the conversation and the bar
+        assert not text_of(session.view_lines[session.view_start + blank])
+        send(MouseEventType.MOUSE_DOWN, x, y)
+        send(MouseEventType.MOUSE_MOVE, 4, blank)
+        send(MouseEventType.MOUSE_UP, 4, blank)
+        assert copies == ["GET /api/jobs returned 200\n   the client is ready"], "not the header above it"
+
+    def test_the_control_hands_a_selection_its_events_and_links_the_rest(self):
+        events: list[MouseEventType] = []
+        control = TranscriptControl(lambda: FormattedText([]), on_scroll=lambda _: None, on_drag=lambda e: events.append(e.event_type) or True)
+        assert control.mouse_handler(self.mouse(MouseEventType.MOUSE_MOVE, 1, 0)) is None
+        assert events == [MouseEventType.MOUSE_MOVE]
+
+
+def test_a_selection_picks_characters_not_screen_columns():
+    assert selected_text([[("", "日本 ok")]], Selection((0, 1), (0, 4))) == "本 ok"
+
+
+def test_a_highlight_keeps_the_link_under_it():
+    handler = MagicMock()
+    out = highlight([("fg:red", "ab", handler)], 1, None)
+    assert out == [("fg:red", "a", handler), ("fg:red reverse", "b", handler)]
+
+
+class TestInputKeys:
+    """Option+Delete reaches the input bar as Esc then Delete, through the session's own key bindings."""
+
+    @pytest.fixture
+    def built(self, app_session, monkeypatch):
+        """The session and its app, on a dummy terminal: a Windows runner has no console to draw on."""
+        from prompt_toolkit.application.current import create_app_session
+        from prompt_toolkit.input.base import DummyInput
+        from prompt_toolkit.output.base import DummyOutput
+
+        from reverse_api.repl import app
+
+        session, _history = app_session
+        monkeypatch.setattr(app, "create_output", lambda stdout: DummyOutput())
+        with create_app_session(input=DummyInput(), output=DummyOutput()):
+            yield session, session.build()
+
+    @staticmethod
+    def press(app: Any, *keys: Any) -> None:
+        from prompt_toolkit.application.current import set_app
+        from prompt_toolkit.key_binding.key_processor import KeyPress
+
+        with set_app(app):
+            app.key_processor.feed_multiple([KeyPress(key, data) for key, data in keys])
+            app.key_processor.process_keys()
+
+    async def test_option_delete_deletes_the_word_before_the_cursor(self, built):
+        from prompt_toolkit.keys import Keys
+
+        session, app = built
+        session.buf.insert_text("fetch all jobs at browserbase")
+        self.press(app, (Keys.Escape, "\x1b"), (Keys.Backspace, "\x7f"))
+        assert session.buf.text == "fetch all jobs at "
+
+    async def test_option_delete_on_an_empty_bar_leaves_the_run_going(self, built, monkeypatch):
+        from prompt_toolkit.keys import Keys
+
+        session, app = built
+        session.st.running = True
+        stop = MagicMock()
+        monkeypatch.setattr(session, "stop", stop)
+        self.press(app, (Keys.Escape, "\x1b"), (Keys.Backspace, "\x7f"))
+        stop.assert_not_called()
+
+    async def test_a_lone_esc_still_stops_the_run_at_once(self, built, monkeypatch):
+        from prompt_toolkit.application.current import set_app
+        from prompt_toolkit.key_binding.key_processor import KeyPress
+        from prompt_toolkit.keys import Keys
+
+        from reverse_api.repl.app import ESC_WAIT
+
+        session, app = built
+        session.st.running = True
+        stop = MagicMock()
+        monkeypatch.setattr(session, "stop", stop)
+        with set_app(app):
+            app.key_processor.feed(KeyPress(Keys.Escape, "\x1b"))
+            app.key_processor.process_keys()
+            stop.assert_not_called()  # it could still be Option+something
+            await asyncio.sleep(ESC_WAIT * 4)
+        stop.assert_called_once()
+
+    def test_the_terminal_reader_waits_as_briefly_for_the_key_after_esc(self, built):
+        """The reader's own wait for what follows a lone Esc, which keys fed to the key processor never reach."""
+        from reverse_api.repl.app import ESC_WAIT
+
+        _session, app = built
+        assert app.ttimeoutlen == ESC_WAIT == app.timeoutlen

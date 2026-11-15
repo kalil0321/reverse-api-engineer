@@ -36,7 +36,7 @@ def load(template_name: str, **kwargs: str) -> str:
 
     Args:
         template_name: Path to the `.md` file (without extension),
-            e.g. ``"auto/system"`` or ``"collector/user"``.
+            e.g. ``"auto/system"`` or ``"engineer/user"``.
         **kwargs: Values to substitute for `{placeholder}` tokens.
 
     Returns:

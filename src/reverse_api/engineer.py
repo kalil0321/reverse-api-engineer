@@ -421,6 +421,9 @@ def run_reverse_engineering(
     codex_model: str | None = None,
     codex_effort: str | None = None,
     codex_home: str | None = None,
+    hermes_model: str | None = None,
+    hermes_provider: str | None = None,
+    hermes_max_turns: int | None = None,
     enable_sync: bool = False,
     is_fresh: bool = False,
     output_language: str = "python",
@@ -436,7 +439,7 @@ def run_reverse_engineering(
     resume_session, cost_before and on_session reopen and record the SDK session, see BaseEngineer.
 
     Args:
-        sdk: "claude", "opencode", "copilot", "cursor", or "codex" - determines which SDK to use
+        sdk: "claude", "opencode", "copilot", "cursor", "codex", or "hermes" - determines which backend to use
         opencode_provider: Provider ID for OpenCode (e.g., "anthropic")
         opencode_model: Model ID for OpenCode (e.g., "claude-sonnet-4-6")
         copilot_model: Model ID for Copilot (e.g., "gpt-5")
@@ -446,6 +449,9 @@ def run_reverse_engineering(
         codex_model: Model for Codex (e.g., "gpt-6.1-sol"); None uses Codex's default
         codex_effort: Reasoning effort for Codex (e.g., "high"); None uses the model's default
         codex_home: Codex home to run in; None uses rae's own, which shares only the user's Codex sign-in
+        hermes_model: Model for the Hermes CLI; None keeps the model its own config selects.
+        hermes_provider: Provider for the Hermes CLI; None keeps the provider its own config selects.
+        hermes_max_turns: Turn cap for a Hermes run; None keeps the cap its own config sets.
         enable_sync: Enable real-time file syncing during engineering
         is_fresh: Whether to start fresh (ignore previous scripts)
         output_language: Target language - "python", "javascript", "typescript", "go", "java", "csharp", "php", "ruby", or "c"
@@ -531,6 +537,27 @@ def run_reverse_engineering(
             codex_model=codex_model,
             codex_effort=codex_effort,
             codex_home=codex_home,
+            interactive=interactive,
+        )
+    elif sdk == "hermes":
+        from .hermes_engineer import HermesEngineer
+
+        engineer = HermesEngineer(
+            run_id=run_id,
+            har_path=har_path,
+            prompt=prompt,
+            model=model,
+            additional_instructions=additional_instructions,
+            output_dir=output_dir,
+            verbose=verbose,
+            enable_sync=enable_sync,
+            sdk=sdk,
+            is_fresh=is_fresh,
+            output_language=output_language,
+            output_mode=output_mode,
+            hermes_model=hermes_model,
+            hermes_provider=hermes_provider,
+            hermes_max_turns=hermes_max_turns,
             interactive=interactive,
         )
     else:

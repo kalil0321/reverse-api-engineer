@@ -122,3 +122,6 @@ macos/DerivedData/
 
 # keep the committed design prompt (the broad prompt*.md rule above would hide it)
 !design/PROMPT.md
+
+# The homepage demo videos are served from the site.
+!website/public/demo/*.mp4

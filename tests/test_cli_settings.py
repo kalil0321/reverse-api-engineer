@@ -13,6 +13,7 @@ from reverse_api import cli
     ("copilot", "copilot_model", "gpt-5"),
     ("cursor", "cursor_model", "composer-2.5"),
     ("codex", "codex_model", ""),  # Codex picks the account's default model
+    ("hermes", "hermes_model", "hermes default"),
 ])
 @pytest.mark.parametrize("saved", [None, "", "custom-model"])
 @pytest.mark.parametrize("infer_sdk", [False, True])

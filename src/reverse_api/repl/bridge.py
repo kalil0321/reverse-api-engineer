@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 from rich.console import Console
 
-from ..utils import predates_effort
+from ..utils import predates_effort, usage_tokens
 from .style import THEME, width
 from .transcript import Raw, TranscriptWriter
 from .view import KIND_VERB, VERB_COL, LedgerView, default_effort, language_for
@@ -57,12 +57,6 @@ ALIASES = {
 OPENCODE_MCP = re.compile(r"^(?:playwright|chrome-devtools)-(?:ses_[A-Za-z0-9]+_)?")
 # The arguments that best say what a tool we have no wording for works on, most telling first.
 TARGET_KEYS = ("url", "file_path", "filePath", "path", "query", "text", "pattern", "command", "description", "name", "id")
-
-
-def usage_tokens(usage: dict[str, Any]) -> int:
-    """Every token a run's usage counts: Claude's names, then Copilot's, Cursor's and Codex's for their cache."""
-    keys = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "cache_read_tokens", "cache_write_tokens")
-    return sum(int(usage.get(key, 0) or 0) for key in keys)
 
 
 def short_name(tool_name: str) -> str:
@@ -382,16 +376,21 @@ class LedgerUI:
     def header(self, run_id: str, prompt: str, model: str | None = None, sdk: str | None = None, mode: str | None = None) -> None:
         self.b.bind_task()
         st = self.st
-        st.run_id, st.step, st.tokens = run_id, 0, 0
+        st.run_id, st.step, st.tokens, st.run_cost = run_id, 0, 0, 0.0
         st.running, st.waiting, st.verb, st.kind = True, False, "starting", "other"
         self.b.cost_base = st.cost
+        if mode == "engineer":
+            # The run being engineered stays the target of engineer mode; a new agent capture hands it to the latest.
+            st.engineer_target, st.engineer_chosen = (run_id, prompt), True
+        elif mode == "agent":
+            st.engineer_chosen = False
         self.b.verified, self.b.workspace = False, None
         self.b.reset_plan()
         # The run's own model and SDK; the selection in st.model stays for the next run.
         st.run_model, st.run_sdk = model or st.model, sdk or st.sdk
         claude = st.run_sdk == "claude" and not predates_effort(st.run_model)
         st.run_effort = (st.effort or default_effort(st.run_model)) if claude else st.codex_effort if st.run_sdk == "codex" else None
-        self.view.run_line(run_id, mode)
+        self.view.run_line(run_id, mode, prompt)
         self._changed()
 
     def start_analysis(self) -> None:
@@ -518,7 +517,8 @@ class LedgerUI:
         st.tokens = usage_tokens(usage)
         cost = usage.get("estimated_cost_usd")
         if isinstance(cost, (int, float)):
-            st.cost = self.b.cost_base + float(cost)
+            st.run_cost = float(cost)
+            st.cost = self.b.cost_base + st.run_cost
         self.b.flush_card()
 
     def error(self, message: str) -> None:
@@ -654,30 +654,6 @@ class OpenCodeLedgerUI(LedgerUI):
 
     def session_idle(self) -> None:
         pass
-
-
-class CollectorLedgerUI(LedgerUI):
-    """Drop-in for CollectorUI while the session is open."""
-
-    def header(self, run_id: str, prompt: str, model: str | None = None, sdk: str | None = None, mode: str | None = None, **kwargs: Any) -> None:
-        _ = kwargs
-        super().header(run_id, prompt, model=model, sdk=sdk or "claude", mode=mode or "collector")
-
-    def start_collecting(self) -> None:
-        pass
-
-    def item_saved(self, preview: str) -> None:
-        self.b.flush_card()
-        self.view.step("saved", first_line(preview), "write")
-        self._changed()
-
-    def collection_complete(self, total_items: int, output_path: str) -> None:
-        self.b.flush_card()
-        self.view.collected(total_items, Path(output_path))
-        self._changed()
-
-    def usage_summary(self, usage: dict[str, Any]) -> None:
-        self.usage(usage)
 
 
 _bridge: Bridge | None = None

@@ -4,7 +4,6 @@
   <a href="https://pypi.org/project/reverse-api-engineer/"><img src="https://img.shields.io/pypi/v/reverse-api-engineer?style=flat&color=e50d75&labelColor=1f1f1f" alt="PyPI"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11+-e50d75?style=flat&labelColor=1f1f1f" alt="Python"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-e50d75?style=flat&labelColor=1f1f1f" alt="License"></a>
-  <a href="https://github.com/kalil0321/reverse-api-engineer/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/kalil0321/reverse-api-engineer/ci.yml?branch=main&style=flat&labelColor=1f1f1f&label=CI" alt="CI"></a>
   <br>
 
 [![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
@@ -16,15 +15,9 @@
 > **Turn websites into APIs.** Browse (or let an agent browse), and get a clean, typed client for the endpoints the site actually uses.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/kalil0321/reverse-api-engineer/main/assets/rae-autoscout.gif" alt="Agent Mode Demo">
+  <img src="https://raw.githubusercontent.com/kalil0321/reverse-api-engineer/main/assets/rae-agent-steam.gif" alt="Agent mode turning Steam's charts page into an API client">
   <br>
   <em>Agent mode</em>
-</p>
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/kalil0321/reverse-api-engineer/main/assets/reverse-api-engineer.gif" alt="Manual Mode Demo">
-  <br>
-  <em>Manual mode</em>
 </p>
 
 ---
@@ -82,8 +75,7 @@ Cycle modes with **Shift+Tab**:
 |------|--------------|
 | `manual` | You drive the browser; AI generates the client from captured traffic. |
 | `agent` | An AI agent drives capture autonomously (Playwright or Chrome MCP, or Vercel agent-browser CLI). |
-| `engineer` | Re-run generation on a previous capture (`engineer <run_id>`). Needs a HAR, so it works on `auto`, `agent-browser` and manual runs, not chrome-mcp runs. |
-| `collector` | Agent collects structured data (JSON/CSV) using web search + fetch. |
+| `engineer` | Re-run generation on a previous capture (`engineer <run_id>`). In the session it works on your latest run with a HAR, named above the input; `/engineer` picks another. Needs a HAR, so it works on `auto`, `agent-browser` and manual runs, not chrome-mcp runs. |
 
 Agent mode providers:
 - **chrome-mcp** (default for new configs; an existing `config.json` keeps its provider): drives your real Chrome so you keep existing sessions/cookies. Needs Node.js 20.19+; headed runs also need Chrome 146+ open with auto-connect enabled at `chrome://inspect/#remote-debugging`, and someone at the machine to accept Chrome's connection prompt when the run starts. For headed runs, rae checks before launching that Chrome's remote debugging port is reachable (not the Chrome or Node version) and stops with setup steps if it isn't; `agent --dry-run` shows the same check. Headless runs skip it. `--headless` starts a separate headless Chrome without your sessions. No HAR file is saved, so `engineer <run_id>` cannot regenerate these runs; run `agent` again instead.
@@ -109,12 +101,14 @@ Settings live in `~/.reverse-api/config.json` and can be edited via `/settings` 
   "agent_browser_notes": "",
   "claude_code_model": "claude-sonnet-4-6",
   "claude_setting_sources": [],
-  "collector_model": "claude-sonnet-4-6",
   "ollama_auto_start": true,
   "ollama_base_url": "http://127.0.0.1:11434",
   "opencode_auto_start": true,
   "opencode_base_url": "http://127.0.0.1:4096",
   "opencode_model": "big-pickle",
+  "hermes_max_turns": null,
+  "hermes_model": null,
+  "hermes_provider": null,
   "opencode_npx_package": "opencode-ai@latest",
   "opencode_provider": "opencode",
   "copilot_model": "gpt-5",
@@ -130,7 +124,8 @@ Settings live in `~/.reverse-api/config.json` and can be edited via `/settings` 
 ```
 
 - **Models**: Sonnet 5.5, Opus 5.5 (most capable), Opus 4.6 and Haiku 5.5 (fastest). Sonnet 4.6 stays the default until you choose another; it and Haiku 4.5 are still accepted in config and by `--model`. For OpenCode see [models.dev](https://models.dev).
-- **SDK**: `claude` (default), `opencode`, `codex` (OpenAI Codex), `cursor`, or `copilot` (GitHub Copilot).
+- **SDK**: `claude` (default), `opencode`, `codex` (OpenAI Codex), `cursor`, `copilot` (GitHub Copilot), or `hermes`.
+- **Hermes**: engineers a saved capture through the [`hermes` CLI](https://hermes-agent.nousresearch.com/docs) instead of an SDK. It needs Hermes Agent v2026.9.21 or later from the official installer (the PyPI package is older): `curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash` on macOS, Linux and WSL2, `iex (irm https://hermes-agent.nousresearch.com/install.ps1)` in PowerShell on Windows. It needs no API key in rae: the model, the provider and the authentication are your own Hermes configuration. `hermes_model` and `hermes_provider` override which model that configuration runs; leaving them `null` uses whatever Hermes already selects. `hermes_max_turns` overrides the turn cap from your Hermes config. Runs start with `--ignore-rules`, so an `AGENTS.md` or `CLAUDE.md` in the workspace cannot steer the run. Cost is estimated from the token counts the CLI reports, and stays at 0 for a model with no known price. It covers `engineer` only: while `sdk` is `hermes` the `agent` command stops before opening a browser, so capture with `claude`, `opencode`, `copilot` or `cursor`, then switch `sdk` back to `hermes` to engineer that run. `agent --dry-run` reports the same thing.
 - **Claude settings isolation**: Claude sessions don't load your Claude Code settings files, `CLAUDE.md`, hooks, plugins, permission rules or MCP servers, so your personal setup doesn't steer the agent. Organization-managed policy still applies, and Claude Code still reads its own state such as `~/.claude.json` and auto memory. If `~/.claude/settings.json` provides your authentication (`apiKeyHelper`, or Bedrock, Vertex or proxy variables under `env`), set `claude_setting_sources` to the layers to load, e.g. `["user"]` or `["user", "project", "local"]`. Each layer you list is loaded in full, including its hooks, plugins, permission rules and MCP servers.
 - **OpenCode setup**: with `sdk: "opencode"`, RAE reuses an existing server or downloads/starts `opencode-ai@latest` through `npx`; a global OpenCode installation is not required. Fresh configurations default to the free `opencode/big-pickle` model. `/settings` shows a loading list, then offers a searchable **opencode provider / model** list populated from the server's connected, tool-capable catalog and marks free OpenCode options. Before creating a session, RAE validates the saved pair again and suggests currently available free models when configuration is invalid. Compatible older servers are reused with a version warning. Node.js 20+ is required for automatic startup. Password-protected servers use `OPENCODE_SERVER_PASSWORD` and optional `OPENCODE_SERVER_USERNAME`. Override startup with `OPENCODE_BASE_URL`, `RAE_OPENCODE_PACKAGE`, or `RAE_OPENCODE_AUTO_START=0`.
 - **Codex setup**: install with `uv tool install "reverse-api-engineer[codex]"` (it brings its own Codex runtime) and sign in once with `codex login` or the Codex app. RAE runs Codex in its own home, `~/.reverse-api/codex`, whose `auth.json` links to your Codex sign-in, so your Codex `config.toml`, MCP servers, hooks, skills and `AGENTS.md`, and the apps connected to your ChatGPT account, don't steer the agent and RAE's runs stay out of your Codex history. Set `codex_home` (for example `"~/.codex"`) to run in a Codex home as it is, with all of its setup; that is also how to share a sign-in kept in the system keyring, or on Windows without permission to create symbolic links. `codex_model: null` uses your account's default model; `/settings` lists the models your account offers. `codex_effort: null` uses the model's default reasoning effort; `/effort` lists the levels the model offers. Like the other backends, the agent runs without Codex's sandbox or approval prompts.
@@ -139,11 +134,12 @@ Settings live in `~/.reverse-api/config.json` and can be edited via `/settings` 
 
 ## CLI
 
-`reverse-api-engineer` opens a full-screen session; `agent`, `engineer` and `collector` open it too when run in a terminal (`agent` and `engineer` stay plain with `--json` or `--no-interactive`). Type `/` for the commands:
+`reverse-api-engineer` opens a full-screen session; `agent` and `engineer` open it too when run in a terminal, and stay plain with `--json` or `--no-interactive`. Type `/` for the commands:
 - `/model`, `/effort`, `/mode`: switch the model, how hard it thinks, and the mode (also Shift+Tab, ctrl+e).
+- `/engineer [run_id]`: the run engineer mode works on, by default the latest with a HAR.
 - `/settings`: SDK, agent provider, models, output and sync, changed in place in the session.
 - `/history`: past runs with their details, to resume or re-engineer.
-- `/resume [run_id]`: show a past run's conversation as it was and continue it where it stopped, on any SDK. Works for agent and engineer runs from this version on, which save their SDK session. Collector runs cannot be resumed.
+- `/resume [run_id]`: show a past run's conversation as it was and continue it where it stopped, on any SDK. Works for agent and engineer runs from this version on, which save their SDK session.
 - `/output` (ctrl+o): everything from the session, unfolded. `/open`: the latest client.
 - `/help` (or `/commands`): what rae does, its modes, commands and keys.
 - `/new`, `/clear`, `/exit` (or `/quit`).
@@ -197,7 +193,6 @@ concise by default, and `--json` / `--json-stream` stdout remains machine-readab
 
 - `~/.reverse-api/runs/scripts/{run_id}/`: permanent storage
 - `./scripts/{descriptive_name}/`: local copy with a readable name
-- Collector: `./collected/{folder_name}/` (`items.json`, `items.csv`, `README.md`)
 
 ## Caveats
 

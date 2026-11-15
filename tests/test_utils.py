@@ -14,7 +14,6 @@ from reverse_api.utils import (
     generate_run_id,
     get_app_dir,
     get_base_output_dir,
-    get_collected_dir,
     get_config_path,
     get_docs_dir,
     get_har_dir,
@@ -297,35 +296,6 @@ class TestGetDocsDir:
             get_docs_dir("x" * 65)
 
 
-class TestGetCollectedDir:
-    """Test get_collected_dir."""
-
-    def test_creates_collected_dir(self, tmp_path):
-        """Creates collected directory."""
-        with patch("reverse_api.utils.Path.cwd", return_value=tmp_path):
-            from reverse_api.utils import get_collected_dir
-
-            path = get_collected_dir("test_collection")
-            assert path.exists()
-            assert path.name == "test_collection"
-
-    def test_empty_folder_name_raises(self):
-        """Empty folder_name raises ValueError."""
-        with pytest.raises(ValueError, match="cannot be empty"):
-            get_collected_dir("")
-
-    def test_traversal_raises(self, tmp_path):
-        """Path traversal in folder_name raises ValueError."""
-        with patch("reverse_api.utils.Path.cwd", return_value=tmp_path):
-            with pytest.raises(ValueError, match="Invalid folder_name"):
-                get_collected_dir("../../etc")
-
-    def test_too_long_raises(self):
-        """Too long folder_name raises ValueError."""
-        with pytest.raises(ValueError, match="too long"):
-            get_collected_dir("x" * 65)
-
-
 class TestCheckForUpdates:
     """Test check_for_updates function."""
 
@@ -405,6 +375,12 @@ class TestGenerateFolderName:
                 with patch("reverse_api.utils.get_config_path", side_effect=Exception("no config")):
                     result = generate_folder_name("test prompt")
                     assert isinstance(result, str)
+
+    def test_hermes_slugifies_without_calling_claude(self):
+        with patch("reverse_api.utils.asyncio.get_running_loop", side_effect=RuntimeError):
+            with patch("reverse_api.utils.asyncio.run") as run:
+                assert generate_folder_name("apple jobs api", sdk="hermes") == "apple_jobs_api"
+                run.assert_not_called()
 
     def test_opencode_calls_opencode_async(self):
         """OpenCode SDK calls _generate_folder_name_opencode_async."""

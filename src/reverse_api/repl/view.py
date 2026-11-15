@@ -23,7 +23,7 @@ from rich.text import Text
 
 from .. import __version__
 from ..theme import MODE_COLORS
-from ..utils import predates_effort, recorded_cost
+from ..utils import predates_effort, recorded_cost, usage_tokens
 from .logo import LOGO_COLS, logo_rows
 from .style import (
     AMBER,
@@ -220,8 +220,9 @@ class SessionState:
     verb: str = "thinking"
     kind: str = "other"
     started: float = 0.0
-    tokens: int = 0
-    cost: float = 0.0
+    tokens: int = 0  # the open run's
+    cost: float = 0.0  # the session's spend
+    run_cost: float = 0.0  # the open run's, next to its tokens on the client card
     step: int = 0
     host: str = ""
     client_name: str = ""
@@ -229,6 +230,7 @@ class SessionState:
     queue: list[str] = field(default_factory=list)
     scroll: int = 0  # lines scrolled up from the latest output
     folded: bool = False  # some output was cut short, so ctrl+o has more to show
+    flash: tuple[str, float] | None = None  # a short confirmation for the status row, until its time
     palette_index: int = 0
     picker: Picker | None = None
     question: Any = None  # a free-text question waiting for the next Enter
@@ -238,7 +240,9 @@ class SessionState:
     run_sdk: str | None = None
     run_effort: str | None = None
     codex_effort: str | None = None  # None: the Codex model's default, which only its catalog knows
-    collector_model: str | None = None  # collector mode runs on its own model setting
+    # The run engineer mode works on, (run id, prompt): the one chosen, else the latest with a HAR.
+    engineer_target: tuple[str, str] | None = None
+    engineer_chosen: bool = False
 
     @property
     def accent(self) -> str:
@@ -250,28 +254,22 @@ class SessionState:
 
     @property
     def effort_label(self) -> str:
-        return self.effort or default_effort(self.next_model)
+        return self.effort or default_effort(self.model)
 
     @property
     def has_effort(self) -> bool:
-        """Effort is a Claude setting; collector mode goes by its own model."""
-        return self.sdk == "claude" and not predates_effort(self.next_model)
+        return self.sdk == "claude" and not predates_effort(self.model)
 
     @property
     def no_effort_reason(self) -> str:
         if self.sdk == "claude":
-            return f"{model_label(self.next_model)} has no effort setting · /model picks one that does"
+            return f"{model_label(self.model)} has no effort setting · /model picks one that does"
         return f"effort is a claude setting · this session runs {self.sdk} {self.model_label}"
 
     @property
-    def next_model(self) -> str | None:
-        """What a new run in the current mode starts with."""
-        return self.collector_model if self.mode == "collector" and self.collector_model else self.model
-
-    @property
     def live_model_label(self) -> str:
-        """The model the next message goes to: the open run's, else the selection for this mode."""
-        return model_label(self.run_model or self.next_model)
+        """The model the next message goes to: the open run's, else the selected one."""
+        return model_label(self.run_model or self.model)
 
     @property
     def run_open(self) -> bool:
@@ -486,8 +484,11 @@ class LedgerView:
         self.gap()
         self.out(f" [{DIM}]›[/] [{self.st.accent}]{escape(cmd)}[/]" + (f" [{INK_SOFT}]{escape(arg)}[/]" if arg else ""))
 
-    def run_line(self, run_id: str, mode: str | None) -> None:
-        self.out(f"   [{DIM}]run {escape(run_id)} · {escape(mode or self.st.mode)}[/]")
+    def run_line(self, run_id: str, mode: str | None, prompt: str = "") -> None:
+        mode = mode or self.st.mode
+        # In engineer mode the user typed only what should change: the line names the run it changes.
+        about = f" · {first_words(prompt, max(10, width() - len(run_id) - 24))}" if prompt and mode == self.st.mode == "engineer" else ""
+        self.out(f"   [{DIM}]run {escape(run_id)} · {escape(mode)}{escape(about)}[/]")
         self.out("")
 
     def note(self, text: str) -> None:
@@ -531,12 +532,6 @@ class LedgerView:
         for label, path in rows:
             mark = Text.from_markup(f"[{HAIRLINE}]└[/] [{DIM}]{label}[/]")
             self.out(Padding(hanging(mark, Text.from_markup(f"[{INK_SOFT}]{link(str(path), path)}[/]"), len(label) + 2), (0, 0, 0, INDENT)))
-
-    def collected(self, total: int, folder: Path) -> None:
-        """A collector run's result: how many items, and the folder with its JSON, CSV and README."""
-        items = f"{total} item{'s' if total != 1 else ''}"
-        body = Text.from_markup(f"[bold {INK}]{items}[/] [italic {PINK}]collected[/] [{INK_SOFT}]{link(str(folder), folder)}[/]")
-        self.out(Padding(hanging(Text("*", style=self.st.accent), body, 1), (0, 0, 0, 1)))
 
     def docs_ready(self, path: Path) -> None:
         body = Text.from_markup(f"[bold {INK}]{link(path.name, path)}[/] [italic {PINK}]documentation ready[/]")
@@ -608,7 +603,7 @@ class LedgerView:
         main = [
             (f"[{st.accent}]*[/] [bold {INK}]{link(path.name, path)}[/] [italic {PINK}]ready[/]", f"* {path.name} ready"),
             (f"  [{INK_SOFT}]{lang} · {lines_written} lines[/]", f"  {lang} · {lines_written} lines"),
-            (f"  [{DIM}]{k(st.tokens)} tokens · {money(st.cost)}[/]", f"  {k(st.tokens)} tokens · {money(st.cost)}"),
+            (f"  [{DIM}]{k(st.tokens)} tokens · {money(st.run_cost)}[/]", f"  {k(st.tokens)} tokens · {money(st.run_cost)}"),
         ]
         model, effort, sdk = st.live_model_label, st.run_effort, st.run_sdk or st.sdk
         stub = [
@@ -633,7 +628,7 @@ class LedgerView:
         """A past run picked in /history: when and how it ran, what it cost, where its client is."""
         usage = run.get("usage") or {}
         cost = recorded_cost(usage) or 0
-        tokens = (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
+        tokens = usage_tokens(usage)  # the count the client card showed for this run
         when = str(run.get("timestamp", ""))[:16].replace("T", " ")
         facts = " · ".join(x for x in (when, model_label(run.get("model")) if run.get("model") else "", run.get("mode") or "") if x)
         spend = " · ".join(x for x in (money(cost) if cost else "", f"{k(tokens)} tokens" if tokens else "") if x)
@@ -723,11 +718,24 @@ class LedgerView:
         return out + [("", "\n")]  # a blank row between the tape and the input
 
     def seam(self) -> list[tuple[str, str]]:
-        """The line above the input, a fieldset legend: the mode on the left, the model on the right."""
+        """The line above the input, a fieldset legend: the mode on the left, the model on the right.
+
+        In engineer mode the run it works on follows the mode, unless another run is open.
+        """
         st = self.st
         left = [(f"fg:{HAIRLINE}", " ┄┄ "), (f"fg:{st.accent} italic", st.mode), ("", " ")]
         right = [("", " "), (f"fg:{INK_SOFT}", st.live_model_label), (f"fg:{HAIRLINE}", " ┄┄")]
         used = sum(len(t) for _, t in left) + sum(len(t) for _, t in right)
+        target = st.engineer_target
+        other_run_open = st.run_open and st.run_id is not None and st.run_id != (target[0] if target else None)
+        if st.mode == "engineer" and not other_run_open:
+            if target is None:
+                about = [(f"fg:{DIM}", "· no run with a HAR yet ")]
+            else:
+                room = width() - used - len(target[0]) - 8
+                prompt = first_words(target[1], room) if room >= 12 else ""
+                about = [(f"fg:{DIM}", f"· {target[0]} "), (f"fg:{INK_SOFT}", f"{prompt} " if prompt else "")]
+            left, used = left + about, used + sum(len(t) for _, t in about)
         return left + [(f"fg:{HAIRLINE}", "┄" * max(1, width() - used - 1))] + right
 
     def seam_under(self) -> list[tuple[str, str]]:
@@ -755,7 +763,9 @@ class LedgerView:
             left += self.pill(CHIP_LAVENDER, gauge) + [(f"fg:{DIM}", " ⌃e  ")]
         if st.cost:
             left += self.pill(CHIP_YELLOW, [(f"fg:{CHIP_INK} bold", f" {money(st.cost)} ")]) + [("", "  ")]
-        if st.scroll:
+        if st.flash and time.time() < st.flash[1]:
+            hint = [(f"fg:{PASTEL_WRITE}", f"{st.flash[0]} ")]
+        elif st.scroll:
             hint = [(f"fg:{AMBER}", "end ↓ back to the latest ")]
         elif st.question is not None:
             hint = [(f"fg:{AMBER}", "type your answer · esc skips ")]

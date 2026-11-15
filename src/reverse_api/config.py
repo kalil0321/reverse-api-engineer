@@ -19,10 +19,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Claude Code setting layers ("user", "project", "local") loaded into Claude SDK sessions.
     # [] isolates the agent from the user's own CLAUDE.md, hooks, plugins and MCP servers.
     "claude_setting_sources": [],
-    # Effort for Claude agent, engineer and collector sessions: "low" | "medium" | "high" | "xhigh" | "max".
+    # Effort for Claude agent and engineer sessions: "low" | "medium" | "high" | "xhigh" | "max".
     # None keeps each model's default (Opus 5.5 and Haiku 5.5 default to "medium", the others to "high").
     "claude_effort": None,
-    "collector_model": "claude-sonnet-4-6",  # Model for collector mode
     "cursor_model": "composer-2.5",  # Model id for Cursor SDK (see Cursor.models.list())
     # When True, local agents load broader Cursor setting layers (plugins/team) so WebFetch/WebSearch
     # and other IDE tools match Cursor desktop behavior. Set False for minimal "project+user" only.
@@ -36,6 +35,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Codex home for Codex SDK sessions. None is rae's own (~/.reverse-api/codex), which shares only your Codex
     # sign-in; a path such as "~/.codex" loads that home's whole setup: config, MCP servers, hooks, skills and AGENTS.md.
     "codex_home": None,
+    "hermes_model": None,  # None keeps whatever model the user's own Hermes config selects
+    "hermes_provider": None,  # None keeps the provider the user's own Hermes config selects
+    "hermes_max_turns": None,  # None keeps the cap from the user's own Hermes config
     "opencode_model": DEFAULT_OPENCODE_MODEL,
     "opencode_provider": DEFAULT_OPENCODE_PROVIDER,
     "opencode_auto_start": True,
@@ -46,7 +48,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "output_dir": None,  # None means use ~/.reverse-api/runs
     "output_language": "python",  # "python", "javascript", "typescript", "go", "java", "csharp", "php", "ruby", "c", or "powershell"
     "real_time_sync": True,  # Enable real-time file sync during engineering
-    "sdk": "claude",  # "claude", "opencode", "copilot", "cursor", or "codex"
+    "sdk": "claude",  # "claude", "opencode", "copilot", "cursor", "codex", or "hermes"
 }
 
 

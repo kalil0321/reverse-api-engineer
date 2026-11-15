@@ -7,6 +7,7 @@ import { InstallCommand } from '@/components/install-command';
 import { BuiltInTheOpen } from '@/components/built-in-the-open';
 import { WorksWithAgents } from '@/components/works-with-agents';
 import { Reveal } from '@/components/reveal';
+import { RunDemo } from '@/components/run-demo';
 import { StepBrowse, StepCapture, StepGenerate, StepReview } from '@/components/step-illustrations';
 import { JsonLd } from '@/components/json-ld';
 
@@ -78,6 +79,7 @@ export default function HomePage() {
     <main className="flex-1">
       <JsonLd data={softwareJsonLd} />
       <Hero />
+      <SeeItRun />
       <HowItWorks />
       <WorksWithAgents />
       <BuiltInTheOpen />
@@ -148,6 +150,25 @@ function Hero() {
           </div>
         </div>
       </Reveal>
+    </section>
+  );
+}
+
+/* ─────────────────────────── See it run ─────────────────────────── */
+
+function SeeItRun() {
+  return (
+    <section className="relative overflow-hidden bg-washed">
+      <div className="relative mx-auto w-full max-w-7xl px-4 py-20 sm:px-6 sm:py-24 md:py-28 lg:px-10">
+        <div className="mx-auto max-w-2xl text-center">
+          <h2 className="section-display">
+            Watch it <em>find the API.</em>
+          </h2>
+        </div>
+        <Reveal className="mt-10 sm:mt-12">
+          <RunDemo />
+        </Reveal>
+      </div>
     </section>
   );
 }

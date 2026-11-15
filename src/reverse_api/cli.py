@@ -79,6 +79,8 @@ def default_model_for_configured_sdk(sdk: str | None = None) -> str:
         return str(config_manager.get("cursor_model") or "composer-2.5")
     if s == "codex":
         return str(config_manager.get("codex_model") or "")  # empty: Codex picks the account's default
+    if s == "hermes":
+        return str(config_manager.get("hermes_model") or "hermes default")
     return str(config_manager.get("claude_code_model") or "claude-sonnet-4-6")
 
 
@@ -328,7 +330,8 @@ def _build_dry_run_payload(
             "message": f"unknown agent_provider {agent_provider!r}; expected 'auto', 'chrome-mcp', or 'agent-browser'",
         })
 
-    # 4. SDK + API key presence (we only check env var existence, not validity)
+    # 4. SDK + API key presence (we only check env var existence, not validity).
+    # Codex and Hermes authenticate through their own setup, so their checks are their own, not a key.
     sdk = config_manager.get("sdk", "claude")
     sdk_env_var = {
         "claude": "ANTHROPIC_API_KEY",
@@ -337,15 +340,27 @@ def _build_dry_run_payload(
         "cursor": "CURSOR_API_KEY",
     }.get(sdk)
     if sdk == "codex":
-        # Codex signs in through its home, not an env var.
         from .codex_engineer import codex_check
 
         checks.append(codex_check(config_manager.get("codex_home")))
+    elif sdk == "hermes":
+        from .hermes_engineer import HERMES_BIN_ENV, hermes_binary, install_command
+
+        message = (
+            "the hermes backend engineers a saved capture; it does not drive the browser, "
+            "so agent capture needs another sdk — installing it does not change that"
+        )
+        if hermes_binary() is None:
+            message = (
+                "the hermes backend engineers a saved capture and it does not drive the browser; "
+                f"agent capture needs another sdk. For engineer runs, install Hermes Agent with `{install_command()}` or set {HERMES_BIN_ENV}."
+            )
+        checks.append({"name": "sdk:hermes", "status": "error", "message": message})
     elif sdk_env_var is None:
         checks.append({
             "name": "sdk",
             "status": "error",
-            "message": f"unknown sdk {sdk!r}; expected 'claude', 'opencode', 'copilot', 'cursor', or 'codex'",
+            "message": f"unknown sdk {sdk!r}; expected 'claude', 'opencode', 'copilot', 'cursor', 'codex', or 'hermes'",
         })
     elif not os.environ.get(sdk_env_var):
         checks.append({
@@ -648,9 +663,8 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 def main(ctx: click.Context, show_schema_version: bool) -> None:
     """reverse-api-engineer: reverse engineer apis.
 
-    Run without a subcommand to open the interactive session (agent, manual,
-    engineer and collector modes); in a terminal, agent, engineer and collector
-    open it too.
+    Run without a subcommand to open the interactive session (agent, manual
+    and engineer modes); in a terminal, agent and engineer open it too.
 
     Scripted flags are subcommand-specific: agent, engineer, and run support
     --json, --json-stream, and --no-interactive; list/show support --json.
@@ -693,16 +707,18 @@ def open_session(
     model: str | None = None,
     prompt: str | None = None,
     run: Callable[[], Any] | None = None,
-    runner: Callable[[str, str | None], Any] | None = None,
+    runner: Callable[..., Any] | None = None,
+    target: str | None = None,
 ) -> None:
     """The interactive CLI: the full-screen session, in ``mode``.
 
     A subcommand hands over ``run``, its ``prompt`` with every option bound, and ``runner(prompt, model)``,
     which starts later prompts in that mode with the options that still apply, such as --headless.
+    In engineer mode, ``target`` is the run it works on, and the runner also takes it.
     """
     from .repl.app import run_session
 
-    run_session(mode=mode, model=model, first=(prompt, run) if prompt and run else None, runner=runner)
+    run_session(mode=mode, model=model, first=(prompt, run) if prompt and run else None, runner=runner, target=target)
 
 
 @main.command(
@@ -902,41 +918,6 @@ def agent(
     sys.exit(0 if payload["status"] == "ok" else 1)
 
 
-@main.command(
-    epilog="""\b
-Examples:
-  reverse-api-engineer collector -p "collect companies hiring browser automation engineers"
-  reverse-api-engineer collector
-"""
-)
-@click.option("--prompt", "-p", default=None, help="Collection instructions.")
-@click.option(
-    "--model",
-    "-m",
-    type=ModelChoice(),
-    default=None,
-)
-@click.option("--output-dir", "-o", default=None, help="Custom output directory for run metadata and messages.")
-def collector(prompt: str | None, model: str | None, output_dir: str | None) -> None:
-    """Run AI-powered data collection."""
-    if _in_terminal():
-        open_session(
-            "collector",
-            model,
-            prompt,
-            lambda: run_collector(prompt=prompt, model=model, output_dir=output_dir),
-            lambda p, m: run_collector(prompt=p, model=m, output_dir=output_dir),
-        )
-        return
-    if not prompt:
-        click.echo("error: --prompt is required outside a terminal", err=True)
-        sys.exit(2)
-
-    result = run_collector(prompt=prompt, model=model, output_dir=output_dir)
-    if result is None or (isinstance(result, dict) and result.get("error")):
-        sys.exit(1)
-
-
 def run_manual_capture(
     prompt: str | None = None,
     url: str | None = None,
@@ -1045,67 +1026,6 @@ def run_agent_capture(
     )
 
 
-def _record_collection(run_id: str, result: dict[str, Any] | None) -> None:
-    if result and not result.get("error"):
-        session_manager.update_run(
-            run_id=run_id,
-            sdk="claude",
-            usage=result.get("usage", {}),
-            paths={"output_path": result.get("output_path")},
-        )
-
-
-def run_collector(prompt: str | None = None, model: str | None = None, output_dir: str | None = None) -> dict[str, Any] | None:
-    """Run AI-powered data collection with Collector class."""
-
-    from .collector import Collector
-
-    # Generate run ID
-    run_id = generate_run_id()
-    output_dir = output_dir or config_manager.get("output_dir")
-
-    # Use collector model from config if not specified
-    if model is None:
-        model = config_manager.get("collector_model", "claude-sonnet-4-6")
-
-    # Initialize session
-    session_manager.add_run(
-        run_id=run_id,
-        prompt=prompt or "",
-        mode="collector",
-        timestamp=get_timestamp(),
-    )
-
-    try:
-        # Run collector
-        collector = Collector(
-            run_id=run_id,
-            prompt=prompt or "",
-            model=model,
-            output_dir=output_dir,
-        )
-
-        try:
-            result = asyncio.run(collector.run())
-        except (asyncio.CancelledError, KeyboardInterrupt) as exc:
-            # Stopped: from the session, or by ctrl+c, which reaches here as KeyboardInterrupt over the cancellation.
-            result = getattr(exc, "partial_result", None) or getattr(exc.__context__, "partial_result", None)
-            _record_collection(run_id, result)
-            raise
-        _record_collection(run_id, result)
-        return result
-    except Exception as e:
-        console.print(f" [red]collector error: {escape(str(e))}[/red]")
-        console.print(f" [dim]{ERROR_CTA}[/dim]")
-        import traceback
-
-        traceback.print_exc()
-        return {
-            "run_id": run_id,
-            "error": str(e) or type(e).__name__,
-        }
-
-
 def _session_browser_note(agent_provider: str, headless: bool) -> str | None:
     """In the full-screen session, one line about the browser; setup steps only show up if connecting fails."""
     from .repl.bridge import active
@@ -1139,6 +1059,14 @@ def run_auto_capture(
     output_dir = output_dir or config_manager.get("output_dir")
     if not prompt:
         raise click.UsageError("a prompt is required")
+
+    if (_session_sdk(resume) or config_manager.get("sdk", "claude")) == "hermes":
+        # Say it before any browser setup: this backend never drives one. A resumed run keeps
+        # the sdk it was captured with, so switching to hermes in /settings must not block it.
+        raise click.ClickException(
+            "the hermes backend engineers a saved capture; it does not drive the browser yet. "
+            "Capture with another sdk (claude, opencode, copilot or cursor), then engineer that run with sdk set to hermes."
+        )
 
     if url:
         url = normalize_url(url)
@@ -1202,12 +1130,7 @@ def run_auto_capture(
     run_id = resume["run_id"] if resume else generate_run_id()
     timestamp = get_timestamp()
 
-    if agent_provider == "chrome-mcp":
-        mode_label = "chrome-mcp"
-    elif agent_provider == "agent-browser":
-        mode_label = "agent-browser"
-    else:
-        mode_label = "auto"
+    mode_label = agent_provider if agent_provider in ("chrome-mcp", "agent-browser") else "auto"
     if not resume:
         session_manager.add_run(
             run_id=run_id,
@@ -1528,7 +1451,8 @@ def engineer(
             lambda: run_engineer(
                 run_id, prompt=main_prompt, additional_instructions=additional, model=model, output_dir=output_dir, is_fresh=fresh
             ),
-            lambda p, m: engineer_from_prompt(p, m or model, output_dir),
+            lambda p, m, target=None: engineer_from_prompt(p, m or model, output_dir, target),
+            target=run_id,
         )
         return
     if not machine_output:
@@ -1582,15 +1506,47 @@ def engineer(
     sys.exit(0 if payload["status"] == "ok" else 1)
 
 
-def engineer_from_prompt(text: str, model: str | None = None, output_dir: str | None = None) -> dict[str, Any] | None:
-    """A prompt in engineer mode: a known run id re-engineers that run; anything else is an instruction for the latest run."""
+NO_CAPTURE = "no run has a HAR to engineer yet · manual mode records one, as does agent mode with agent_provider auto"
+
+
+def has_capture(run: dict[str, Any]) -> bool:
+    """Whether engineer can work on a run: its HAR is still on disk."""
+    try:
+        har_dir = Path((run.get("paths") or {}).get("har_dir") or get_har_dir(str(run["run_id"]), None))
+    except (KeyError, TypeError, ValueError):
+        return False
+    return (har_dir / "recording.har").exists()
+
+
+def latest_capture() -> dict[str, Any] | None:
+    return next((r for r in session_manager.get_history(limit=len(session_manager.history)) if has_capture(r)), None)
+
+
+def engineer_from_prompt(
+    text: str, model: str | None = None, output_dir: str | None = None, run_id: str | None = None
+) -> dict[str, Any] | None:
+    """A prompt in engineer mode: a known run id re-engineers that run; anything else is an instruction for
+    ``run_id``, else for the latest run with a HAR."""
     if session_manager.get_run(text):
         return run_engineer(text, model=model, output_dir=output_dir)
-    # Collector runs capture no traffic; run_engineer explains any other run that has none.
-    latest = next((r for r in session_manager.get_history(limit=50) if r.get("mode") != "collector"), None)
-    if latest is None:
-        raise RuntimeError("no captured runs yet · start one in agent or manual mode")
-    return run_engineer(latest["run_id"], model=model, output_dir=output_dir, additional_instructions=text)
+    target = run_id or (latest_capture() or {}).get("run_id")
+    if target is None:
+        raise RuntimeError(NO_CAPTURE)
+    return run_engineer(target, model=model, output_dir=output_dir, additional_instructions=text)
+
+
+def _engineer_model(sdk: str, model: str | None, resume_model: str | None) -> str:
+    """The model an engineer run starts on. OpenCode, Copilot, Codex and Hermes take it from settings,
+    except when reopening a session made with another."""
+    if sdk == "codex":
+        # --model first, as agent mode takes it; empty: Codex's default model.
+        return model or resume_model or config_manager.get("codex_model") or ""
+    return {
+        "opencode": resume_model or config_manager.get("opencode_model", DEFAULT_OPENCODE_MODEL),
+        "copilot": resume_model or config_manager.get("copilot_model", "gpt-5"),
+        "cursor": model or config_manager.get("cursor_model", "composer-2.5"),
+        "hermes": resume_model or config_manager.get("hermes_model") or "hermes default",
+    }.get(sdk) or model or config_manager.get("claude_code_model", "claude-sonnet-4-6")
 
 
 def run_engineer(
@@ -1641,17 +1597,9 @@ def run_engineer(
     enable_sync = config_manager.get("real_time_sync", True)
     output_language = config_manager.get("output_language", "python")
     resume_session, cost_before = _resume_point(resume) if resume else (None, 0.0)
-    # OpenCode, Copilot and Codex take their model from settings, except when reopening a session made with another.
-    resume_model = (resume or {}).get("sdk_session", {}).get("model")
-    if sdk == "codex":
-        # --model first, as agent mode takes it; empty: Codex's default model.
-        session_model = model or resume_model or config_manager.get("codex_model") or ""
-    else:
-        session_model = {
-            "opencode": resume_model or config_manager.get("opencode_model", DEFAULT_OPENCODE_MODEL),
-            "copilot": resume_model or config_manager.get("copilot_model", "gpt-5"),
-            "cursor": model or config_manager.get("cursor_model", "composer-2.5"),
-        }.get(sdk) or model or config_manager.get("claude_code_model", "claude-sonnet-4-6")
+    # The run keeps what it spent before, its capture included: a re-engineer adds to it.
+    spent_before = dict((resume or session_manager.get_run(run_id) or {}).get("usage") or {})
+    session_model = _engineer_model(sdk, model, (resume or {}).get("sdk_session", {}).get("model"))
     on_session = _session_recorder(run_id, "engineer", sdk, session_model, output_dir, output_mode)
 
     if sdk == "opencode":
@@ -1684,6 +1632,28 @@ def run_engineer(
             output_dir=output_dir,
             sdk=sdk,
             copilot_model=session_model,
+            enable_sync=enable_sync,
+            additional_instructions=additional_instructions,
+            is_fresh=is_fresh,
+            output_language=output_language,
+            output_mode=output_mode,
+            interactive=interactive,
+            json_event_sink=json_event_sink,
+            resume_session=resume_session,
+            cost_before=cost_before,
+            on_session=on_session,
+        )
+    elif sdk == "hermes":
+        result = run_reverse_engineering(
+            run_id=run_id,
+            har_path=har_path,
+            prompt=prompt,
+            model=model,
+            output_dir=output_dir,
+            sdk=sdk,
+            hermes_model=None if session_model == "hermes default" else session_model,
+            hermes_provider=config_manager.get("hermes_provider"),
+            hermes_max_turns=config_manager.get("hermes_max_turns"),
             enable_sync=enable_sync,
             additional_instructions=additional_instructions,
             is_fresh=is_fresh,
@@ -1822,7 +1792,7 @@ def run_engineer(
             run_id=run_id,
             sdk=sdk,
             output_mode=output_mode,
-            usage=_run_totals(resume.get("usage") or {}, usage) if resume else usage,
+            usage=_run_totals(spent_before, usage),
             paths={"script_path": result.get("script_path")},
         )
         _keep_session_cost(run_id, cost_before, usage)
@@ -1980,7 +1950,7 @@ JSON output (--json) is always a flat array (possibly empty []).
 @click.option("--json", "as_json", is_flag=True, help="Output as flat JSON array.")
 @click.option("--full", is_flag=True, help="Show all columns (default: compact view).")
 @click.option("--limit", "-n", type=int, default=None, help="Limit number of results.")
-@click.option("--mode", "-m", type=str, default=None, help="Filter by mode (auto/manual/agent/engineer/collector).")
+@click.option("--mode", "-m", type=str, default=None, help="Filter by mode (auto/manual/agent/engineer).")
 @click.option("--model", type=str, default=None, help="Filter by model name.")
 @click.option("--search", "-s", type=str, default=None, help="Case-insensitive substring match on prompt.")
 def list_runs(as_json: bool, full: bool, limit: int | None, mode: str | None, model: str | None, search: str | None) -> None:

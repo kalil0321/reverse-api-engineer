@@ -1,7 +1,7 @@
 """The interactive CLI: a full-screen session with the conversation above an input bar fixed to the bottom.
 
-Every run streams into the conversation through the bridge: agent, engineer, manual capture and
-the collector, on every SDK. A run works in a worker thread; the app's own thread draws.
+Every run streams into the conversation through the bridge: agent, engineer and manual capture,
+on every SDK. A run works in a worker thread; the app's own thread draws.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import threading
 import time
 import warnings
 from collections.abc import Callable
-from concurrent.futures import Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import IO, Any, cast
@@ -35,9 +35,9 @@ from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent, merge_key_bindings
 from prompt_toolkit.key_binding.defaults import load_key_bindings
 from prompt_toolkit.layout import ConditionalContainer, HSplit, Layout, VSplit, Window
-from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.processors import AfterInput, ConditionalProcessor
 from prompt_toolkit.lexers import Lexer
+from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
 from prompt_toolkit.output import create_output
 from prompt_toolkit.styles import Style
 from rich.console import Console, RenderableType
@@ -45,18 +45,30 @@ from rich.text import Text
 
 from ..messages import MessageStore
 from ..session import run_sdk
-from ..utils import recorded_cost
-from . import settings
-from .bridge import Bridge, LedgerUI, activate, first_line, short_name, usage_tokens
+from ..utils import recorded_cost, usage_tokens
+from . import clipboard, settings
+from .bridge import Bridge, LedgerUI, activate, first_line, short_name
 from .style import DIM, INK, SKY, THEME, height, width
-from .transcript import Raw, Transcript, TranscriptControl, TranscriptWriter
+from .transcript import (
+    LINE_END,
+    InputBelow,
+    Line,
+    Raw,
+    Selection,
+    TextBelow,
+    Transcript,
+    TranscriptControl,
+    TranscriptWriter,
+    highlight,
+    selected_text,
+    text_of,
+)
 from .view import EFFORTS, LedgerView, Picker, SessionState, model_label, run_summary
 
 MODES = {
     "agent": "the agent browses the site and writes the client",
     "manual": "you browse, rae records the traffic",
     "engineer": "re-engineer a past run",
-    "collector": "collect data into json and csv",
 }
 EFFORT_NOTES = {
     "low": "fastest, fewer tool calls",
@@ -70,6 +82,7 @@ COMMANDS = {
     "/model": "choose the model",
     "/effort": "how hard the agent thinks",
     "/mode": "choose the mode",
+    "/engineer": "choose the run engineer mode works on",
     "/settings": "all settings",
     "/history": "past runs: their details, resume or re-engineer",
     "/resume": "a past run's conversation, to continue it",
@@ -89,13 +102,17 @@ KEYS = (
     ("ctrl+o", "everything from this session, unfolded"),
     ("pageup pagedown", "scroll, as does the mouse wheel · end jumps to the latest"),
     ("click", "open a file or a URL"),
+    ("drag", "select text, copied when you let go"),
+    ("option+delete", "delete a word, with Option as Meta · or ctrl+w"),
+    ("ctrl+u", "delete to the start of the bar"),
     ("ctrl+c", "stop the run, again to quit · clear the bar · quit"),
     ("ctrl+d", "quit"),
 )
 ALIASES = {"/quit": "/exit", "/commands": "/help"}
 HISTORY_RUNS = 20
+ESC_WAIT = 0.05  # seconds a lone Esc waits for a key that would make it Option+something
 # Commands that open a picker are echoed once a choice shows something, not when the picker opens.
-PICKER_COMMANDS = {"/model", "/effort", "/mode", "/history", "/resume", "/settings"}
+PICKER_COMMANDS = {"/model", "/effort", "/mode", "/engineer", "/history", "/resume", "/settings"}
 URL_IN_PROMPT = re.compile(r"https?://([^/\s]+)|\b((?:[\w-]+\.)+(?:com|io|co|ch|de|fr|uk|org|net|dev|ai|app|so|sh|eu|jobs))\b")
 
 
@@ -207,7 +224,6 @@ class Session:
             model=cli.default_model_for_configured_sdk(sdk),
             effort=cli.config_manager.get("claude_effort"),
             codex_effort=cli.config_manager.get("codex_effort"),
-            collector_model=cli.config_manager.get("collector_model"),
         )
         self.transcript = Transcript(on_link=open_target)
         self.view = LedgerView(self.st, self.transcript)
@@ -218,11 +234,22 @@ class Session:
         self.real_out, self.real_err = sys.stdout, sys.stderr
         self.after_run: Callable[[], None] | None = None  # what starts once the open run has wrapped up
         self.first: tuple[str, Callable[[], Any]] | None = None  # a run a subcommand handed over
-        # Per mode, how a subcommand's options (--headless, --output-dir...) start each prompt: runner(prompt, model).
-        self.runners: dict[str, Callable[[str, str | None], Any]] = {}
+        # Per mode, how a subcommand's options (--headless, --output-dir...) start each prompt: runner(prompt, model),
+        # and in engineer mode runner(prompt, model, target run).
+        self.runners: dict[str, Callable[..., Any]] = {}
         self.worker: threading.Thread | None = None
         self.update_checked = False
         self.buf.on_text_changed += self._reset_palette
+        # The selection, by (line, column) in the lines last drawn: the header and the conversation.
+        self.selection: Selection | None = None
+        self.view_lines: list[Line] = []
+        self.view_start = self.view_end = 0  # the first of them on screen, and the one past the last
+        self.view_width = 0
+        # Off the app's loop, so a slow clipboard command never holds up the screen, and one copy at a time, so an
+        # older selection cannot land on the clipboard after a newer one.
+        self.copier = ThreadPoolExecutor(max_workers=1, thread_name_prefix="rae-copy")
+        self.copies_asked = 0
+        self.buf.on_text_changed += self._drop_selection
         # Stray prints read as notices: dim and indented like the rest of the ledger.
         self.capture = TranscriptWriter(self._captured, plain_style=f"fg:{DIM}", indent="   ")
 
@@ -237,6 +264,9 @@ class Session:
         self.st.palette_index = 0
         if self.st.picker is not None and self.st.picker.search:
             self.st.picker.index = 0
+
+    def _drop_selection(self, _buf: Buffer) -> None:
+        self.selection = None
 
     def _captured(self, raw: Raw) -> None:
         self.view.out(raw)
@@ -340,16 +370,12 @@ class Session:
 
     def set_model(self, value: str | None) -> None:
         st = self.st
-        if not value or value == st.next_model:
+        if not value or value == st.model:
             return
-        old = model_label(st.next_model)
-        if st.mode == "collector":
-            st.collector_model = value
-            self.cli.config_manager.set("collector_model", value)
-        else:
-            st.model = value
-            self.cli.config_manager.set("claude_code_model", value)
-        self.view.event("collector model" if st.mode == "collector" else "model", old, model_label(value), "from the next run" if st.run_open else "")
+        old = model_label(st.model)
+        st.model = value
+        self.cli.config_manager.set("claude_code_model", value)
+        self.view.event("model", old, model_label(value), "from the next run" if st.run_open else "")
 
     def set_effort(self, value: str | None) -> None:
         if not value or value == self.st.effort_label:
@@ -362,7 +388,41 @@ class Session:
     def set_mode(self, value: str | None) -> None:
         if value and value != self.st.mode:
             old, self.st.mode = self.st.mode, value
+            self.find_target()
             self.view.event("mode", old, value)
+
+    def find_target(self) -> None:
+        """Unless a run was chosen, engineer mode works on the latest one with a HAR."""
+        st = self.st
+        if st.mode == "engineer" and not st.engineer_chosen:
+            run = self.cli.latest_capture()
+            st.engineer_target = (run["run_id"], str(run.get("prompt") or "")) if run else None
+
+    def placeholder(self) -> str:
+        """The empty bar's hint: in engineer mode, what to type about the run it works on."""
+        if self.st.mode != "engineer":
+            return "describe the API you want, e.g. all open jobs on jobs.ashbyhq.com/openai"
+        if self.st.engineer_target is None:
+            return "no HAR yet · manual mode records one, as does agent with agent_provider auto"
+        return "what should change, e.g. add pagination · /engineer picks another run"
+
+    def choose_target(self, run_id: str | None) -> None:
+        """/engineer: the run engineer mode works on, until another one is engineered or captured."""
+        if not run_id:
+            return
+        st, view = self.st, self.view
+        run = self.cli.session_manager.get_run(run_id)
+        view.command("/engineer", run_id)
+        if run is None:
+            view.notice(f"no run {run_id}")
+        elif not self.cli.has_capture(run):
+            view.notice(f"run {run_id} has no HAR, so engineer cannot work on it · /engineer lists the runs that have one")
+        else:
+            st.engineer_target, st.engineer_chosen = (run_id, str(run.get("prompt") or "")), True
+            self.set_mode("engineer")
+            view.run_details(run)
+            view.notice("type what should change in its client" + (" · from the next run, /new ends this one" if st.run_open else ""))
+        self.invalidate()
 
     def cycle_effort(self) -> None:
         if not self.st.has_effort:
@@ -398,9 +458,8 @@ class Session:
             else:
                 from ..tui import get_model_choices
 
-                current = st.next_model
-                title = "choose the collector's model" if st.mode == "collector" else "choose a model"
-                self.open_picker(title, settings.choices("claude_code_model", get_model_choices(), current), current, self.set_model)
+                current = st.model
+                self.open_picker("choose a model", settings.choices("claude_code_model", get_model_choices(), current), current, self.set_model)
         elif cmd == "/effort" and st.sdk == "codex":
             self.pick_codex_effort()
         elif cmd == "/effort" and not st.has_effort:
@@ -410,6 +469,12 @@ class Session:
             self.open_picker("how hard the agent thinks", [(e, e, EFFORT_NOTES[e]) for e in EFFORTS], st.effort_label, self.set_effort)
         elif cmd == "/mode":
             self.open_picker("choose a mode", [(m, m, d) for m, d in MODES.items()], st.mode, self.set_mode)
+        elif cmd == "/engineer":
+            if arg:
+                self.choose_target(arg)
+            else:
+                current = st.engineer_target[0] if st.engineer_target else None
+                self.pick_run(cmd, "engineer which run", self.choose_target, keep=self.cli.has_capture, empty=self.cli.NO_CAPTURE, current=current)
         elif cmd == "/output":
             self.show_output()
         elif cmd == "/open":
@@ -425,6 +490,7 @@ class Session:
                     self.end_run()
                 view.flush_live()
                 self.transcript.clear()
+                self.selection = None
                 st.scroll, st.folded, st.cost, st.tokens, st.step = 0, False, 0.0, 0, 0
                 st.last_client, st.client_name, st.host, st.run_id = None, "", "", None
                 self.bridge.cost_base = 0.0
@@ -459,7 +525,8 @@ class Session:
 
         def picked(value: str | None) -> None:
             if value is not None:
-                self.save_setting(key, None if key == "output_dir" and not value else value)  # "" is the default folder
+                # "" clears the setting, not sets it: the default folder, and the Hermes config's own model.
+                self.save_setting(key, None if key in ("output_dir", "hermes_model") and not value else value)
             self.open_settings(key)
 
         if kind == "toggle":
@@ -692,7 +759,6 @@ class Session:
         self.st.model = self.cli.default_model_for_configured_sdk(self.st.sdk)
         self.st.effort = cfg.get("claude_effort")
         self.st.codex_effort = cfg.get("codex_effort")
-        self.st.collector_model = cfg.get("collector_model")
 
     # past runs
 
@@ -703,7 +769,12 @@ class Session:
         then: Callable[[str], None],
         keep: Callable[[dict[str, Any]], bool] | None = None,
         empty: str = "no runs yet",
+        current: str | None = None,
     ) -> None:
+        if self.st.running and self.bridge.stopping:
+            # A run wrapping up records its cost last: the list waits for it rather than show the cost before.
+            self.after_run = lambda: self.pick_run(cmd, title, then, keep, empty, current)
+            return
         runs = self.cli.session_manager.get_history(limit=len(self.cli.session_manager.history))
         runs = [r for r in runs if keep is None or keep(r)][:HISTORY_RUNS]
         if not runs:
@@ -711,7 +782,7 @@ class Session:
             self.view.notice(empty)
             return
         items = [(r["run_id"], r["run_id"], run_summary(r)) for r in runs]
-        self.open_picker(title, items, None, lambda value: then(value) if value else None)
+        self.open_picker(title, items, current, lambda value: then(value) if value else None)
 
     def show_run(self, run_id: str) -> None:
         run = self.cli.session_manager.get_run(run_id)
@@ -782,14 +853,14 @@ class Session:
         if not messages:
             return False
         st, b, ui = self.st, self.bridge, LedgerUI(self.bridge)
-        saved = (st.step, st.tokens, st.cost, st.started, st.run_model, st.run_sdk, st.run_effort, st.kind, st.verb, st.host, st.client_name)
+        saved = (st.step, st.tokens, st.run_cost, st.started, st.run_model, st.run_sdk, st.run_effort, st.kind, st.verb, st.host, st.client_name)
         # A conversation that waits for a follow-up keeps its own client card and folder.
         bridge_saved = (b.verified, b.workspace, b.pending_card, b.plan, b.plan_calls, b.plan_made, b.plan_changed, b.plan_shown)
         b.verified, b.pending_card = False, None
         b.reset_plan()
         # The client card reads the run's own numbers, not this session's; each result sets them as they were then.
         usage, session = run.get("usage") or {}, run.get("sdk_session") or {}
-        st.step, st.tokens, st.cost = 0, usage_tokens(usage), recorded_cost(usage) or 0.0
+        st.step, st.tokens, st.run_cost = 0, usage_tokens(usage), recorded_cost(usage) or 0.0
         st.run_model, st.run_sdk, st.run_effort = session.get("model") or run.get("model"), run_sdk(run), session.get("effort")
         script = (run.get("paths") or {}).get("script_path")
         b.workspace = (Path(script).parent, None) if script else None
@@ -825,13 +896,13 @@ class Session:
                     self.view.error(str(content))
                 elif kind == "result" and isinstance(content, dict) and content.get("script_path"):
                     if isinstance(content.get("usage"), dict):
-                        st.tokens, st.cost = usage_tokens(content["usage"]), recorded_cost(content["usage"]) or st.cost
+                        st.tokens, st.run_cost = usage_tokens(content["usage"]), recorded_cost(content["usage"]) or st.run_cost
                     st.run_model = content.get("model") or session.get("model") or run.get("model")
                     ui.success(str(content["script_path"]))
                     b.flush_card()  # drawn now, with the numbers of its own moment
             b.flush_card()
         finally:
-            st.step, st.tokens, st.cost, st.started, st.run_model, st.run_sdk, st.run_effort, st.kind, st.verb, st.host, st.client_name = saved
+            st.step, st.tokens, st.run_cost, st.started, st.run_model, st.run_sdk, st.run_effort, st.kind, st.verb, st.host, st.client_name = saved
             b.verified, b.workspace, b.pending_card, b.plan, b.plan_calls, b.plan_made, b.plan_changed, b.plan_shown = bridge_saved
         return True
 
@@ -869,17 +940,16 @@ class Session:
     def start(self, prompt: str, mode: str | None = None, echo: bool = True) -> None:
         cli = self.cli
         mode = mode or self.st.mode
-        model = (self.st.collector_model if mode == "collector" else self.st.model) if self.st.sdk == "claude" else None
+        model = self.st.model if self.st.sdk == "claude" else None
         run: Callable[[], Any]
         runner = self.runners.get(mode)
+        target = self.st.engineer_target[0] if self.st.engineer_target else None
         if runner is not None:
-            run = lambda: runner(prompt, model)  # noqa: E731
+            run = (lambda: runner(prompt, model, target)) if mode == "engineer" else (lambda: runner(prompt, model))
         elif mode == "manual":
             run = lambda: cli.run_manual_capture(prompt=prompt, url=None, reverse_engineer=True, model=model)  # noqa: E731
-        elif mode == "collector":
-            run = lambda: cli.run_collector(prompt=prompt, model=model)  # noqa: E731
         elif mode == "engineer":
-            run = lambda: cli.engineer_from_prompt(prompt, model)  # noqa: E731
+            run = lambda: cli.engineer_from_prompt(prompt, model, run_id=target)  # noqa: E731
         else:
             run = lambda: cli.run_agent_capture(prompt=prompt, model=model)  # noqa: E731
         self.launch(prompt, run, mode, echo)
@@ -888,7 +958,8 @@ class Session:
         """Start a run in the session; its engine's UI calls stream into the conversation."""
         st = self.st
         mode = mode or st.mode
-        st.host, st.client_name = host_in(prompt), ""
+        # The new run's id comes with its header; until then the status row names none.
+        st.host, st.client_name, st.run_id = host_in(prompt), "", None
         if echo:
             self.view.user(prompt)
         # Manual capture first waits for the user to browse; the engine takes over the verb when it starts.
@@ -1058,10 +1129,83 @@ class Session:
         rows = window.render_info.window_height if window.render_info else height() - 5
         st.scroll = max(0, min(st.scroll, len(lines) - rows))
         end = len(lines) - st.scroll
+        if self.view_width != width():
+            self.selection = None  # the conversation wraps anew, so its lines no longer match
+        self.view_lines, self.view_start, self.view_end, self.view_width = lines, max(0, end - rows), end, width()
         out: list[Any] = []
-        for i, line in enumerate(lines[max(0, end - rows) : end]):
-            out += ([("", "\n")] if i else []) + line
+        for i, line in enumerate(lines[self.view_start : end]):
+            picked = self.selection.chars(self.view_start + i) if self.selection else None
+            # A line with no character gives the pointer no position: the window would report the first line.
+            shown = (highlight(line, *picked) if picked else line) if text_of(line) else [("", " ")]
+            out += ([("", "\n")] if i else []) + shown
         return FormattedText(out)
+
+    def drag(self, event: MouseEvent) -> bool:
+        """A drag over the conversation selects text, copied on release; a click without one still opens a link."""
+        at = (self.view_start + event.position.y, event.position.x)
+        kind, sel = event.event_type, self.selection
+        if kind == MouseEventType.MOUSE_DOWN:
+            self.selection = Selection(at, at) if event.button == MouseButton.LEFT else None
+            return False
+        if sel is None or not sel.dragging:
+            return False
+        if kind == MouseEventType.MOUSE_MOVE and event.button == MouseButton.LEFT:
+            sel.head = at
+            return True
+        # A release here, or a move with no button held, after a release the session did not see.
+        if kind == MouseEventType.MOUSE_UP:
+            sel.head = at
+        return self.end_drag()
+
+    def drag_below(self, event: MouseEvent) -> bool:
+        """Mouse events under the conversation: a drag there reaches the end of its last line on screen."""
+        sel = self.selection
+        if sel is None or not sel.dragging or event.event_type not in (MouseEventType.MOUSE_MOVE, MouseEventType.MOUSE_UP):
+            return False
+        sel.head = (self.view_end - 1, LINE_END)
+        if event.event_type == MouseEventType.MOUSE_MOVE and event.button == MouseButton.LEFT:
+            return True
+        self.end_drag()
+        return True
+
+    def end_drag(self) -> bool:
+        """Copies what the drag went over; a press and release on one spot was a click."""
+        if self.selection is None:
+            return False
+        self.selection.dragging = False
+        if self.selection.anchor == self.selection.head:
+            self.selection = None
+            return False
+        self.copy_selection()
+        return True
+
+    def copy_selection(self) -> None:
+        if self.selection is None:
+            return
+        text = selected_text(self.view_lines, self.selection)
+        if not text.strip():
+            return
+        rows = text.count("\n") + 1
+        done = f"copied {rows} lines" if rows > 1 else f"copied {len(text)} characters"
+        self.copies_asked += 1
+        ticket = self.copies_asked
+
+        def copy() -> None:
+            if ticket != self.copies_asked:
+                return  # a newer selection came while this one waited its turn
+            clipboard.copy(text, lambda data: self.call_soon(lambda: self.write_raw(data)))
+            self.call_soon(lambda: self.flash(done))
+
+        self.copier.submit(copy)
+
+    def flash(self, message: str) -> None:
+        self.st.flash = (message, time.time() + 2)
+        self.invalidate()
+
+    def write_raw(self, data: str) -> None:
+        if self.app is not None:
+            self.app.output.write_raw(data)
+            self.app.output.flush()
 
     def build(self) -> Application:
         st, view, buf = self.st, self.view, self.buf
@@ -1086,15 +1230,15 @@ class Session:
             return view.menu(rows, title=p.title, empty="nothing matches what you typed")
 
         transcript_window: Window = Window(wrap_lines=False)
-        transcript_window.content = TranscriptControl(lambda: self.transcript_view(transcript_window), self.scroll)
+        transcript_window.content = TranscriptControl(lambda: self.transcript_view(transcript_window), self.scroll, self.drag)
         kb = self.bindings(palette_open, picker_open)
 
         def text_window(fn: Callable[[], Any]) -> Window:
-            return Window(FormattedTextControl(fn), dont_extend_height=True)
+            return Window(TextBelow(fn, self.drag_below), dont_extend_height=True)
 
         picker_hinted = Condition(lambda: bool(st.picker and st.picker.hint))
         placeholder = ConditionalProcessor(
-            AfterInput("describe the API you want, e.g. all open jobs on jobs.ashbyhq.com/openai", style=f"fg:{DIM} italic"),
+            AfterInput(self.placeholder, style=f"fg:{DIM} italic"),
             filter=Condition(lambda: not buf.text and not st.waiting and st.question is None) & ~picker_hinted,
         )
         picker_hint = ConditionalProcessor(
@@ -1113,9 +1257,11 @@ class Session:
                     text_window(lambda: FormattedText(view.seam())),
                     VSplit(
                         [
-                            Window(FormattedTextControl(lambda: FormattedText(view.marker())), dont_extend_width=True, dont_extend_height=True),
+                            Window(TextBelow(lambda: FormattedText(view.marker()), self.drag_below), dont_extend_width=True, dont_extend_height=True),
                             Window(
-                                BufferControl(buffer=buf, lexer=InputLexer(st), input_processors=[placeholder, follow_hint, picker_hint]),
+                                InputBelow(
+                                    self.drag_below, buffer=buf, lexer=InputLexer(st), input_processors=[placeholder, follow_hint, picker_hint]
+                                ),
                                 dont_extend_height=True,
                                 wrap_lines=True,
                             ),
@@ -1129,7 +1275,7 @@ class Session:
             ),
             focused_element=buf,
         )
-        return Application(
+        app: Application[None] = Application(
             layout=layout,
             key_bindings=merge_key_bindings([load_key_bindings(), kb]),
             style=Style.from_dict({"": INK}),
@@ -1138,6 +1284,10 @@ class Session:
             refresh_interval=0.05,
             output=create_output(stdout=sys.__stdout__),
         )
+        # Option+Delete and Option+arrows arrive as Esc and a key, so Esc waits for what follows instead of firing at
+        # once. A terminal writes such a pair in one go, so a short wait keeps a lone Esc as quick.
+        app.ttimeoutlen = app.timeoutlen = ESC_WAIT
+        return app
 
     def scroll(self, delta: int) -> None:
         self.st.scroll = max(0, self.st.scroll + delta)
@@ -1208,6 +1358,7 @@ class Session:
         def _(event: KeyPressEvent) -> None:
             modes = list(MODES)
             st.mode = modes[(modes.index(st.mode) + 1) % len(modes)]
+            self.find_target()
 
         @kb.add("c-e")
         def _(event: KeyPressEvent) -> None:
@@ -1217,7 +1368,7 @@ class Session:
         def _(event: KeyPressEvent) -> None:
             self.show_output()
 
-        @kb.add("escape", eager=True)
+        @kb.add("escape")
         def _(event: KeyPressEvent) -> None:
             if st.picker is not None:
                 p, st.picker = st.picker, None
@@ -1278,22 +1429,26 @@ def run_session(
     mode: str = "agent",
     model: str | None = None,
     first: tuple[str, Callable[[], Any]] | None = None,
-    runner: Callable[[str, str | None], Any] | None = None,
+    runner: Callable[..., Any] | None = None,
+    target: str | None = None,
 ) -> None:
     """Entry point for the interactive CLI: the full-screen session.
 
     A subcommand hands over its options: ``first`` is its prompt and run, with every option bound, and
     ``runner(prompt, model)`` starts the prompts typed later in ``mode`` with the options that still apply.
+    ``target`` is the run engineer mode works on.
     """
     session = Session()
     session.st.mode = mode
-    if model and mode == "collector":
-        session.st.collector_model = model
-    elif model:
+    if model:
         session.st.model = model
     session.first = first
     if runner is not None:
         session.runners[mode] = runner
+    run = session.cli.session_manager.get_run(target) if target else None
+    if run is not None:
+        session.st.engineer_target, session.st.engineer_chosen = (str(target), str(run.get("prompt") or "")), True
+    session.find_target()
     try:
         asyncio.run(session.run())
     except KeyboardInterrupt:
