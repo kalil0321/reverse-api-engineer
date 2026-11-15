@@ -32,7 +32,7 @@ The **Bash/terminal** running `agent-browser` is **not** visible to the human op
 - **Never** pass upstream confirmation flags such as `--confirm-interactive` or `--confirm-actions` (they block on a human at the terminal or auto-deny).
 - Use **subcommands only** (`open`, `snapshot`, `click`, `network har …`, `close`, …) and rely on **exit codes**, not stdin prompts in the shell.
 
-For questions that truly need a human, use the **`AskUserQuestion`** tool (Reverse API Engineer renders that in the product UI). Do **not** expect the operator to answer inside the hidden Bash session.
+{ask_user_agent_browser} Do **not** expect the operator to answer inside the hidden Bash session.
 
 Upstream JS dialogs (`alert` / `beforeunload`) are auto-handled by default unless an operator explicitly disables that upstream.
 

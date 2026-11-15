@@ -1,6 +1,6 @@
 """Tests for the settings the session's /settings reads and offers."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -12,6 +12,7 @@ from reverse_api import cli
     ("opencode", "opencode_model", cli.DEFAULT_OPENCODE_MODEL),
     ("copilot", "copilot_model", "gpt-5"),
     ("cursor", "cursor_model", "composer-2.5"),
+    ("codex", "codex_model", ""),  # Codex picks the account's default model
     ("hermes", "hermes_model", "hermes default"),
 ])
 @pytest.mark.parametrize("saved", [None, "", "custom-model"])
@@ -58,6 +59,18 @@ def test_opencode_providers_always_offer_ollama():
     """Ollama can start itself even when OpenCode's catalog does not list it yet."""
     assert cli.opencode_provider_choices(_catalog()) == [("opencode", "opencode — OpenCode Zen"), ("ollama", "ollama — installed local models")]
     assert cli.opencode_provider_choices({"providers": []}) == [("ollama", "ollama — installed local models")]
+
+
+def test_model_flag_takes_another_sdks_own_model_ids(monkeypatch):
+    import click
+
+    config = MagicMock()
+    monkeypatch.setattr(cli, "config_manager", config)
+    config.get.side_effect = lambda key, default=None: {"sdk": "codex"}.get(key, default)
+    assert cli.ModelChoice().convert("gpt-6.1-sol", None, None) == "gpt-6.1-sol"
+    config.get.side_effect = lambda key, default=None: {"sdk": "claude"}.get(key, default)
+    with pytest.raises(click.BadParameter):
+        cli.ModelChoice().convert("gpt-6.1-sol", None, None)
 
 
 def test_model_flag_accepts_retired_ids_but_lists_current_ones():

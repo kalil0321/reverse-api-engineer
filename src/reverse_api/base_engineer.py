@@ -75,6 +75,18 @@ class BaseEngineer(ABC):
     # script discovery and the run command dispatch stay in sync with codegen.
     _OUTPUT_LANGUAGE_EXTENSIONS = OUTPUT_LANGUAGE_EXTENSIONS
 
+    # How the prompts tell the agent to ask the user something; an SDK without an ask tool words it its own way.
+    ask_user = (
+        "You have access to the AskUserQuestion tool to ask clarifying questions during your analysis when running "
+        "interactively. Use it when you need to clarify requirements, prioritize features, or choose between "
+        "approaches. It supports single-select, multi-select, and free-form questions. In non-interactive or "
+        "scripted CLI runs, do not use AskUserQuestion — make reasonable assumptions from the HAR and prompt instead."
+    )
+    ask_user_agent_browser = (
+        "For questions that truly need a human, use the **`AskUserQuestion`** tool "
+        "(Reverse API Engineer renders that in the product UI)."
+    )
+
     # The run's SDK session (a Claude, Copilot or OpenCode session, a Cursor agent), kept so /resume can
     # reopen it. With resume_session set the run reopens that session and starts from the user's next
     # message. cost_before is what the run spent earlier, for an SDK whose cost counts the whole session.
@@ -103,6 +115,11 @@ class BaseEngineer(ABC):
 
         if isinstance(self.ui, LedgerUI):
             self.ui.workspace(self.scripts_dir, self.local_scripts_dir)
+
+    def _client_verified(self) -> None:
+        """The agent reported a client it ran live: the session's verified step and --json-stream's client_executed."""
+        self._report_workspace()
+        self._emit_json_event({"event": "client_executed", "script_path": str(self.scripts_dir / self._get_client_filename())})
 
     async def _opening_message(self, brief: str) -> str | None:
         """The first message of the run: its brief, or when resuming, the user's next message."""
@@ -764,6 +781,7 @@ class BaseEngineer(ABC):
 
         system_prompt = load(
             "engineer/system",
+            ask_user=self.ask_user,
             mode_description=mode_description,
             task_description=task_description,
             codegen_instructions=self._get_codegen_instructions(),

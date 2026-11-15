@@ -79,6 +79,10 @@ manual = [
 copilot = [
     "github-copilot-sdk>=1.0.26,<2",
 ]
+# Brings its own Codex runtime (about 170 MB); 0.167.1 keeps rae's auth.json link when it refreshes tokens.
+codex = [
+    "openai-codex>=0.167.1,<1",
+]
 
 [project.urls]
 Homepage = "https://reverseapi.dev"

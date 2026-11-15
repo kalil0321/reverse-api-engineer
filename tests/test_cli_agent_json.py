@@ -249,6 +249,17 @@ class TestListAndShowCost:
         assert json.loads(listed.stdout)[0]["cost"] == cost
         assert json.loads(shown.stdout)["cost"] == cost
 
+    def test_an_agent_run_shows_the_sdk_its_session_ran_on(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        run = {"run_id": "r1", "prompt": "jobs", "mode": "chrome-mcp", "sdk": None, "usage": {}, "sdk_session": {"id": "t", "sdk": "codex"}}
+        runner = CliRunner()
+        with patch("reverse_api.cli.session_manager") as sm:
+            sm.history = [run]
+            sm.get_run.return_value = run
+            listed = runner.invoke(list_runs, ["--json"])
+            shown = runner.invoke(show_run, ["r1", "--json"])
+        assert json.loads(listed.stdout)[0]["sdk"] == "codex" and json.loads(shown.stdout)["sdk"] == "codex"
+
     def test_the_tables_print_the_cost(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         run = {"run_id": "r1", "prompt": "jobs", "mode": "agent", "usage": {"estimated_cost_usd": 0.42}}
@@ -764,6 +775,7 @@ def test_direct_interrupt_after_claude_result_keeps_partial_run(tmp_path, output
         ("opencode", "reverse_api.auto_engineer.OpenCodeAutoEngineer"),
         ("copilot", "reverse_api.auto_engineer.CopilotAutoEngineer"),
         ("cursor", "reverse_api.cursor_engineer.CursorAutoEngineer"),
+        ("codex", "reverse_api.codex_engineer.CodexAutoEngineer"),
     ],
 )
 def test_agent_url_reaches_engine(tmp_path, sdk, engine_path):
@@ -785,6 +797,48 @@ def test_agent_url_reaches_engine(tmp_path, sdk, engine_path):
             ["agent", "-p", "fetch job postings", "-u", "https://jobs.ashbyhq.com/openai", "--headless", "-o", str(tmp_path), "--json"],
         )
     assert engine_cls.call_args.kwargs["start_url"] == "https://jobs.ashbyhq.com/openai"
+
+
+@pytest.mark.parametrize("saved_model", ["gpt-6-astra", None])
+def test_agent_hands_codex_its_model_effort_and_home(tmp_path, saved_model):
+    from unittest.mock import AsyncMock
+
+    from reverse_api.config import ConfigManager
+
+    config = ConfigManager(tmp_path / "config.json")
+    config.config.update({"sdk": "codex", "agent_provider": "auto", "real_time_sync": False})
+    config.config.update({"codex_model": saved_model, "codex_effort": "low", "codex_home": "~/.codex"})
+    engine = MagicMock()
+    engine.analyze_and_generate = AsyncMock(return_value=None)
+    history = SessionManager(tmp_path / "history.json")
+    with (
+        patch("reverse_api.cli.config_manager", config),
+        patch("reverse_api.cli.session_manager", history),
+        patch("reverse_api.codex_engineer.CodexAutoEngineer", return_value=engine) as engine_cls,
+    ):
+        CliRunner().invoke(main, ["agent", "-p", "fetch job postings", "-o", str(tmp_path), "--json"])
+    kwargs = engine_cls.call_args.kwargs
+    assert (kwargs["codex_model"], kwargs["codex_effort"], kwargs["codex_home"], kwargs["sdk"]) == (saved_model, "low", "~/.codex", "codex")
+    assert history.get_history(1)[0]["sdk"] == "codex", "the run records its SDK"
+
+
+def test_agent_model_flag_picks_a_codex_model_for_the_run(tmp_path):
+    from unittest.mock import AsyncMock
+
+    from reverse_api.config import ConfigManager
+
+    config = ConfigManager(tmp_path / "config.json")
+    config.config.update({"sdk": "codex", "agent_provider": "auto", "real_time_sync": False, "codex_model": "gpt-6-astra"})
+    engine = MagicMock()
+    engine.analyze_and_generate = AsyncMock(return_value=None)
+    with (
+        patch("reverse_api.cli.config_manager", config),
+        patch("reverse_api.cli.session_manager", SessionManager(tmp_path / "history.json")),
+        patch("reverse_api.codex_engineer.CodexAutoEngineer", return_value=engine) as engine_cls,
+    ):
+        done = CliRunner().invoke(main, ["agent", "-p", "fetch job postings", "-m", "gpt-6.1-sol", "-o", str(tmp_path), "--json"])
+    assert "Invalid value" not in done.output
+    assert engine_cls.call_args.kwargs["codex_model"] == "gpt-6.1-sol"
 
 
 def test_agent_bare_host_url_gets_https_scheme(tmp_path):

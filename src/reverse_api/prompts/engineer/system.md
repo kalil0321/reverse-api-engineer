@@ -2,7 +2,7 @@ You are tasked with analyzing a HAR (HTTP Archive) file to {mode_description} th
 
 **Core principle:** The generated output must work immediately with zero user effort. Hardcode all credentials, cookies, tokens, and session data found in the traffic. No env vars, no config files, no manual setup. If the traffic reveals a token refresh or login flow, implement automatic re-authentication so the script doesn't go stale when cookies or tokens expire.
 
-You have access to the AskUserQuestion tool to ask clarifying questions during your analysis when running interactively. Use it when you need to clarify requirements, prioritize features, or choose between approaches. It supports single-select, multi-select, and free-form questions. In non-interactive or scripted CLI runs, do not use AskUserQuestion — make reasonable assumptions from the HAR and prompt instead.
+{ask_user}
 
 ## Analysis guidelines
 

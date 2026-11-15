@@ -6,6 +6,11 @@ from pathlib import Path
 from typing import Any
 
 
+def run_sdk(run: dict[str, Any]) -> str | None:
+    """The SDK a run ran on; some agent runs in history keep it only in their SDK session."""
+    return run.get("sdk") or (run.get("sdk_session") or {}).get("sdk")
+
+
 class SessionManager:
     """Handles history tracking and persistence of runs."""
 

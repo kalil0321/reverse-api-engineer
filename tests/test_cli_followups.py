@@ -631,6 +631,29 @@ class TestAgentDryRun:
         assert payload["would_run"]["sdk"] == "cursor"
         assert payload["would_run"]["model"] == "composer-2-custom"
 
+    @pytest.mark.parametrize("codex_model,expected", [("gpt-6-astra", "gpt-6-astra"), (None, None)])
+    def test_dry_run_codex_checks_its_sign_in_not_an_env_var(self, tmp_path, codex_model, expected):
+        from reverse_api.cli import agent as agent_cmd
+
+        check = {"name": "sdk:codex", "status": "ok", "message": "signed in"}
+        with patch("reverse_api.cli.config_manager") as cm, patch("reverse_api.codex_engineer.codex_check", return_value=check) as codex_check:
+            cm.get.side_effect = lambda key, default=None: {
+                "agent_provider": "auto",
+                "sdk": "codex",
+                "codex_model": codex_model,
+                "codex_home": "/somewhere/codex",
+                "claude_code_model": "claude-sonnet-4-6-irrelevant",
+                "output_dir": str(tmp_path),
+            }.get(key, default)
+            result = CliRunner().invoke(agent_cmd, ["--dry-run", "-p", "x"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout.strip())
+        codex_check.assert_called_once_with("/somewhere/codex")
+        assert check in payload["checks"] and not any(c["name"] == "sdk" for c in payload["checks"])
+        assert payload["would_run"]["sdk"] == "codex"
+        assert payload["would_run"]["model"] == expected  # None: Codex picks the account's default
+
 
 class TestRootHelpMentionsScripted:
     """Item #6 partial: root --help should advertise scripted features."""

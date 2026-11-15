@@ -149,8 +149,11 @@ class TestEngineerTemplates:
     """Test engineer system/user templates."""
 
     def test_engineer_system_loads(self):
+        from reverse_api.base_engineer import BaseEngineer
+
         text = load(
             "engineer/system",
+            ask_user=BaseEngineer.ask_user,
             mode_description="reverse engineer API calls",
             task_description="Python API client",
             codegen_instructions="Generate Python code.",
@@ -243,6 +246,9 @@ class TestAutoTemplates:
         assert "navigate_page" in text
         assert "There is no HAR file" in text
         assert "REAL Chrome" in text
+        # A slow page is opened again; only a connection that never comes means Chrome's prompt.
+        assert "times out waiting for the browser connection" in text
+        assert '"Navigation timeout" is different' in text and "Open it again once with `new_page`" in text
 
 
 class TestFolderNamePrompt:

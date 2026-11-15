@@ -145,6 +145,9 @@ class TestDefaultConfig:
             "claude_code_model",
             "claude_setting_sources",
             "claude_effort",
+            "codex_effort",
+            "codex_home",
+            "codex_model",
             "copilot_model",
             "cursor_model",
             "hermes_max_turns",
@@ -175,6 +178,9 @@ class TestDefaultConfig:
         assert DEFAULT_CONFIG["cursor_model"] == "composer-2.5"
         assert DEFAULT_CONFIG["cursor_web_search"] is True
         assert DEFAULT_CONFIG["cursor_setting_sources"] is None
+        assert DEFAULT_CONFIG["codex_model"] is None
+        assert DEFAULT_CONFIG["codex_effort"] is None
+        assert DEFAULT_CONFIG["codex_home"] is None
         assert DEFAULT_CONFIG["opencode_provider"] == "opencode"
         assert DEFAULT_CONFIG["opencode_model"] == "big-pickle"
         assert DEFAULT_CONFIG["opencode_auto_start"] is True

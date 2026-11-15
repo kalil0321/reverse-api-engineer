@@ -44,6 +44,7 @@ from rich.console import Console, RenderableType
 from rich.text import Text
 
 from ..messages import MessageStore
+from ..session import run_sdk
 from ..utils import recorded_cost, usage_tokens
 from . import clipboard, settings
 from .bridge import Bridge, LedgerUI, activate, first_line, short_name
@@ -104,7 +105,7 @@ KEYS = (
     ("drag", "select text, copied when you let go"),
     ("option+delete", "delete a word, with Option as Meta · or ctrl+w"),
     ("ctrl+u", "delete to the start of the bar"),
-    ("ctrl+c", "stop the run · clear the bar · quit"),
+    ("ctrl+c", "stop the run, again to quit · clear the bar · quit"),
     ("ctrl+d", "quit"),
 )
 ALIASES = {"/quit": "/exit", "/commands": "/help"}
@@ -222,6 +223,7 @@ class Session:
             sdk=sdk,
             model=cli.default_model_for_configured_sdk(sdk),
             effort=cli.config_manager.get("claude_effort"),
+            codex_effort=cli.config_manager.get("codex_effort"),
         )
         self.transcript = Transcript(on_link=open_target)
         self.view = LedgerView(self.st, self.transcript)
@@ -458,6 +460,8 @@ class Session:
 
                 current = st.model
                 self.open_picker("choose a model", settings.choices("claude_code_model", get_model_choices(), current), current, self.set_model)
+        elif cmd == "/effort" and st.sdk == "codex":
+            self.pick_codex_effort()
         elif cmd == "/effort" and not st.has_effort:
             view.command(cmd)
             view.notice(st.no_effort_reason)
@@ -543,6 +547,10 @@ class Session:
                 items.insert(0, (current, current, "current"))
             index = next((i for i, (value, _, _) in enumerate(items) if value == current), 0)
             self.st.picker = Picker(label, items, current, picked, index, typed=True, hint=hint)
+        elif key == "codex_model":
+            self.pick_codex_model()
+        elif key == "codex_effort":
+            self.pick_codex_effort(key)
         else:
             self.pick_opencode()
 
@@ -559,12 +567,16 @@ class Session:
         if key == "agent_provider" and value in settings.NOTES:
             self.view.notice(settings.NOTES[value])
 
-    def loading(self, title: str) -> Picker:
-        """A list that only says something loads, so typing meanwhile is not sent as a prompt; esc goes back."""
+    def loading(self, title: str, key: str | None = "opencode") -> Picker:
+        """A list that only says something loads, so typing meanwhile is not sent as a prompt.
+
+        esc goes back to the settings at ``key``, or with no key, back to the conversation.
+        """
 
         def picked(value: str | None) -> None:
             if value is None:
-                self.open_settings("opencode")
+                if key:
+                    self.open_settings(key)
             else:
                 self.st.picker = p  # enter while loading: keep waiting
 
@@ -583,9 +595,14 @@ class Session:
 
         self.call_soon(go)
 
-    def settings_failed(self, message: str) -> None:
+    def settings_failed(self, message: str, key: str | None = "opencode") -> None:
+        """Says why a list could not load and leaves its loading list: for the settings at ``key``, else closed."""
         self.view.notice(message)
-        self.open_settings("opencode")
+        if key:
+            self.open_settings(key)
+        else:
+            self.st.picker = None
+            self.invalidate()
 
     def pick_opencode(self) -> None:
         """OpenCode's providers and models come from its server, which may have to start first."""
@@ -663,6 +680,77 @@ class Session:
 
         threading.Thread(target=load, name="rae-ollama-models", daemon=True).start()
 
+    def with_codex_models(self, title: str, key: str | None, then: Callable[[list[Any]], None]) -> None:
+        """Codex's models are the signed-in account's, which Codex has to start to read."""
+        p = self.loading(f"{title} · starting codex and reading its models", key)
+
+        def load() -> None:
+            from ..codex_engineer import codex_models
+
+            try:
+                models = asyncio.run(codex_models(self.cli.config_manager.get("codex_home")))
+            except Exception as exc:  # noqa: BLE001  # shown in the conversation, the settings stay open
+                message = f"could not load codex models: {exc}"
+                self.when_loaded(p, lambda: self.settings_failed(message, key))
+                return
+            self.when_loaded(p, lambda: then(models))
+
+        threading.Thread(target=load, name="rae-codex-models", daemon=True).start()
+
+    def pick_codex_model(self) -> None:
+        cfg = self.cli.config_manager
+
+        def show(models: list[Any]) -> None:
+            default = next((m.name for m in models if m.is_default), "")
+            # "" is Codex's default, which follows the account rather than a model rae saved.
+            items = [("", "default", default), *((m.model, m.model, m.name) for m in models)]
+            current = cfg.get("codex_model") or ""
+            if current and current not in [m.model for m in models]:
+                items.insert(1, (current, current, "current"))
+
+            def picked(model: str | None) -> None:
+                if model is not None:
+                    values: dict[str, Any] = {"codex_model": model or None}
+                    chosen = next((m for m in models if (m.model == model if model else m.is_default)), None)
+                    effort = cfg.get("codex_effort")
+                    if effort and chosen is not None and effort not in [e for e, _ in chosen.efforts]:
+                        values["codex_effort"] = None  # an effort the new model does not offer
+                        self.view.notice(f"codex effort back to default · {chosen.model} offers no {effort}")
+                    self.save_setting("codex_model", model or None, values)
+                self.open_settings("codex_model")
+
+            index = next((i for i, (value, _, _) in enumerate(items) if value == current), 0)
+            self.st.picker = Picker("codex model", items, current, picked, index, search=True, hint="type to filter")
+            self.invalidate()
+
+        self.with_codex_models("codex model", "codex_model", show)
+
+    def pick_codex_effort(self, key: str | None = None) -> None:
+        """The efforts the Codex model offers; from /settings with ``key``, else from /effort."""
+        cfg = self.cli.config_manager
+
+        def show(models: list[Any]) -> None:
+            model = cfg.get("codex_model")
+            chosen = next((m for m in models if (m.model == model if model else m.is_default)), None)
+            efforts = chosen.efforts if chosen else ()
+            items = [("", "default", chosen.default_effort if chosen else "the model's own"), *((e, e, note) for e, note in efforts)]
+            current = cfg.get("codex_effort") or ""
+            if current and current not in [e for e, _ in efforts]:
+                items.insert(1, (current, current, "current"))
+
+            def picked(effort: str | None) -> None:
+                if effort is not None:
+                    self.save_setting("codex_effort", effort or None)
+                if key:
+                    self.open_settings(key)
+
+            index = next((i for i, (value, _, _) in enumerate(items) if value == current), 0)
+            title = f"how hard {chosen.model if chosen else model or 'the model'} thinks"
+            self.st.picker = Picker(title, items, current, picked, index)
+            self.invalidate()
+
+        self.with_codex_models("codex effort", key, show)
+
     def save_opencode(self, provider_id: str, model_id: str | None) -> None:
         if model_id:
             self.save_setting("opencode", None, {"opencode_provider": provider_id, "opencode_model": model_id})
@@ -674,6 +762,7 @@ class Session:
         self.st.sdk = cfg.get("sdk", "claude")
         self.st.model = self.cli.default_model_for_configured_sdk(self.st.sdk)
         self.st.effort = cfg.get("claude_effort")
+        self.st.codex_effort = cfg.get("codex_effort")
 
     # past runs
 
@@ -776,7 +865,7 @@ class Session:
         # The client card reads the run's own numbers, not this session's; each result sets them as they were then.
         usage, session = run.get("usage") or {}, run.get("sdk_session") or {}
         st.step, st.tokens, st.run_cost = 0, usage_tokens(usage), recorded_cost(usage) or 0.0
-        st.run_model, st.run_sdk, st.run_effort = session.get("model") or run.get("model"), run.get("sdk"), session.get("effort")
+        st.run_model, st.run_sdk, st.run_effort = session.get("model") or run.get("model"), run_sdk(run), session.get("effort")
         script = (run.get("paths") or {}).get("script_path")
         b.workspace = (Path(script).parent, None) if script else None
         # Older logs kept no tool results; there the agent's report of a working client stands for its confirmation.
@@ -986,6 +1075,18 @@ class Session:
         elif st.waiting:
             self.end_run()
 
+    def interrupt(self) -> None:
+        """ctrl+c: stop the run, then leave; with no run, clear the bar, then leave."""
+        st = self.st
+        if st.running and self.bridge.stopping:
+            self.quit()  # quitting waits for the run's cleanup instead of cutting it short
+        elif st.running or st.waiting:
+            self.stop()
+        elif self.buf.text:
+            self.buf.reset()
+        else:
+            self.quit()
+
     def show_output(self) -> None:
         items = list(self.transcript.full)
 
@@ -1007,7 +1108,8 @@ class Session:
         worker = self.worker
         if worker is not None and worker.is_alive():
             print(" stopping the run…", file=self.real_err, flush=True)
-            worker.join(timeout)
+            with contextlib.suppress(KeyboardInterrupt):  # another ctrl+c: stop waiting, the transcript still prints
+                worker.join(timeout)
 
     def quit(self) -> None:
         self.st.queue.clear()  # nothing new starts on the way out
@@ -1287,12 +1389,7 @@ class Session:
 
         @kb.add("c-c")
         def _(event: KeyPressEvent) -> None:
-            if st.running or st.waiting:
-                self.stop()
-            elif buf.text:
-                buf.reset()
-            else:
-                self.quit()
+            self.interrupt()
 
         @kb.add("c-d")
         def _(event: KeyPressEvent) -> None:

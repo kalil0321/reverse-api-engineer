@@ -4,7 +4,7 @@ description: Choose the SDK backend for code generation.
 ---
 
 Reverse API Engineer can drive code generation through Claude, OpenCode,
-Copilot, or Cursor.
+Codex, Copilot, or Cursor.
 
 ## Claude (default)
 
@@ -115,6 +115,52 @@ so WebFetch/WebSearch and configured tools match your desktop setup.
   "cursor_setting_sources": null
 }
 ```
+
+## Codex
+
+Uses the [OpenAI Codex SDK](https://github.com/openai/codex/tree/main/sdk/python)
+with your Codex sign-in. Install the optional dependency, which brings its own
+Codex runtime (about 170 MB):
+
+```bash
+uv tool install "reverse-api-engineer[codex]"
+# or
+pip install "reverse-api-engineer[codex]"
+```
+
+```json
+{
+  "sdk": "codex",
+  "codex_model": null,
+  "codex_effort": null,
+  "codex_home": null
+}
+```
+
+Sign in once with Codex, with `codex login` or the Codex app. RAE runs Codex
+in its own home, `~/.reverse-api/codex`, whose `auth.json` links to the one in
+your Codex home (`~/.codex`, or `$CODEX_HOME`), so both share one sign-in.
+Your Codex `config.toml`, MCP servers, hooks, skills and `AGENTS.md` are not loaded,
+nor the apps connected to your ChatGPT account, such as Gmail or Drive,
+so your personal setup doesn't steer the agent, and RAE's runs stay out of
+your Codex history. Sharing works with Codex's default file credential store;
+if your Codex keeps its sign-in in the system keyring
+(`cli_auth_credentials_store`), set `codex_home` to your Codex home instead.
+
+- `codex_model`: `null` uses Codex's default model for your account. In
+  `/settings`, **codex model** lists the models your account offers.
+- `codex_effort`: `null` uses the model's default reasoning effort. In the
+  session, `/effort` lists the levels the model offers.
+- `codex_home`: a Codex home to run in as it is, such as `"~/.codex"`, which
+  loads all of it: its config, model providers, MCP servers, hooks and
+  `AGENTS.md`. On Windows, RAE needs permission to create symbolic links to
+  share your sign-in (Developer Mode); otherwise set `codex_home` to your
+  Codex home.
+
+Like RAE's other backends, the agent runs without Codex's sandbox or approval
+prompts, so it can install dependencies, run the generated client, and start
+`agent-browser`. `agent --dry-run` checks that the SDK is installed and that a
+sign-in is there.
 
 ## Switching SDKs
 

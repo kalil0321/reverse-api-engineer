@@ -389,7 +389,7 @@ class LedgerUI:
         # The run's own model and SDK; the selection in st.model stays for the next run.
         st.run_model, st.run_sdk = model or st.model, sdk or st.sdk
         claude = st.run_sdk == "claude" and not predates_effort(st.run_model)
-        st.run_effort = (st.effort or default_effort(st.run_model)) if claude else None
+        st.run_effort = (st.effort or default_effort(st.run_model)) if claude else st.codex_effort if st.run_sdk == "codex" else None
         self.view.run_line(run_id, mode, prompt)
         self._changed()
 

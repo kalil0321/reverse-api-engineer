@@ -11,7 +11,7 @@ menu; `Tab` completes and `Enter` runs the highlighted command.
 |------------------------|---------------------------------------------------------------------|
 | `/new`                 | End the open run and start a new capture.                           |
 | `/model`               | Choose the model.                                                   |
-| `/effort`              | How hard the agent thinks, for Claude models (`low` to `max`).      |
+| `/effort`              | How hard the agent thinks: `low` to `max` on Claude, the levels the model offers on Codex. |
 | `/mode`                | Switch between agent, manual and engineer.                          |
 | `/engineer [run_id]`   | The run engineer mode works on, by default the latest with a HAR.   |
 | `/settings`            | SDK, agent provider, models, output and sync, changed in place.     |
@@ -40,7 +40,7 @@ runs do from this release on. Older runs cannot be resumed.
 | `PageUp` / `PageDown`| Scroll the conversation. `End` jumps back to the latest.   |
 | `Option+Delete`      | Delete the word before the cursor (also `Ctrl+W`).         |
 | `Ctrl+U`             | Delete to the start of the input.                          |
-| `Ctrl+C`             | Stop the run, else clear the input, else quit.             |
+| `Ctrl+C`             | Stop the run (again to quit), else clear the input, else quit. |
 | `Ctrl+D`             | Quit.                                                      |
 
 `Option+Delete` needs the terminal to send Option as Meta: in Terminal, Settings >

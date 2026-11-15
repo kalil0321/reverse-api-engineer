@@ -1,6 +1,6 @@
 ---
 title: Model selection
-description: Choose a model for Claude, OpenCode, Copilot, or Cursor.
+description: Choose a model for Claude, OpenCode, Codex, Copilot, or Cursor.
 ---
 
 ## Claude models
@@ -59,6 +59,9 @@ The full default config:
   "cursor_web_search": true,
   "cursor_setting_sources": null,
   "copilot_model": "gpt-5",
+  "codex_model": null,
+  "codex_effort": null,
+  "codex_home": null,
   "opencode_model": "big-pickle",
   "opencode_provider": "opencode",
   "opencode_auto_start": true,
@@ -84,6 +87,17 @@ together. Advanced users can still edit the `opencode_model` and
 For Ollama, set `opencode_provider` to `ollama`. The `/settings` flow discovers
 installed models and only offers those that report tool calling plus the 64k
 context OpenCode requires. RAE does not pull models automatically.
+
+## Codex users
+
+Codex uses `codex_model`. Its default, `null`, runs Codex's default model for
+your account. Choose **codex model** in `/settings` to pick from the models
+your account offers, or set a model id such as `"gpt-6.1-sol"` in the config.
+
+Codex models take their own effort levels, which differ from model to model.
+`/effort` in a Codex session, or **codex effort** in `/settings`, lists the
+levels the model offers; `codex_effort: null` keeps the model's default.
+Changing the model drops an effort the new model does not offer.
 
 ## Copilot and Cursor users
 

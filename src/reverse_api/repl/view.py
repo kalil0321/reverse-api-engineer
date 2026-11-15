@@ -239,6 +239,7 @@ class SessionState:
     run_model: str | None = None
     run_sdk: str | None = None
     run_effort: str | None = None
+    codex_effort: str | None = None  # None: the Codex model's default, which only its catalog knows
     # The run engineer mode works on, (run id, prompt): the one chosen, else the latest with a HAR.
     engineer_target: tuple[str, str] | None = None
     engineer_chosen: bool = False

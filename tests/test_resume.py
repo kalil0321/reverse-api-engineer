@@ -277,6 +277,22 @@ class TestCli:
         session = history.update_run.call_args.kwargs["sdk_session"]
         assert (session["id"], session["sdk"], session["model"], session["mode"]) == ("agent-2", "cursor", "composer-2.5", "engineer")
 
+    @pytest.mark.parametrize(
+        "flag,saved_model,codex_model",
+        [(None, "gpt-6-astra", "gpt-6-astra"), (None, None, None), ("gpt-6.1-sol", "gpt-6-astra", "gpt-6.1-sol")],
+    )
+    def test_run_engineer_reopens_a_codex_thread_with_its_model(self, history, tmp_path, flag, saved_model, codex_model):
+        session = {"id": "thread-1", "mode": "engineer", "sdk": "codex", **({"model": saved_model} if saved_model else {})}
+        run = {"run_id": "r1", "prompt": "jobs", "paths": {"har_dir": str(tmp_path)}, "usage": {}, "sdk_session": session}
+        history.get_run.return_value = run
+        with patch.object(cli, "run_reverse_engineering", return_value=None) as rre:
+            cli.run_engineer("r1", model=flag, resume=run)
+        kwargs = rre.call_args.kwargs
+        assert (kwargs["sdk"], kwargs["resume_session"], kwargs["codex_model"]) == ("codex", "thread-1", codex_model)
+        kwargs["on_session"]("thread-2")
+        # Codex's default model is recorded as no model, never as the Claude model.
+        assert history.update_run.call_args.kwargs["sdk_session"]["model"] == (codex_model or "")
+
     def test_run_reverse_engineering_hands_the_session_to_any_engine(self, har_path):
         from reverse_api.engineer import run_reverse_engineering
 

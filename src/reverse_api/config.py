@@ -29,6 +29,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Optional override: list of setting source ids, e.g. ["project","user","all"]. None uses cursor_web_search.
     "cursor_setting_sources": None,
     "copilot_model": "gpt-5",  # Model for Copilot SDK sessions
+    "codex_model": None,  # Model for Codex SDK sessions; None uses Codex's default for the account
+    # Reasoning effort for Codex SDK sessions, one the model supports (/effort lists them); None is the model's default.
+    "codex_effort": None,
+    # Codex home for Codex SDK sessions. None is rae's own (~/.reverse-api/codex), which shares only your Codex
+    # sign-in; a path such as "~/.codex" loads that home's whole setup: config, MCP servers, hooks, skills and AGENTS.md.
+    "codex_home": None,
     "hermes_model": None,  # None keeps whatever model the user's own Hermes config selects
     "hermes_provider": None,  # None keeps the provider the user's own Hermes config selects
     "hermes_max_turns": None,  # None keeps the cap from the user's own Hermes config
@@ -42,7 +48,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "output_dir": None,  # None means use ~/.reverse-api/runs
     "output_language": "python",  # "python", "javascript", "typescript", "go", "java", "csharp", "php", "ruby", "c", or "powershell"
     "real_time_sync": True,  # Enable real-time file sync during engineering
-    "sdk": "claude",  # "claude", "opencode", "copilot", "cursor", or "hermes"
+    "sdk": "claude",  # "claude", "opencode", "copilot", "cursor", "codex", or "hermes"
 }
 
 

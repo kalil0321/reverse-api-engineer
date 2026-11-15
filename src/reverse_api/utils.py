@@ -101,7 +101,7 @@ def recorded_cost(usage: dict[str, Any] | None) -> float | None:
 def usage_tokens(usage: dict[str, Any] | None) -> int:
     """Every token a run's usage counts, cache reads and writes included, under each SDK's names.
 
-    Claude: *_input_tokens for the cache. Copilot and Cursor: cache_read_tokens, cache_write_tokens.
+    Claude: *_input_tokens for the cache. Copilot and Cursor: cache_read_tokens, cache_write_tokens. Codex: cache_read_tokens.
     OpenCode: cache_read_tokens, cache_creation_tokens, and reasoning_tokens apart from output_tokens.
     """
     keys = (
@@ -225,7 +225,7 @@ def generate_folder_name(prompt: str, sdk: str | None = None, session_id: str | 
 
     Args:
         prompt: The task prompt to generate a folder name for
-        sdk: The SDK to use ("opencode", "claude", "copilot", "cursor", or "hermes"). If None, checks config.
+        sdk: The SDK to use ("opencode", "claude", "copilot", "cursor", "codex", or "hermes"). If None, checks config.
         session_id: Optional OpenCode session ID to reuse. Only used when sdk="opencode".
     """
     from rich.console import Console
@@ -252,7 +252,7 @@ def generate_folder_name(prompt: str, sdk: str | None = None, session_id: str | 
             # Already in async context, use fallback to avoid nested asyncio.run
             return _slugify(prompt)
 
-        if sdk in ("cursor", "hermes"):
+        if sdk in ("cursor", "codex", "hermes"):
             return _slugify(prompt)
 
         from contextlib import nullcontext

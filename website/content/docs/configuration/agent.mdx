@@ -36,15 +36,15 @@ configured SDK uses Playwright via MCP to control Chromium, capturing the HAR
 as it goes, so `engineer <run_id>` can regenerate a client from it later.
 Needs no Chrome setup. Add `--headless` when running without a display.
 
-Works with the Claude SDK (default) or the OpenCode SDK. Copilot and Cursor
-SDK backends are also supported when their optional dependencies and
+Works with the Claude SDK (default) or the OpenCode SDK. Codex, Copilot and
+Cursor SDK backends are also supported when their optional dependencies and
 credentials are installed.
 
 ### `agent-browser`
 
 Uses **[Vercel agent-browser](https://github.com/vercel-labs/agent-browser)** as a standalone CLI—not a Reverse API Engineer MCP shim.
 
-After the CLI is available, Reverse API Engineer embeds the resolved shell prefix in the user prompt (**`agent-browser …`** vs **`npx -y <pin> …`**) and validates with **`--help`**. Prompts steer the model through **`skills get core --full`** (retry with **`skills list`** / matching bundles when operators name a cloud/runtime backend via `agent_browser_notes`). Claude SDK runs widen the tool allow-list for Bash-heavy flows; OpenCode/Copilot/Cursor omit Reverse API Engineer browser MCP registration for `agent-browser` and rely on their own shell primitives.
+After the CLI is available, Reverse API Engineer embeds the resolved shell prefix in the user prompt (**`agent-browser …`** vs **`npx -y <pin> …`**) and validates with **`--help`**. Prompts steer the model through **`skills get core --full`** (retry with **`skills list`** / matching bundles when operators name a cloud/runtime backend via `agent_browser_notes`). Claude SDK runs widen the tool allow-list for Bash-heavy flows; OpenCode/Codex/Copilot/Cursor omit Reverse API Engineer browser MCP registration for `agent-browser` and rely on their own shell primitives.
 
 Suggested JSON knobs:
 
