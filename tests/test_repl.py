@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 import pytest
 from rich.console import Console
 
+from reverse_api.codex_engineer import CodexModel
 from reverse_api.repl import bridge as bridge_mod
 from reverse_api.repl.bridge import Bridge, LedgerUI, describe, short_name
 from reverse_api.repl.transcript import Raw, Transcript, TranscriptWriter, raw_lines
@@ -831,7 +832,7 @@ class TestSettings:
         session, config = settings_session
         session.run_command("/settings")
         pick(session.st, "sdk")
-        assert [v for v, _, _ in session.st.picker.items] == ["claude", "copilot", "cursor", "opencode"]
+        assert [v for v, _, _ in session.st.picker.items] == ["claude", "codex", "copilot", "cursor", "opencode"]
         pick(session.st, "opencode")
         assert config.get("sdk") == "opencode" and session.st.sdk == "opencode"
         assert "◇ sdk  claude → opencode" in plain(session.transcript)
@@ -1001,6 +1002,116 @@ class TestSettings:
         pick(session.st, "opencode")
         assert "OPENCODE_SERVER_PASSWORD" in plain(session.transcript)
         assert session.st.picker.title.startswith("settings")
+
+    CODEX_MODELS = [
+        CodexModel("gpt-6.1-sol", "GPT-6.1-Sol", True, "medium", (("low", "quick"), ("medium", "balanced"), ("ultra", "longest"))),
+        CodexModel("gpt-6-astra", "GPT-6-Astra", False, "high", (("high", "deep"),)),
+    ]
+
+    def test_codex_models_come_from_the_account_with_its_default_first(self, settings_session, inline_threads, monkeypatch):
+        session, config = settings_session
+        loaded = AsyncMock(return_value=self.CODEX_MODELS)
+        monkeypatch.setattr("reverse_api.codex_engineer.codex_models", loaded)
+        config.set("codex_home", "/mine")
+        session.run_command("/settings")
+        pick(session.st, "codex_model")
+        loaded.assert_awaited_once_with("/mine")
+        assert session.st.picker.items == [
+            ("", "default", "GPT-6.1-Sol"),
+            ("gpt-6.1-sol", "gpt-6.1-sol", "GPT-6.1-Sol"),
+            ("gpt-6-astra", "gpt-6-astra", "GPT-6-Astra"),
+        ]
+        pick(session.st, "gpt-6-astra")
+        assert config.get("codex_model") == "gpt-6-astra" and "codex model  default → gpt-6-astra" in plain(session.transcript)
+        assert session.st.picker.title.startswith("settings")
+        pick(session.st, "codex_model")
+        pick(session.st, "")
+        assert config.get("codex_model") is None, "the default follows the account rather than a saved model"
+
+    def test_a_saved_codex_model_the_account_lost_stays_selectable(self, settings_session, inline_threads, monkeypatch):
+        session, config = settings_session
+        monkeypatch.setattr("reverse_api.codex_engineer.codex_models", AsyncMock(return_value=self.CODEX_MODELS))
+        config.set("codex_model", "gpt-5.5-old")
+        session.run_command("/settings")
+        pick(session.st, "codex_model")
+        p = session.st.picker
+        assert p.items[1] == ("gpt-5.5-old", "gpt-5.5-old", "current") and p.items[p.index][0] == "gpt-5.5-old"
+
+    def test_codex_models_that_fail_to_load_say_why(self, settings_session, inline_threads, monkeypatch):
+        session, config = settings_session
+        monkeypatch.setattr("reverse_api.codex_engineer.codex_models", AsyncMock(side_effect=RuntimeError("Codex SDK not installed")))
+        session.run_command("/settings")
+        pick(session.st, "codex_model")
+        assert "could not load codex models: Codex SDK not installed" in plain(session.transcript)
+        p = session.st.picker
+        assert p.title.startswith("settings") and p.items[p.index][0] == "codex_model"
+
+    def test_esc_while_codex_loads_goes_back_to_its_setting(self, settings_session, monkeypatch):
+        from reverse_api.repl import app
+
+        session, _config = settings_session
+        loads = []
+
+        class Later:
+            def __init__(self, target, **kwargs):
+                loads.append(target)
+
+            def start(self):
+                pass
+
+        monkeypatch.setattr(app.threading, "Thread", Later)
+        monkeypatch.setattr("reverse_api.codex_engineer.codex_models", AsyncMock(return_value=self.CODEX_MODELS))
+        session.run_command("/settings")
+        pick(session.st, "codex_model")
+        assert session.st.picker.items == [("", "loading…", "")]
+        pick(session.st, None)
+        p = session.st.picker
+        assert p.title.startswith("settings") and p.items[p.index][0] == "codex_model"
+        loads[0]()  # the models arrive after esc
+        assert session.st.picker.title.startswith("settings")
+
+    def test_effort_lists_what_the_codex_model_offers(self, settings_session, inline_threads, monkeypatch):
+        session, config = settings_session
+        monkeypatch.setattr("reverse_api.codex_engineer.codex_models", AsyncMock(return_value=self.CODEX_MODELS))
+        config.set("sdk", "codex")
+        session.reload_settings()
+        session.run_command("/effort")
+        p = session.st.picker
+        assert p.title == "how hard gpt-6.1-sol thinks", "no codex_model: the account's default model"
+        assert p.items == [("", "default", "medium"), ("low", "low", "quick"), ("medium", "medium", "balanced"), ("ultra", "ultra", "longest")]
+        pick(session.st, "ultra")
+        assert config.get("codex_effort") == "ultra" and session.st.codex_effort == "ultra"
+        assert "codex effort  default → ultra" in plain(session.transcript)
+        assert session.st.picker is None, "/effort goes back to the conversation"
+
+    def test_effort_from_settings_goes_back_to_settings(self, settings_session, inline_threads, monkeypatch):
+        session, config = settings_session
+        monkeypatch.setattr("reverse_api.codex_engineer.codex_models", AsyncMock(return_value=self.CODEX_MODELS))
+        config.update({"codex_model": "gpt-6-astra", "codex_effort": "high"})
+        session.run_command("/settings")
+        pick(session.st, "codex_effort")
+        assert [v for v, _, _ in session.st.picker.items] == ["", "high"] and session.st.picker.index == 1
+        pick(session.st, "")
+        assert config.get("codex_effort") is None
+        p = session.st.picker
+        assert p.title.startswith("settings") and p.items[p.index][0] == "codex_effort"
+
+    def test_a_new_codex_model_drops_an_effort_it_does_not_offer(self, settings_session, inline_threads, monkeypatch):
+        session, config = settings_session
+        monkeypatch.setattr("reverse_api.codex_engineer.codex_models", AsyncMock(return_value=self.CODEX_MODELS))
+        config.set("codex_effort", "ultra")
+        session.run_command("/settings")
+        pick(session.st, "codex_model")
+        pick(session.st, "gpt-6-astra")
+        assert config.get("codex_model") == "gpt-6-astra" and config.get("codex_effort") is None
+        assert "gpt-6-astra offers no ultra" in plain(session.transcript)
+
+    def test_a_codex_run_shows_its_effort_on_the_card(self, settings_session):
+        session, config = settings_session
+        config.update({"sdk": "codex", "codex_effort": "xhigh"})
+        session.reload_settings()
+        LedgerUI(session.bridge).header("run1", "jobs", "gpt-6.1-sol", "codex")
+        assert session.st.run_effort == "xhigh"
 
     def test_ollama_lists_the_installed_models_that_fit(self, settings_session, inline_threads, monkeypatch):
         from reverse_api import cli
@@ -1424,6 +1535,32 @@ class TestResume:
         assert session.st.cost == 0 and session.st.step == 0 and not session.bridge.verified
         assert session.st.running and session.st.verb == "reopening"
         work.assert_called_once()
+
+    def test_a_replayed_card_names_the_sdk_the_run_ran_on(self, app_session, tmp_path):
+        session, history = app_session
+        session.st.sdk = "claude"
+        client = tmp_path / "api_client.py"
+        client.write_text("import requests\n")
+        # Agent runs in history may keep their SDK only in their SDK session.
+        history.get_run.return_value = {
+            "run_id": "a1",
+            "prompt": "jobs",
+            "usage": {},
+            "paths": {"script_path": str(client)},
+            "sdk_session": {"id": "s", "mode": "agent", "sdk": "codex", "model": "gpt-6.1-sol"},
+        }
+        verify = "mcp__verification__report_client_verified"
+        log = [
+            {"type": "prompt", "content": "<mission>jobs</mission>", "timestamp": "2026-11-11T15:00:00"},
+            {"type": "tool_start", "content": {"name": verify, "input": {"summary": "ok"}}, "timestamp": "2026-11-11T15:01:00"},
+            {"type": "tool_result", "content": {"name": verify, "is_error": False, "output": "recorded"}, "timestamp": "2026-11-11T15:01:00"},
+            {"type": "result", "content": {"script_path": str(client)}, "timestamp": "2026-11-11T15:01:05"},
+        ]
+        with patch("reverse_api.repl.app.MessageStore") as store, patch.object(session, "work"):
+            store.return_value.load.return_value = log
+            session.run_command("/resume a1")
+        text = plain(session.transcript)
+        assert "api_client.py ready" in text and "codex" in text and "claude" not in text.split("api_client.py ready")[1]
 
     def test_a_runs_duration_leaves_out_the_days_it_was_set_aside(self):
         from reverse_api.repl.app import run_duration
@@ -1856,6 +1993,29 @@ class TestReviewedSession:
         session.st.model = "claude-sonnet-4-6"
         session.run_command("/model")
         assert session.st.picker.items[0][0] == "claude-sonnet-4-6" and session.st.picker.index == 0
+
+    @pytest.mark.parametrize("waiting", [True, False], ids=["waiting for a follow-up", "mid-turn"])
+    def test_a_second_ctrl_c_leaves_without_cutting_the_runs_cleanup_short(self, app_session, waiting):
+        session, _history = app_session
+        bridge = session.bridge
+        bridge.loop, bridge.task = MagicMock(), MagicMock(done=MagicMock(return_value=False))
+        session.app = MagicMock()
+        session.st.waiting, session.st.running = waiting, not waiting
+        session.interrupt()
+        assert bridge.stopping and not session.app.exit.called
+        cancels = bridge.loop.call_soon_threadsafe.call_count
+        session.interrupt()
+        session.app.exit.assert_called_once()
+        assert bridge.loop.call_soon_threadsafe.call_count == cancels, "the run was not cancelled again"
+        assert "still wrapping up" not in plain(session.transcript)
+
+    def test_ctrl_c_while_quitting_stops_waiting_for_the_run(self, app_session):
+        session, _history = app_session
+        session.worker = MagicMock(is_alive=MagicMock(return_value=True), join=MagicMock(side_effect=KeyboardInterrupt))
+        try:
+            session.wait_for_run(timeout=5)
+        except KeyboardInterrupt:
+            pytest.fail("the ctrl+c escaped, so the transcript would not print")
 
     def test_quitting_waits_for_the_run_to_wrap_up(self, app_session):
         session, _history = app_session

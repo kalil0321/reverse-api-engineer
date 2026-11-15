@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Codex SDK backend (`sdk: "codex"`)**: agent and engineer runs on OpenAI Codex through its Python SDK, on every agent provider. The session shows Codex's messages, reasoning summaries, plan, commands, file changes and browser steps as they happen, `--json-stream` emits them as `tool_start`/`tool_end` events, and `/resume` reopens a run's Codex thread. Install with `pip install 'reverse-api-engineer[codex]'`, which brings its own Codex runtime, and sign in once with `codex login` or the Codex app. RAE runs Codex in its own home, `~/.reverse-api/codex`, whose `auth.json` links to your Codex sign-in, so your Codex config, MCP servers, hooks, skills and `AGENTS.md`, and the apps connected to your ChatGPT account, don't steer the agent and RAE's runs stay out of your Codex history. Set `codex_home` to run in a Codex home as it is. `codex_model` picks the model (`null`, the default, uses your account's), and `/settings` lists the models your account offers. `codex_effort` picks the reasoning effort, and `/effort` lists the levels the model offers. Like Claude, Codex reports the client it ran live, which shows the verified step and the client card. `agent --dry-run` checks the SDK and the sign-in, and reports `would_run.model: null` when Codex picks the model.
+
+### Fixed
+- **A slow page no longer ends a Chrome DevTools MCP run**: a page that misses Chrome DevTools MCP's 10 second navigation timeout, as browserbase.com/careers does on a cold load, made the agent stop and ask the user to accept Chrome's connection prompt. The agent now opens the page again; only a timeout waiting for the browser connection means the prompt.
+- **Agent runs record their SDK**: `history`, `show` and replays in the session showed no SDK for agent runs, so a replayed card named the SDK the session was on. Runs now record it, and older runs read it from their SDK session.
+- **Leaving the session while a run stops**: a second `ctrl+c` while a run wraps up now quits once its cleanup is done, instead of repeating "still wrapping up", and a `ctrl+c` while rae waits for that cleanup on the way out still leaves the transcript in the terminal.
+
 ## [0.15.0] - 2026-11-08
 
 ### Changed

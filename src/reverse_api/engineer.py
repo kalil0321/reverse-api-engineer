@@ -31,6 +31,7 @@ from claude_agent_sdk import (
 from .base_engineer import REPORT_CLIENT_VERIFIED_INSTRUCTION, BaseEngineer
 from .repl.bridge import stream_options
 from .utils import SDK_MAX_BUFFER_SIZE, build_sdk_effort, build_sdk_env, build_sdk_settings, is_context_overflow_error
+from .verification_mcp import ALREADY_RECORDED, DESCRIPTION, RECORDED, SERVER, TOOL
 
 # Suppress claude_agent_sdk logs
 logging.getLogger("claude_agent_sdk").setLevel(logging.WARNING)
@@ -128,35 +129,18 @@ class ClaudeEngineer(BaseEngineer):
         """
         already_reported = False
 
-        @tool(
-            "report_client_verified",
-            "Call this exactly once, after you have actually run the generated "
-            "client live against the target and personally confirmed it works. "
-            "Do not call this speculatively, before a real run, or more than "
-            "once per session.",
-            {"summary": str},
-        )
+        @tool(TOOL, DESCRIPTION, {"summary": str})
         async def report_client_verified(args: dict[str, Any]) -> dict[str, Any]:
             nonlocal already_reported
             if already_reported:
-                return {
-                    "content": [
-                        {"type": "text", "text": "Already recorded earlier in this session — no need to call this again."}
-                    ]
-                }
+                return {"content": [{"type": "text", "text": ALREADY_RECORDED}]}
             already_reported = True
-            self._report_workspace()
             # Deliberately no manual message_store/UI logging here — the
             # generic ToolUseBlock/ToolResultBlock handling in
             # _process_streaming_response already logs every tool call,
             # this one included, the same way it does for Bash/Read/etc.
-            self._emit_json_event(
-                {
-                    "event": "client_executed",
-                    "script_path": str(self.scripts_dir / self._get_client_filename()),
-                }
-            )
-            return {"content": [{"type": "text", "text": "Recorded — thanks for confirming."}]}
+            self._client_verified()
+            return {"content": [{"type": "text", "text": RECORDED}]}
 
         return report_client_verified
 
@@ -164,7 +148,7 @@ class ClaudeEngineer(BaseEngineer):
         """In-process MCP server exposing report_client_verified — see
         _build_verification_tool's own docstring for the full reasoning."""
         return create_sdk_mcp_server(
-            name="verification", tools=[self._build_verification_tool()]
+            name=SERVER, tools=[self._build_verification_tool()]
         )
 
     def _get_codegen_instructions(self) -> str:
@@ -434,6 +418,9 @@ def run_reverse_engineering(
     cursor_model: str | None = None,
     cursor_web_search: bool = True,
     cursor_setting_sources: list[str] | None = None,
+    codex_model: str | None = None,
+    codex_effort: str | None = None,
+    codex_home: str | None = None,
     enable_sync: bool = False,
     is_fresh: bool = False,
     output_language: str = "python",
@@ -449,13 +436,16 @@ def run_reverse_engineering(
     resume_session, cost_before and on_session reopen and record the SDK session, see BaseEngineer.
 
     Args:
-        sdk: "claude", "opencode", "copilot", or "cursor" - determines which SDK to use
+        sdk: "claude", "opencode", "copilot", "cursor", or "codex" - determines which SDK to use
         opencode_provider: Provider ID for OpenCode (e.g., "anthropic")
         opencode_model: Model ID for OpenCode (e.g., "claude-sonnet-4-6")
         copilot_model: Model ID for Copilot (e.g., "gpt-5")
         cursor_model: Model id for Cursor SDK (e.g., "composer-2.5")
         cursor_web_search: When True, load extra Cursor setting layers so WebFetch/WebSearch and plugins apply.
         cursor_setting_sources: Optional explicit list (overrides cursor_web_search), e.g. ["project","user","all"].
+        codex_model: Model for Codex (e.g., "gpt-6.1-sol"); None uses Codex's default
+        codex_effort: Reasoning effort for Codex (e.g., "high"); None uses the model's default
+        codex_home: Codex home to run in; None uses rae's own, which shares only the user's Codex sign-in
         enable_sync: Enable real-time file syncing during engineering
         is_fresh: Whether to start fresh (ignore previous scripts)
         output_language: Target language - "python", "javascript", "typescript", "go", "java", "csharp", "php", "ruby", or "c"
@@ -520,6 +510,27 @@ def run_reverse_engineering(
             output_language=output_language,
             output_mode=output_mode,
             copilot_model=copilot_model,
+            interactive=interactive,
+        )
+    elif sdk == "codex":
+        from .codex_engineer import CodexEngineer
+
+        engineer = CodexEngineer(
+            run_id=run_id,
+            har_path=har_path,
+            prompt=prompt,
+            model=model,
+            additional_instructions=additional_instructions,
+            output_dir=output_dir,
+            verbose=verbose,
+            enable_sync=enable_sync,
+            sdk=sdk,
+            is_fresh=is_fresh,
+            output_language=output_language,
+            output_mode=output_mode,
+            codex_model=codex_model,
+            codex_effort=codex_effort,
+            codex_home=codex_home,
             interactive=interactive,
         )
     else:

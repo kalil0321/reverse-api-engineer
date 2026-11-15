@@ -1255,6 +1255,35 @@ wheels = [
 ]
 
 [[package]]
+name = "openai-codex"
+version = "0.167.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "openai-codex-cli-bin" },
+    { name = "packaging" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fc/04/8c3de301090d1c1286dae4ffe3feb25e7391f05cd0990237066952ebcc17/openai_codex-0.167.1.tar.gz", hash = "sha256:3ba639365786972d4768cce842949fff036c703ff7b5702cf77275bec0005ac0", size = 94946, upload-time = "2026-11-10T21:45:58.509Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a3/aa/45dcdfaa3af74213d89c72381a56641b452206cc344c4ae94868747fdb75/openai_codex-0.167.1-py3-none-any.whl", hash = "sha256:3d136afb2ba9856e484d2788b2562a1254fc64e5c75c98ed7ff5da2b908f0173", size = 101499, upload-time = "2026-11-10T21:45:57.261Z" },
+]
+
+[[package]]
+name = "openai-codex-cli-bin"
+version = "0.167.1"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/da/db/cc2e1c7ecf3d8a4595c47f6aeb28b270efefc5f2f8dbe09298d1a64d2bc0/openai_codex_cli_bin-0.167.1-py3-none-macosx_10_9_x86_64.whl", hash = "sha256:604f80c37ab9333f28612574d6ce4e92899182a12edab632865cded9985d16f0", size = 171719215, upload-time = "2026-11-10T21:44:24.786Z" },
+    { url = "https://files.pythonhosted.org/packages/c2/bf/12a0dcd9cfc0f6633b845485f4ade96fe0fad7157e27c15363d0ea2ec7a0/openai_codex_cli_bin-0.167.1-py3-none-macosx_11_0_arm64.whl", hash = "sha256:80922f3a8d6a12b4baeb8ade293a27c1eacb735907b59cecb4b20cf4b52713ee", size = 158333081, upload-time = "2026-11-10T21:44:32.29Z" },
+    { url = "https://files.pythonhosted.org/packages/19/47/6f05742a16f118df67f3c91f119de09fa8f1421bbb9efcad9bf5e7d205c7/openai_codex_cli_bin-0.167.1-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:9e1f50f1d691b36f14586a70f0a7e95b2fe02cb808084e3a2cc678a4aeaf5e31", size = 171122450, upload-time = "2026-11-10T21:44:39.779Z" },
+    { url = "https://files.pythonhosted.org/packages/74/a5/8499b1eb75f134da20a6f30cefba95845c432a00048fa2fa58b728d90f3f/openai_codex_cli_bin-0.167.1-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:2db7a60462a22d1d08f9aa7b52cabca0ad0f906ded219edca22d6c8e43cc0140", size = 183218329, upload-time = "2026-11-10T21:44:47.273Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/08/1954514ba8e6831f87361d0f5e88bae9e6d70fa538d46af2d3f27fcf345b/openai_codex_cli_bin-0.167.1-py3-none-musllinux_1_1_aarch64.whl", hash = "sha256:6c5713827c046f9af97de6b5f58c73ac2b659039c86e16728852a68e5fc9cec8", size = 187990355, upload-time = "2026-11-10T21:44:55.894Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/6d/9343227139a9187dda32f209962c62d826212eff72edcc7882cd7bc43987/openai_codex_cli_bin-0.167.1-py3-none-musllinux_1_1_x86_64.whl", hash = "sha256:a6220d7a35985f10103fef93a3634b93198fed8363d7777324510c884227237a", size = 200245660, upload-time = "2026-11-10T21:45:03.765Z" },
+    { url = "https://files.pythonhosted.org/packages/78/95/ffc2473b4a792c60d5fc3917cfd490d88e8f2b64e64b937c849359a5791f/openai_codex_cli_bin-0.167.1-py3-none-win_amd64.whl", hash = "sha256:39858e0ae7654ba15dd22eb6837b0be04ec4c4cb34ba954df221d3deb20d396d", size = 193368232, upload-time = "2026-11-10T21:45:11.845Z" },
+    { url = "https://files.pythonhosted.org/packages/89/ae/bd853e11292847433000ae039945ddb857600effb359e50cc59b401f8143/openai_codex_cli_bin-0.167.1-py3-none-win_arm64.whl", hash = "sha256:3cc60a66f312371f63830827efeb5e8472667e82877599d679c854f8cf12764c", size = 179271887, upload-time = "2026-11-10T21:45:19.509Z" },
+]
+
+[[package]]
 name = "opentelemetry-api"
 version = "1.45.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1269,11 +1298,11 @@ wheels = [
 
 [[package]]
 name = "packaging"
-version = "26.0"
+version = "26.3"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/65/ee/299d360cdc32edc7d2cf530f3accf79c4fca01e96ffc950d8a52213bd8e4/packaging-26.0.tar.gz", hash = "sha256:00243ae351a257117b6a241061796684b084ed1c516a08c48a3f7e147a9d80b4", size = 143416, upload-time = "2026-01-21T20:50:39.064Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7d/fa/3944b40b07da9ce895c0e6303a5ab7d53da063554f534556b134a54d6093/packaging-26.3.tar.gz", hash = "sha256:94edc256424af38762eb31306eed28beb9f0efc50a8837492c9d6fd6004aed79", size = 313412, upload-time = "2026-08-04T18:15:28.737Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b7/b9/c538f279a4e237a006a2c98387d081e9eb060d203d8ed34467cc0f0b9b53/packaging-26.0-py3-none-any.whl", hash = "sha256:b36f1fef9334a5588b4166f8bcd26a14e521f2b55e6b9de3aaa80d3ff7a37529", size = 74366, upload-time = "2026-01-21T20:50:37.788Z" },
+    { url = "https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/packaging-26.3-py3-none-any.whl", hash = "sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c", size = 129956, upload-time = "2026-08-04T18:15:27.159Z" },
 ]
 
 [[package]]
@@ -1749,6 +1778,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+codex = [
+    { name = "openai-codex" },
+]
 collector = [
     { name = "beautifulsoup4" },
     { name = "markdownify" },
@@ -1785,6 +1817,7 @@ requires-dist = [
     { name = "markdown-it-py", specifier = ">=2.2.0" },
     { name = "markdownify", marker = "extra == 'collector'", specifier = ">=0.14.1" },
     { name = "multidict", specifier = ">=6.9.1" },
+    { name = "openai-codex", marker = "extra == 'codex'", specifier = ">=0.167.1,<1" },
     { name = "opentelemetry-api", specifier = ">=1.45.1" },
     { name = "playwright", marker = "extra == 'manual'", specifier = ">=1.64.1" },
     { name = "playwright-stealth", marker = "extra == 'manual'", specifier = ">=1.0.0" },
@@ -1801,7 +1834,7 @@ requires-dist = [
     { name = "urllib3", specifier = ">=2.8.0" },
     { name = "watchdog", specifier = ">=3.0.0" },
 ]
-provides-extras = ["manual", "collector", "copilot"]
+provides-extras = ["manual", "collector", "copilot", "codex"]
 
 [package.metadata.requires-dev]
 dev = [

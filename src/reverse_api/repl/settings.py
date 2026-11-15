@@ -9,6 +9,7 @@ from .view import model_label
 LANGUAGES = ("python", "javascript", "typescript", "go", "java", "csharp", "php", "ruby", "c", "powershell")
 SDKS = (
     ("claude", "Claude Agent SDK"),
+    ("codex", "OpenAI Codex SDK"),
     ("copilot", "GitHub Copilot SDK"),
     ("cursor", "Cursor SDK"),
     ("opencode", "an OpenCode server, with any of its providers"),
@@ -18,12 +19,15 @@ PROVIDERS = (
     ("auto", "Playwright MCP in a fresh browser, records a HAR"),
     ("agent-browser", "Vercel's agent-browser CLI"),
 )
-# key, label, kind: a choice opens a list, a toggle flips, text takes what is typed, opencode loads the server's catalog.
+# key, label, kind: a choice opens a list, a toggle flips, text takes what is typed,
+# opencode and codex load the models their runtime offers.
 SETTINGS = (
     ("sdk", "sdk", "choice"),
     ("agent_provider", "agent provider", "choice"),
     ("claude_code_model", "claude model", "choice"),
     ("opencode", "opencode provider / model", "opencode"),
+    ("codex_model", "codex model", "codex"),
+    ("codex_effort", "codex effort", "codex"),
     ("copilot_model", "copilot model", "text"),
     ("cursor_model", "cursor model", "text"),
     ("cursor_web_search", "cursor web search", "toggle"),

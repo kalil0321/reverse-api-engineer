@@ -60,7 +60,7 @@ TARGET_KEYS = ("url", "file_path", "filePath", "path", "query", "text", "pattern
 
 
 def usage_tokens(usage: dict[str, Any]) -> int:
-    """Every token a run's usage counts: Claude's names, then Copilot's and Cursor's for their cache."""
+    """Every token a run's usage counts: Claude's names, then Copilot's, Cursor's and Codex's for their cache."""
     keys = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "cache_read_tokens", "cache_write_tokens")
     return sum(int(usage.get(key, 0) or 0) for key in keys)
 
@@ -390,7 +390,7 @@ class LedgerUI:
         # The run's own model and SDK; the selection in st.model stays for the next run.
         st.run_model, st.run_sdk = model or st.model, sdk or st.sdk
         claude = st.run_sdk == "claude" and not predates_effort(st.run_model)
-        st.run_effort = (st.effort or default_effort(st.run_model)) if claude else None
+        st.run_effort = (st.effort or default_effort(st.run_model)) if claude else st.codex_effort if st.run_sdk == "codex" else None
         self.view.run_line(run_id, mode)
         self._changed()
 

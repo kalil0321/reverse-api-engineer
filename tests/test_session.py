@@ -2,7 +2,9 @@
 
 import json
 
-from reverse_api.session import SessionManager
+import pytest
+
+from reverse_api.session import SessionManager, run_sdk
 
 
 class TestSessionManagerInit:
@@ -203,3 +205,16 @@ def test_interrupted_save_preserves_previous_history(tmp_path, monkeypatch):
     assert path.read_bytes() == original
     assert SessionManager(path).history[0]["run_id"] == "original"
     assert not list(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.parametrize(
+    "run,sdk",
+    [
+        ({"sdk": "claude", "sdk_session": {"sdk": "codex"}}, "claude"),
+        ({"sdk": None, "sdk_session": {"sdk": "codex"}}, "codex"),
+        ({"sdk": None}, None),
+    ],
+    ids=["its own", "from its SDK session", "unknown"],
+)
+def test_a_runs_sdk(run, sdk):
+    assert run_sdk(run) == sdk

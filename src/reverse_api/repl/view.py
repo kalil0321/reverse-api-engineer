@@ -237,6 +237,7 @@ class SessionState:
     run_model: str | None = None
     run_sdk: str | None = None
     run_effort: str | None = None
+    codex_effort: str | None = None  # None: the Codex model's default, which only its catalog knows
     collector_model: str | None = None  # collector mode runs on its own model setting
 
     @property

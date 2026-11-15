@@ -17,6 +17,7 @@ rae calls a model through the SDK selected in its config:
 | `opencode` | An OpenCode server rae starts or reuses. Defaults to a free model; can route to local models through Ollama |
 | `copilot` | GitHub Copilot credentials (`GITHUB_COPILOT_TOKEN`) |
 | `cursor` | `CURSOR_API_KEY` |
+| `codex` | A Codex sign-in (`codex login` or the Codex app); install with `uv tool install "reverse-api-engineer[codex]"` |
 
 `agent --dry-run` reports which of these it can see. A missing env var is a warning, not an error, because some SDKs find credentials on their own.
 
@@ -28,7 +29,7 @@ Settings live in `~/.reverse-api/config.json`. Only two have per-run flags on `a
 |---|---|
 | `agent_provider` | `chrome-mcp` (the user's real Chrome, no HAR; default for new configs in recent versions), `auto` (Playwright MCP, records a HAR; the default in older versions), `agent-browser` (Vercel agent-browser CLI, records a HAR) |
 | `output_language` | `python`, `javascript`, `typescript`, `go`, `java`, `csharp`, `php`, `ruby`, `c`, `powershell` |
-| `sdk` | `claude`, `opencode`, `copilot`, `cursor` |
+| `sdk` | `claude`, `opencode`, `copilot`, `cursor`, `codex` |
 | `claude_code_model` | Model for the `claude` SDK; `agent -m` overrides it per run |
 | `output_dir` | Where runs are stored; `null` means `~/.reverse-api/runs` |
 

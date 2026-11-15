@@ -70,6 +70,7 @@ class AutoPromptEngineer(Protocol):
     prompt: str
     scripts_dir: Path
     har_path: Path
+    ask_user_agent_browser: str
 
     def _get_language_name(self) -> str: ...
     def _get_codegen_instructions(self) -> str: ...
@@ -157,6 +158,7 @@ class ClaudeAutoEngineer(ClaudeEngineer):
             ab_run_id, ab_headless = _agent_browser_prompt_context(self)
             template_kwargs.update(
                 agent_browser_prompt_fields(run_id=ab_run_id, headless=ab_headless),
+                ask_user_agent_browser=self.ask_user_agent_browser,
             )
 
         user_message = load(template, **template_kwargs)

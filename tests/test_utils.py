@@ -420,12 +420,14 @@ class TestGenerateFolderName:
                 result = generate_folder_name("test prompt", sdk="claude")
                 assert result == "claude_result"
 
-    def test_sdk_cursor_uses_slugify_path(self):
-        """Cursor SDK uses slugify (no Claude folder-name call)."""
-        with patch("reverse_api.utils._slugify", return_value="slug_cursor") as mock_slug:
-            result = generate_folder_name("My API!", sdk="cursor")
-        assert result == "slug_cursor"
+    @pytest.mark.parametrize("sdk", ["cursor", "codex"])
+    def test_sdks_without_claude_use_the_slugify_path(self, sdk):
+        """Cursor and Codex runs slugify instead of starting a Claude session to name the folder."""
+        with patch("reverse_api.utils._slugify", return_value="slug") as mock_slug, patch("reverse_api.utils.asyncio.run") as run:
+            result = generate_folder_name("My API!", sdk=sdk)
+        assert result == "slug"
         mock_slug.assert_called_once()
+        run.assert_not_called()
 
     def test_with_session_id(self):
         """OpenCode with session_id passes it through."""

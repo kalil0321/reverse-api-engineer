@@ -31,7 +31,7 @@ Available Chrome DevTools MCP tools (all except `new_page` and `list_pages` take
 - `evaluate_script` - Execute JavaScript
 - `list_console_messages` - Check console
 
-If the first browser call fails with "Could not connect to Chrome", stop and report that the user must enable remote debugging at chrome://inspect/#remote-debugging. If it times out instead, Chrome is most likely waiting for the user to accept its connection prompt: stop and report that. Do not retry in a loop.
+If the first browser call fails with "Could not connect to Chrome", stop and report that the user must enable remote debugging at chrome://inspect/#remote-debugging. If it times out waiting for the browser connection, Chrome is most likely waiting for the user to accept its connection prompt: stop and report that. A "Navigation timeout" is different: the browser is connected and the page was only slow to finish loading. Open it again once with `new_page`, which usually works, and carry on. Do not retry in a loop.
 
 In a headed run the user's existing login sessions and cookies are available — you do NOT need to log in where they're already authenticated. A headless run starts with no sessions.
 

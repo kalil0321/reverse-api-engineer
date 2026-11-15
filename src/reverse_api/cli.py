@@ -21,7 +21,7 @@ from rich.markup import escape
 from . import __version__
 from .config import DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_PROVIDER, ConfigManager
 from .engineer import run_reverse_engineering
-from .session import SessionManager
+from .session import SessionManager, run_sdk
 from .tui import (
     ERROR_CTA,
     RETIRED_MODEL_IDS,
@@ -77,6 +77,8 @@ def default_model_for_configured_sdk(sdk: str | None = None) -> str:
         return str(config_manager.get("copilot_model") or "gpt-5")
     if s == "cursor":
         return str(config_manager.get("cursor_model") or "composer-2.5")
+    if s == "codex":
+        return str(config_manager.get("codex_model") or "")  # empty: Codex picks the account's default
     return str(config_manager.get("claude_code_model") or "claude-sonnet-4-6")
 
 
@@ -334,11 +336,16 @@ def _build_dry_run_payload(
         "copilot": "GITHUB_COPILOT_TOKEN",
         "cursor": "CURSOR_API_KEY",
     }.get(sdk)
-    if sdk_env_var is None:
+    if sdk == "codex":
+        # Codex signs in through its home, not an env var.
+        from .codex_engineer import codex_check
+
+        checks.append(codex_check(config_manager.get("codex_home")))
+    elif sdk_env_var is None:
         checks.append({
             "name": "sdk",
             "status": "error",
-            "message": f"unknown sdk {sdk!r}; expected 'claude', 'opencode', 'copilot', or 'cursor'",
+            "message": f"unknown sdk {sdk!r}; expected 'claude', 'opencode', 'copilot', 'cursor', or 'codex'",
         })
     elif not os.environ.get(sdk_env_var):
         checks.append({
@@ -458,19 +465,8 @@ def _build_dry_run_payload(
     # `would_run.model` resolution mirrors the live capture path: each SDK
     # has its own model config key, so picking `claude_code_model` for an
     # opencode/copilot session would misreport what would actually run.
-    sdk_model_key = {
-        "claude": "claude_code_model",
-        "opencode": "opencode_model",
-        "copilot": "copilot_model",
-        "cursor": "cursor_model",
-    }.get(sdk, "claude_code_model")
-    sdk_default_model = {
-        "claude": "claude-sonnet-4-6",
-        "opencode": "claude-opus-4-6",
-        "copilot": "gpt-5",
-        "cursor": "composer-2.5",
-    }.get(sdk, "claude-sonnet-4-6")
-    resolved_model = model or config_manager.get(sdk_model_key, sdk_default_model)
+    # None: the SDK picks its default (Codex without codex_model).
+    resolved_model = model or default_model_for_configured_sdk(sdk) or None
 
     return {
         "schema_version": AGENT_JSON_SCHEMA_VERSION,
@@ -1220,15 +1216,17 @@ def run_auto_capture(
             url=url,
             model=model,
             mode=mode_label,
+            sdk=sdk,
             paths={"har_dir": str(get_har_dir(run_id, output_dir))},
         )
 
     try:
         output_language = config_manager.get("output_language", "python")
         from .auto_engineer import ClaudeAutoEngineer, CopilotAutoEngineer, OpenCodeAutoEngineer
+        from .codex_engineer import CodexAutoEngineer
         from .cursor_engineer import CursorAutoEngineer
 
-        engineer: ClaudeAutoEngineer | CopilotAutoEngineer | OpenCodeAutoEngineer | CursorAutoEngineer
+        engineer: ClaudeAutoEngineer | CopilotAutoEngineer | OpenCodeAutoEngineer | CursorAutoEngineer | CodexAutoEngineer
         if sdk == "opencode":
             from .auto_engineer import OpenCodeAutoEngineer
 
@@ -1281,6 +1279,22 @@ def run_auto_capture(
                 cursor_model=model or config_manager.get("cursor_model", "composer-2.5"),
                 cursor_web_search=bool(config_manager.get("cursor_web_search", True)),
                 cursor_setting_sources=_cursor_src,
+            )
+        elif sdk == "codex":
+            engineer = CodexAutoEngineer(
+                run_id=run_id,
+                prompt=prompt,
+                output_dir=output_dir,
+                agent_provider=agent_provider,
+                enable_sync=config_manager.get("real_time_sync", False),
+                sdk=sdk,
+                output_language=output_language,
+                interactive=interactive,
+                headless=headless,
+                start_url=url,
+                codex_model=model or config_manager.get("codex_model"),
+                codex_effort=config_manager.get("codex_effort"),
+                codex_home=config_manager.get("codex_home"),
             )
         else:
             from .auto_engineer import ClaudeAutoEngineer
@@ -1627,13 +1641,17 @@ def run_engineer(
     enable_sync = config_manager.get("real_time_sync", True)
     output_language = config_manager.get("output_language", "python")
     resume_session, cost_before = _resume_point(resume) if resume else (None, 0.0)
-    # OpenCode and Copilot take their model from settings, except when reopening a session made with another.
+    # OpenCode, Copilot and Codex take their model from settings, except when reopening a session made with another.
     resume_model = (resume or {}).get("sdk_session", {}).get("model")
-    session_model = {
-        "opencode": resume_model or config_manager.get("opencode_model", DEFAULT_OPENCODE_MODEL),
-        "copilot": resume_model or config_manager.get("copilot_model", "gpt-5"),
-        "cursor": model or config_manager.get("cursor_model", "composer-2.5"),
-    }.get(sdk) or model or config_manager.get("claude_code_model", "claude-sonnet-4-6")
+    if sdk == "codex":
+        # --model first, as agent mode takes it; empty: Codex's default model.
+        session_model = model or resume_model or config_manager.get("codex_model") or ""
+    else:
+        session_model = {
+            "opencode": resume_model or config_manager.get("opencode_model", DEFAULT_OPENCODE_MODEL),
+            "copilot": resume_model or config_manager.get("copilot_model", "gpt-5"),
+            "cursor": model or config_manager.get("cursor_model", "composer-2.5"),
+        }.get(sdk) or model or config_manager.get("claude_code_model", "claude-sonnet-4-6")
     on_session = _session_recorder(run_id, "engineer", sdk, session_model, output_dir, output_mode)
 
     if sdk == "opencode":
@@ -1691,6 +1709,28 @@ def run_engineer(
             cursor_model=_cm,
             cursor_web_search=bool(config_manager.get("cursor_web_search", True)),
             cursor_setting_sources=_cursor_src,
+            enable_sync=enable_sync,
+            additional_instructions=additional_instructions,
+            is_fresh=is_fresh,
+            output_language=output_language,
+            output_mode=output_mode,
+            interactive=interactive,
+            json_event_sink=json_event_sink,
+            resume_session=resume_session,
+            cost_before=cost_before,
+            on_session=on_session,
+        )
+    elif sdk == "codex":
+        result = run_reverse_engineering(
+            run_id=run_id,
+            har_path=har_path,
+            prompt=prompt,
+            model=model,
+            output_dir=output_dir,
+            sdk=sdk,
+            codex_model=session_model or None,
+            codex_effort=config_manager.get("codex_effort"),
+            codex_home=config_manager.get("codex_home"),
             enable_sync=enable_sync,
             additional_instructions=additional_instructions,
             is_fresh=is_fresh,
@@ -1836,6 +1876,8 @@ def _session_recorder(
 
         # The effort the run thinks at, for the card a resume replays.
         session["effort"] = build_sdk_effort(model).get("effort") or default_effort(model)
+    if sdk == "codex" and config_manager.get("codex_effort"):
+        session["effort"] = config_manager.get("codex_effort")
     if headless:
         session["headless"] = True  # a resume keeps its own browser rather than attaching to the user's Chrome
     return lambda sid: session_manager.update_run(run_id=run_id, sdk_session={**session, "id": sid, "cost": 0.0})
@@ -1916,7 +1958,7 @@ def _get_run_details(run: dict) -> dict:
         "timestamp": run.get("timestamp", ""),
         "model": run.get("model", ""),
         "mode": run.get("mode", ""),
-        "sdk": run.get("sdk", ""),
+        "sdk": run_sdk(run) or "",
         "cost": cost,
         "script_dir": str(script_dir),
         "files": files,

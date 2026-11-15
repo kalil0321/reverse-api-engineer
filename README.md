@@ -118,6 +118,9 @@ Settings live in `~/.reverse-api/config.json` and can be edited via `/settings` 
   "opencode_npx_package": "opencode-ai@latest",
   "opencode_provider": "opencode",
   "copilot_model": "gpt-5",
+  "codex_model": null,
+  "codex_effort": null,
+  "codex_home": null,
   "cursor_model": "composer-2.5",
   "output_dir": null,
   "output_language": "python",
@@ -127,9 +130,10 @@ Settings live in `~/.reverse-api/config.json` and can be edited via `/settings` 
 ```
 
 - **Models**: Sonnet 5.5, Opus 5.5 (most capable), Opus 4.6 and Haiku 5.5 (fastest). Sonnet 4.6 stays the default until you choose another; it and Haiku 4.5 are still accepted in config and by `--model`. For OpenCode see [models.dev](https://models.dev).
-- **SDK**: `claude` (default), `opencode`, `cursor`, or `copilot` (GitHub Copilot).
+- **SDK**: `claude` (default), `opencode`, `codex` (OpenAI Codex), `cursor`, or `copilot` (GitHub Copilot).
 - **Claude settings isolation**: Claude sessions don't load your Claude Code settings files, `CLAUDE.md`, hooks, plugins, permission rules or MCP servers, so your personal setup doesn't steer the agent. Organization-managed policy still applies, and Claude Code still reads its own state such as `~/.claude.json` and auto memory. If `~/.claude/settings.json` provides your authentication (`apiKeyHelper`, or Bedrock, Vertex or proxy variables under `env`), set `claude_setting_sources` to the layers to load, e.g. `["user"]` or `["user", "project", "local"]`. Each layer you list is loaded in full, including its hooks, plugins, permission rules and MCP servers.
 - **OpenCode setup**: with `sdk: "opencode"`, RAE reuses an existing server or downloads/starts `opencode-ai@latest` through `npx`; a global OpenCode installation is not required. Fresh configurations default to the free `opencode/big-pickle` model. `/settings` shows a loading list, then offers a searchable **opencode provider / model** list populated from the server's connected, tool-capable catalog and marks free OpenCode options. Before creating a session, RAE validates the saved pair again and suggests currently available free models when configuration is invalid. Compatible older servers are reused with a version warning. Node.js 20+ is required for automatic startup. Password-protected servers use `OPENCODE_SERVER_PASSWORD` and optional `OPENCODE_SERVER_USERNAME`. Override startup with `OPENCODE_BASE_URL`, `RAE_OPENCODE_PACKAGE`, or `RAE_OPENCODE_AUTO_START=0`.
+- **Codex setup**: install with `uv tool install "reverse-api-engineer[codex]"` (it brings its own Codex runtime) and sign in once with `codex login` or the Codex app. RAE runs Codex in its own home, `~/.reverse-api/codex`, whose `auth.json` links to your Codex sign-in, so your Codex `config.toml`, MCP servers, hooks, skills and `AGENTS.md`, and the apps connected to your ChatGPT account, don't steer the agent and RAE's runs stay out of your Codex history. Set `codex_home` (for example `"~/.codex"`) to run in a Codex home as it is, with all of its setup; that is also how to share a sign-in kept in the system keyring, or on Windows without permission to create symbolic links. `codex_model: null` uses your account's default model; `/settings` lists the models your account offers. `codex_effort: null` uses the model's default reasoning effort; `/effort` lists the levels the model offers. Like the other backends, the agent runs without Codex's sandbox or approval prompts.
 - **Ollama through OpenCode**: choose provider `ollama` in `/settings`; RAE starts an installed Ollama daemon if needed, lists only installed models with tool calling and 64k+ context, and supplies OpenCode's provider config inline. Models are never downloaded silently. Override with `RAE_OLLAMA_BASE_URL` or `RAE_OLLAMA_AUTO_START=0`.
 - **Output language**: `python`, `javascript`, `typescript`, `go`, `java`, `csharp`, `php`, `ruby`, `c`, or `powershell`. C needs a POSIX toolchain (`cc`, libcurl headers) — macOS/Linux, or WSL/MSYS2 on Windows. PowerShell needs `pwsh` 7+ (PowerShell Core, not Windows PowerShell 5.1). Its runner executes the generated `Example.ps1` beside `api_client.psm1`; argument overrides are not supported. Edit the example or import the module to call its exported functions with your own arguments.
 
