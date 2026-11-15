@@ -397,6 +397,20 @@ class TestNotifications:
         eng.ui.progress.assert_called_once_with("codex retries: stream disconnected, retrying")
         eng.ui.error.assert_not_called()
 
+    def test_web_steps_name_their_query_or_the_page_codex_opened(self, eng):
+        web = {"type": "webSearch", "query": ""}
+        self.run(
+            eng,
+            item("item/completed", id="w1", **web, action={"type": "search", "query": "browserbase careers"}),
+            item("item/completed", id="w2", **web, action={"type": "openPage", "url": "https://www.browserbase.com/careers"}),
+            item("item/completed", id="w3", **web, action={"type": "findInPage", "url": "https://jobs.example", "pattern": "Engineer"}),
+        )
+        assert [c.args[:2] for c in eng.ui.tool_start.call_args_list] == [
+            ("WebSearch", {"query": "browserbase careers"}),
+            ("WebFetch", {"url": "https://www.browserbase.com/careers"}),
+            ("WebSearch", {"query": "Engineer on https://jobs.example"}),
+        ]
+
     def test_items_rae_does_not_show_are_skipped(self, eng):
         self.run(eng, item("item/completed", id="u1", type="userMessage", content=[{"type": "text", "text": "hi", "text_elements": []}]))
         eng.ui.tool_start.assert_not_called()

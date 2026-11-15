@@ -194,6 +194,18 @@ def _file_change(change: Any) -> tuple[str, dict[str, Any]]:
     return ("Delete" if kind == "delete" else "Edit"), {"file_path": change.path}
 
 
+def _web_step(item: Any) -> tuple[str, dict[str, Any]]:
+    """Codex's web search item as the step rae shows: a search with its query, or a fetch of the page it opened."""
+    action: Any = _root(item.action) if item.action is not None else None
+    kind = getattr(action, "type", None)
+    if kind == "openPage" and action.url:
+        return "WebFetch", {"url": action.url}
+    if kind == "findInPage":
+        return "WebSearch", {"query": " on ".join(part for part in (action.pattern, action.url) if part)}
+    queries = getattr(action, "queries", None) or []
+    return "WebSearch", {"query": item.query or getattr(action, "query", None) or ", ".join(queries)}
+
+
 class CodexEngineer(BaseEngineer):
     """Reverse engineering with the OpenAI Codex SDK."""
 
@@ -410,8 +422,9 @@ class CodexEngineer(BaseEngineer):
                 self._tool_start(name, args, call_id)
                 self._tool_result(name, failed, None, call_id)
         elif item.type == "webSearch":
-            self._tool_start("WebSearch", {"query": item.query}, item.id)
-            self._tool_result("WebSearch", False, None, item.id)
+            name, args = _web_step(item)
+            self._tool_start(name, args, item.id)
+            self._tool_result(name, False, None, item.id)
 
     def _tool_start(self, name: str, args: dict[str, Any], call_id: str) -> None:
         self.ui.tool_start(name, args, call_id=call_id)
