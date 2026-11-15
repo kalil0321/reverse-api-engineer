@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Option+Delete in the session's input bar**: it deleted a single character, and on an empty bar it stopped the run, because the terminal sends it as Esc then Delete and the session acted on Esc at once. Esc now waits 50 ms for what follows, so Option+Delete deletes the word before the cursor and Option+arrows sent as Esc b / Esc f jump by word, while a lone Esc still stops the run or closes a menu.
 
+### Removed
+- **Collector mode**: the `collector` command, the session's collector mode, the `collector_model` setting and the `collector` install extra. rae stays on turning a site's traffic into an API client. Existing configs and histories still load: an old `collector_model` is ignored, past collector runs stay in `/history`, and `./collected/` folders are left as they are.
+
 ## [0.15.0] - 2026-11-08
 
 ### Changed

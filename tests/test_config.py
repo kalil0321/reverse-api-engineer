@@ -145,7 +145,6 @@ class TestDefaultConfig:
             "claude_code_model",
             "claude_setting_sources",
             "claude_effort",
-            "collector_model",
             "copilot_model",
             "cursor_model",
             "hermes_max_turns",

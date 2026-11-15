@@ -650,30 +650,6 @@ class OpenCodeLedgerUI(LedgerUI):
         pass
 
 
-class CollectorLedgerUI(LedgerUI):
-    """Drop-in for CollectorUI while the session is open."""
-
-    def header(self, run_id: str, prompt: str, model: str | None = None, sdk: str | None = None, mode: str | None = None, **kwargs: Any) -> None:
-        _ = kwargs
-        super().header(run_id, prompt, model=model, sdk=sdk or "claude", mode=mode or "collector")
-
-    def start_collecting(self) -> None:
-        pass
-
-    def item_saved(self, preview: str) -> None:
-        self.b.flush_card()
-        self.view.step("saved", first_line(preview), "write")
-        self._changed()
-
-    def collection_complete(self, total_items: int, output_path: str) -> None:
-        self.b.flush_card()
-        self.view.collected(total_items, Path(output_path))
-        self._changed()
-
-    def usage_summary(self, usage: dict[str, Any]) -> None:
-        self.usage(usage)
-
-
 _bridge: Bridge | None = None
 
 

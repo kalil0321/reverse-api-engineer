@@ -1,4 +1,4 @@
-"""Tests for tui.py, collector_ui.py, opencode_ui.py - UI modules."""
+"""Tests for tui.py, opencode_ui.py - UI modules."""
 
 from io import StringIO
 
@@ -398,15 +398,3 @@ class TestAgentTextIsNotMarkup:
         assert self.TRICKY in out
         assert "[/oops] raw error" in out
 
-    def test_collector_ui(self):
-        from reverse_api.collector_ui import CollectorUI
-
-        console = self._console()
-        ui = CollectorUI(verbose=True)
-        ui.console = console
-        ui.item_saved(self.TRICKY[:40])
-        ui.thinking(self.TRICKY * 2, max_length=200)
-        ui.tool_start("WebFetch", {"url": self.TRICKY[:40]})
-        ui.collection_complete(3, self.TRICKY)
-        ui.error(self.TRICKY)
-        assert console.file.getvalue().count(self.TRICKY) >= 3

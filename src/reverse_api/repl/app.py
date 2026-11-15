@@ -1,7 +1,7 @@
 """The interactive CLI: a full-screen session with the conversation above an input bar fixed to the bottom.
 
-Every run streams into the conversation through the bridge: agent, engineer, manual capture and
-the collector, on every SDK. A run works in a worker thread; the app's own thread draws.
+Every run streams into the conversation through the bridge: agent, engineer and manual capture,
+on every SDK. A run works in a worker thread; the app's own thread draws.
 """
 
 from __future__ import annotations
@@ -68,7 +68,6 @@ MODES = {
     "agent": "the agent browses the site and writes the client",
     "manual": "you browse, rae records the traffic",
     "engineer": "re-engineer a past run",
-    "collector": "collect data into json and csv",
 }
 EFFORT_NOTES = {
     "low": "fastest, fewer tool calls",
@@ -222,7 +221,6 @@ class Session:
             sdk=sdk,
             model=cli.default_model_for_configured_sdk(sdk),
             effort=cli.config_manager.get("claude_effort"),
-            collector_model=cli.config_manager.get("collector_model"),
         )
         self.transcript = Transcript(on_link=open_target)
         self.view = LedgerView(self.st, self.transcript)
@@ -368,16 +366,12 @@ class Session:
 
     def set_model(self, value: str | None) -> None:
         st = self.st
-        if not value or value == st.next_model:
+        if not value or value == st.model:
             return
-        old = model_label(st.next_model)
-        if st.mode == "collector":
-            st.collector_model = value
-            self.cli.config_manager.set("collector_model", value)
-        else:
-            st.model = value
-            self.cli.config_manager.set("claude_code_model", value)
-        self.view.event("collector model" if st.mode == "collector" else "model", old, model_label(value), "from the next run" if st.run_open else "")
+        old = model_label(st.model)
+        st.model = value
+        self.cli.config_manager.set("claude_code_model", value)
+        self.view.event("model", old, model_label(value), "from the next run" if st.run_open else "")
 
     def set_effort(self, value: str | None) -> None:
         if not value or value == self.st.effort_label:
@@ -426,9 +420,8 @@ class Session:
             else:
                 from ..tui import get_model_choices
 
-                current = st.next_model
-                title = "choose the collector's model" if st.mode == "collector" else "choose a model"
-                self.open_picker(title, settings.choices("claude_code_model", get_model_choices(), current), current, self.set_model)
+                current = st.model
+                self.open_picker("choose a model", settings.choices("claude_code_model", get_model_choices(), current), current, self.set_model)
         elif cmd == "/effort" and not st.has_effort:
             view.command(cmd)
             view.notice(st.no_effort_reason)
@@ -639,7 +632,6 @@ class Session:
         self.st.sdk = cfg.get("sdk", "claude")
         self.st.model = self.cli.default_model_for_configured_sdk(self.st.sdk)
         self.st.effort = cfg.get("claude_effort")
-        self.st.collector_model = cfg.get("collector_model")
 
     # past runs
 
@@ -816,15 +808,13 @@ class Session:
     def start(self, prompt: str, mode: str | None = None, echo: bool = True) -> None:
         cli = self.cli
         mode = mode or self.st.mode
-        model = (self.st.collector_model if mode == "collector" else self.st.model) if self.st.sdk == "claude" else None
+        model = self.st.model if self.st.sdk == "claude" else None
         run: Callable[[], Any]
         runner = self.runners.get(mode)
         if runner is not None:
             run = lambda: runner(prompt, model)  # noqa: E731
         elif mode == "manual":
             run = lambda: cli.run_manual_capture(prompt=prompt, url=None, reverse_engineer=True, model=model)  # noqa: E731
-        elif mode == "collector":
-            run = lambda: cli.run_collector(prompt=prompt, model=model)  # noqa: E731
         elif mode == "engineer":
             run = lambda: cli.engineer_from_prompt(prompt, model)  # noqa: E731
         else:
@@ -1305,9 +1295,7 @@ def run_session(
     """
     session = Session()
     session.st.mode = mode
-    if model and mode == "collector":
-        session.st.collector_model = model
-    elif model:
+    if model:
         session.st.model = model
     session.first = first
     if runner is not None:

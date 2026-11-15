@@ -670,9 +670,8 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 def main(ctx: click.Context, show_schema_version: bool) -> None:
     """reverse-api-engineer: reverse engineer apis.
 
-    Run without a subcommand to open the interactive session (agent, manual,
-    engineer and collector modes); in a terminal, agent, engineer and collector
-    open it too.
+    Run without a subcommand to open the interactive session (agent, manual
+    and engineer modes); in a terminal, agent and engineer open it too.
 
     Scripted flags are subcommand-specific: agent, engineer, and run support
     --json, --json-stream, and --no-interactive; list/show support --json.
@@ -924,41 +923,6 @@ def agent(
     sys.exit(0 if payload["status"] == "ok" else 1)
 
 
-@main.command(
-    epilog="""\b
-Examples:
-  reverse-api-engineer collector -p "collect companies hiring browser automation engineers"
-  reverse-api-engineer collector
-"""
-)
-@click.option("--prompt", "-p", default=None, help="Collection instructions.")
-@click.option(
-    "--model",
-    "-m",
-    type=ModelChoice(),
-    default=None,
-)
-@click.option("--output-dir", "-o", default=None, help="Custom output directory for run metadata and messages.")
-def collector(prompt: str | None, model: str | None, output_dir: str | None) -> None:
-    """Run AI-powered data collection."""
-    if _in_terminal():
-        open_session(
-            "collector",
-            model,
-            prompt,
-            lambda: run_collector(prompt=prompt, model=model, output_dir=output_dir),
-            lambda p, m: run_collector(prompt=p, model=m, output_dir=output_dir),
-        )
-        return
-    if not prompt:
-        click.echo("error: --prompt is required outside a terminal", err=True)
-        sys.exit(2)
-
-    result = run_collector(prompt=prompt, model=model, output_dir=output_dir)
-    if result is None or (isinstance(result, dict) and result.get("error")):
-        sys.exit(1)
-
-
 def run_manual_capture(
     prompt: str | None = None,
     url: str | None = None,
@@ -1065,67 +1029,6 @@ def run_agent_capture(
         headless=headless,
         json_event_sink=json_event_sink,
     )
-
-
-def _record_collection(run_id: str, result: dict[str, Any] | None) -> None:
-    if result and not result.get("error"):
-        session_manager.update_run(
-            run_id=run_id,
-            sdk="claude",
-            usage=result.get("usage", {}),
-            paths={"output_path": result.get("output_path")},
-        )
-
-
-def run_collector(prompt: str | None = None, model: str | None = None, output_dir: str | None = None) -> dict[str, Any] | None:
-    """Run AI-powered data collection with Collector class."""
-
-    from .collector import Collector
-
-    # Generate run ID
-    run_id = generate_run_id()
-    output_dir = output_dir or config_manager.get("output_dir")
-
-    # Use collector model from config if not specified
-    if model is None:
-        model = config_manager.get("collector_model", "claude-sonnet-4-6")
-
-    # Initialize session
-    session_manager.add_run(
-        run_id=run_id,
-        prompt=prompt or "",
-        mode="collector",
-        timestamp=get_timestamp(),
-    )
-
-    try:
-        # Run collector
-        collector = Collector(
-            run_id=run_id,
-            prompt=prompt or "",
-            model=model,
-            output_dir=output_dir,
-        )
-
-        try:
-            result = asyncio.run(collector.run())
-        except (asyncio.CancelledError, KeyboardInterrupt) as exc:
-            # Stopped: from the session, or by ctrl+c, which reaches here as KeyboardInterrupt over the cancellation.
-            result = getattr(exc, "partial_result", None) or getattr(exc.__context__, "partial_result", None)
-            _record_collection(run_id, result)
-            raise
-        _record_collection(run_id, result)
-        return result
-    except Exception as e:
-        console.print(f" [red]collector error: {escape(str(e))}[/red]")
-        console.print(f" [dim]{ERROR_CTA}[/dim]")
-        import traceback
-
-        traceback.print_exc()
-        return {
-            "run_id": run_id,
-            "error": str(e) or type(e).__name__,
-        }
 
 
 def _session_browser_note(agent_provider: str, headless: bool) -> str | None:
@@ -1598,7 +1501,7 @@ def engineer_from_prompt(text: str, model: str | None = None, output_dir: str | 
     """A prompt in engineer mode: a known run id re-engineers that run; anything else is an instruction for the latest run."""
     if session_manager.get_run(text):
         return run_engineer(text, model=model, output_dir=output_dir)
-    # Collector runs capture no traffic; run_engineer explains any other run that has none.
+    # Histories can still hold collector runs, which captured no traffic; run_engineer explains any other run that has none.
     latest = next((r for r in session_manager.get_history(limit=50) if r.get("mode") != "collector"), None)
     if latest is None:
         raise RuntimeError("no captured runs yet · start one in agent or manual mode")
@@ -1987,7 +1890,7 @@ JSON output (--json) is always a flat array (possibly empty []).
 @click.option("--json", "as_json", is_flag=True, help="Output as flat JSON array.")
 @click.option("--full", is_flag=True, help="Show all columns (default: compact view).")
 @click.option("--limit", "-n", type=int, default=None, help="Limit number of results.")
-@click.option("--mode", "-m", type=str, default=None, help="Filter by mode (auto/manual/agent/engineer/collector).")
+@click.option("--mode", "-m", type=str, default=None, help="Filter by mode (auto/manual/agent/engineer).")
 @click.option("--model", type=str, default=None, help="Filter by model name.")
 @click.option("--search", "-s", type=str, default=None, help="Case-insensitive substring match on prompt.")
 def list_runs(as_json: bool, full: bool, limit: int | None, mode: str | None, model: str | None, search: str | None) -> None:

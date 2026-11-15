@@ -19,10 +19,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Claude Code setting layers ("user", "project", "local") loaded into Claude SDK sessions.
     # [] isolates the agent from the user's own CLAUDE.md, hooks, plugins and MCP servers.
     "claude_setting_sources": [],
-    # Effort for Claude agent, engineer and collector sessions: "low" | "medium" | "high" | "xhigh" | "max".
+    # Effort for Claude agent and engineer sessions: "low" | "medium" | "high" | "xhigh" | "max".
     # None keeps each model's default (Opus 5.5 and Haiku 5.5 default to "medium", the others to "high").
     "claude_effort": None,
-    "collector_model": "claude-sonnet-4-6",  # Model for collector mode
     "cursor_model": "composer-2.5",  # Model id for Cursor SDK (see Cursor.models.list())
     # When True, local agents load broader Cursor setting layers (plugins/team) so WebFetch/WebSearch
     # and other IDE tools match Cursor desktop behavior. Set False for minimal "project+user" only.
