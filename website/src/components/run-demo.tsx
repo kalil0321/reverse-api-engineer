@@ -1,15 +1,21 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useTheme } from 'next-themes';
 
-/* Real agent runs of rae 0.15.0 with Sonnet 5.5, recorded from the CLI and the agent's browser.
-   Each video plays the run sped up and says by how much; the numbers below are the run's own. */
+// The CLI demos show sped-up runs of rae 0.15.0 with Sonnet 5.5. Their timings and costs are from those runs.
 const DEMOS = [
   {
     id: 'steam',
     label: 'Steam charts',
     prompt: 'Top 100 games on store.steampowered.com/charts: name, live players, 24h peak',
     result: '100 games from two undocumented Steam endpoints · 1m02s · $0.11',
+  },
+  {
+    id: 'desktop',
+    label: 'RAE Desktop',
+    prompt: 'Find Airbnb stays in New York City with prices and ratings',
+    result: 'RAE Desktop records the requests and builds a Python client that returns 18 stays.',
   },
   {
     id: 'luma',
@@ -28,7 +34,9 @@ const DEMOS = [
 export function RunDemo() {
   const [active, setActive] = useState(0);
   const video = useRef<HTMLVideoElement>(null);
+  const { resolvedTheme } = useTheme();
   const demo = DEMOS[active];
+  const media = demo.id === 'desktop' ? `desktop-${resolvedTheme === 'dark' ? 'dark' : 'light'}` : demo.id;
 
   // Playback starts here, not from an autoplay attribute, so nothing moves before the
   // reduced-motion preference is known. A browser that blocks it leaves the controls to the visitor.
@@ -40,7 +48,7 @@ export function RunDemo() {
     };
     reduce.addEventListener('change', onChange);
     return () => reduce.removeEventListener('change', onChange);
-  }, [active]);
+  }, [media]);
 
   return (
     <div className="mx-auto w-full max-w-5xl">
@@ -60,11 +68,11 @@ export function RunDemo() {
 
       <div className="run-demo-frame mt-6 sm:mt-8">
         <video
-          key={demo.id}
+          key={media}
           ref={video}
           className="block h-auto w-full"
-          src={`/demo/${demo.id}.mp4`}
-          poster={`/demo/${demo.id}.jpg`}
+          src={`/demo/${media}.mp4`}
+          poster={`/demo/${media}.jpg`}
           width={1920}
           height={1080}
           controls

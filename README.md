@@ -31,6 +31,14 @@
 
 No more manually opening DevTools, copying cURL commands, and gluing together a client.
 
+## RAE Desktop preview
+
+Watch RAE Desktop turn an Airbnb search into a Python client that returns 18 New York City stays with prices and ratings.
+
+[![RAE Desktop recording an Airbnb search and running the generated Python client](assets/rae-desktop-demo.gif)](https://reverseapi.dev/demo/desktop-dark.mp4)
+
+[Watch the full-resolution demo (46 seconds, 4.8 MB)](https://reverseapi.dev/demo/desktop-dark.mp4)
+
 ## Install
 
 ```bash
