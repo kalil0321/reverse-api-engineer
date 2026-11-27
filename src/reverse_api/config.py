@@ -13,6 +13,9 @@ PLAYWRIGHT_MCP_PACKAGE = "rae-playwright-mcp@0.0.9"
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "agent_provider": "chrome-mcp",  # "chrome-mcp" | "auto" (Playwright MCP) | "agent-browser"
+    # DevTools endpoint of a running Chrome for headed chrome-mcp runs, e.g. "http://127.0.0.1:9222".
+    # None auto-connects to the local Chrome. RAE_CHROME_BROWSER_URL overrides it.
+    "chrome_browser_url": None,
     "agent_browser_notes": "",  # extra instructions merged into agent-browser prompt / RAE_AGENT_BROWSER_NOTES env
     "agent_browser_npx_package": "agent-browser@0",
     "claude_code_model": "claude-sonnet-4-6",

@@ -387,6 +387,14 @@ class TestChromeMcpConfig:
         assert CHROME_DEVTOOLS_MCP_PACKAGE in config["args"]
         assert "--autoConnect" in config["args"]
 
+    def test_chrome_mcp_config_with_browser_url(self, tmp_path, monkeypatch):
+        """chrome_browser_url attaches to that Chrome instead of auto-connecting."""
+        monkeypatch.setenv("RAE_CHROME_BROWSER_URL", "http://10.0.0.5:9222")
+        eng = self._make_engineer(tmp_path, agent_provider="chrome-mcp")
+        _, config = eng._get_mcp_config()
+        assert config["args"][-2:] == ["--browserUrl", "http://10.0.0.5:9222"]
+        assert "--autoConnect" not in config["args"]
+
     def test_auto_mcp_config(self, tmp_path):
         """Auto provider returns playwright server config."""
         eng = self._make_engineer(tmp_path, agent_provider="auto")
