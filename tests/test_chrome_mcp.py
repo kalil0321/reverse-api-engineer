@@ -194,3 +194,175 @@ def test_engineer_json_runtime_error_mentioning_required_exits_1(tmp_path):
     with patch("reverse_api.cli.run_engineer", return_value={"error": "field X is required by the API"}):
         result = CliRunner().invoke(engineer_cmd, ["abc123", "--json"])
     assert result.exit_code == 1
+
+
+class TestBrowserUrl:
+    """chrome_browser_url: attach to a Chrome running elsewhere (another host, a container)."""
+
+    def test_unset_auto_connects(self, monkeypatch):
+        from reverse_api.chrome_mcp import chrome_browser_url, chrome_connect_args
+
+        monkeypatch.delenv("RAE_CHROME_BROWSER_URL", raising=False)
+        assert chrome_browser_url(lambda key, default=None: None) is None
+        assert chrome_connect_args(False, browser_url="") == ["--autoConnect"]
+
+    def test_config_value_is_used(self, monkeypatch):
+        from reverse_api.chrome_mcp import chrome_browser_url
+
+        monkeypatch.delenv("RAE_CHROME_BROWSER_URL", raising=False)
+        get = {"chrome_browser_url": " http://10.0.0.5:9222 "}.get
+        assert chrome_browser_url(lambda key, default=None: get(key, default)) == "http://10.0.0.5:9222"
+
+    def test_env_overrides_config(self, monkeypatch):
+        from reverse_api.chrome_mcp import chrome_browser_url
+
+        monkeypatch.setenv("RAE_CHROME_BROWSER_URL", "http://env:9222")
+        assert chrome_browser_url(lambda key, default=None: "http://cfg:9222") == "http://env:9222"
+
+    def test_connect_args(self):
+        from reverse_api.chrome_mcp import chrome_connect_args
+
+        assert chrome_connect_args(False, browser_url="http://h:9222") == ["--browserUrl", "http://h:9222"]
+        assert chrome_connect_args(True, browser_url="http://h:9222") == ["--headless"]
+
+    def test_check_browser_url_unreachable(self):
+        from reverse_api.chrome_mcp import check_browser_url
+
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        status = check_browser_url(f"http://127.0.0.1:{port}", timeout=0.5)
+        assert not status.ok
+        assert f"127.0.0.1:{port}" in status.reason
+
+    def test_check_browser_url_reachable(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+
+        from reverse_api.chrome_mcp import check_browser_url
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = (
+                    json.dumps({"Browser": "Chrome/156.0", "webSocketDebuggerUrl": "ws://h/devtools/browser/x"}).encode()
+                    if self.path == "/json/version"
+                    else b""
+                )
+                self.send_response(200 if body else 404)
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            status = check_browser_url(f"http://127.0.0.1:{server.server_port}/")
+        finally:
+            server.shutdown()
+        assert status.ok
+        assert "Chrome/156.0" in status.reason
+
+
+class TestDryRunBrowserUrl:
+    def _invoke(self, tmp_path, status, *args):
+        from reverse_api.cli import agent as agent_cmd
+
+        values = {
+            "agent_provider": "chrome-mcp",
+            "sdk": "claude",
+            "claude_code_model": "claude-sonnet-4-6",
+            "output_dir": str(tmp_path),
+            "chrome_browser_url": "http://10.0.0.5:9222",
+        }
+        with patch("reverse_api.cli.config_manager") as cm, \
+             patch("reverse_api.chrome_mcp.check_browser_url", return_value=status) as probe, \
+             patch("reverse_api.chrome_mcp.check_auto_connect") as auto, \
+             patch.dict("os.environ", {"ANTHROPIC_API_KEY": "fake"}, clear=False):
+            cm.get.side_effect = lambda key, default=None: values.get(key, default)
+            result = CliRunner().invoke(agent_cmd, ["--dry-run", "-p", "fetch jobs", *args])
+        return result, json.loads(result.stdout.strip()), probe, auto
+
+    def test_browser_url_replaces_auto_connect(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("RAE_CHROME_BROWSER_URL", raising=False)
+        _, payload, probe, auto = self._invoke(tmp_path, AutoConnectStatus(True, "Chrome reachable"))
+        names = {c["name"] for c in payload["checks"]}
+        assert "chrome-mcp:browser-url" in names and "chrome-mcp:auto-connect" not in names
+        probe.assert_called_once_with("http://10.0.0.5:9222")
+        auto.assert_not_called()
+
+    def test_unreachable_browser_url_is_an_error(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("RAE_CHROME_BROWSER_URL", raising=False)
+        result, payload, _, _ = self._invoke(tmp_path, AutoConnectStatus(False, "no endpoint"))
+        assert result.exit_code == 1
+        check = next(c for c in payload["checks"] if c["name"] == "chrome-mcp:browser-url")
+        assert check["status"] == "error"
+
+
+def _serve(handler_body):
+    """Serve one fixed /json/version handler; returns (server, base url)."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            handler_body(self)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, f"http://127.0.0.1:{server.server_port}"
+
+
+class TestBrowserUrlRejects:
+    def test_unrelated_json_is_not_chrome(self):
+        from reverse_api.chrome_mcp import check_browser_url
+
+        for body in (b"{}", b"[]", b'{"error": "bad gateway"}'):
+            def reply(h, body=body):
+                h.send_response(200)
+                h.end_headers()
+                h.wfile.write(body)
+
+            server, url = _serve(reply)
+            try:
+                status = check_browser_url(url)
+            finally:
+                server.shutdown()
+            assert not status.ok, body
+            assert "webSocketDebuggerUrl" in status.reason
+
+    def test_truncated_response_is_a_failed_status(self):
+        from reverse_api.chrome_mcp import check_browser_url
+
+        def reply(h):
+            h.send_response(200)
+            h.send_header("Content-Length", "500")
+            h.end_headers()
+            h.wfile.write(b'{"Browser":')
+            h.wfile.flush()
+            h.close_connection = True
+
+        server, url = _serve(reply)
+        try:
+            status = check_browser_url(url, timeout=2)
+        finally:
+            server.shutdown()
+        assert not status.ok
+
+
+def test_config_file_value_reaches_connect_args(tmp_path, monkeypatch):
+    """The engines read chrome_browser_url from the config file, not from a passed getter."""
+    import reverse_api.chrome_mcp as chrome_mcp
+    from reverse_api.chrome_mcp import chrome_connect_args
+
+    monkeypatch.undo()  # drop the autouse stub so the real config-file reader runs
+    monkeypatch.delenv("RAE_CHROME_BROWSER_URL", raising=False)
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"chrome_browser_url": "http://10.0.0.5:9222"}))
+    monkeypatch.setattr("reverse_api.utils.get_config_path", lambda: config)
+    assert chrome_mcp._configured_browser_url() == "http://10.0.0.5:9222"
+    assert chrome_connect_args(False) == ["--browserUrl", "http://10.0.0.5:9222"]

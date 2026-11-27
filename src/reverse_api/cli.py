@@ -426,15 +426,16 @@ def _build_dry_run_payload(
     else:
         checks.append({"name": "npx", "status": "ok", "message": npx})
 
-    # 6. Headed chrome-mcp attaches to the user's running Chrome through auto-connect
+    # 6. Headed chrome-mcp attaches to the user's running Chrome: through auto-connect,
+    #    or through chrome_browser_url when Chrome runs elsewhere
     if agent_provider == "chrome-mcp" and not headless:
-        from .chrome_mcp import check_auto_connect
+        from .chrome_mcp import check_chrome_connection
 
-        auto_connect = check_auto_connect()
+        check_name, connection = check_chrome_connection(config_manager.get)
         checks.append({
-            "name": "chrome-mcp:auto-connect",
-            "status": "ok" if auto_connect.ok else "error",
-            "message": auto_connect.message,
+            "name": check_name,
+            "status": "ok" if connection.ok else "error",
+            "message": connection.message,
         })
 
     # 7. agent-browser CLI: read-only validation (no npm install during dry-run).
@@ -797,7 +798,8 @@ Exit codes:
     is_flag=True,
     help=(
         "Launch the MCP-controlled browser in headless mode (required on machines without an X server). "
-        "For chrome-mcp this drops --autoConnect since auto-connect requires a headed Chrome instance."
+        "For chrome-mcp this launches a separate headless Chrome instead of attaching to yours "
+        "(auto-connect or chrome_browser_url)."
     ),
 )
 @click.option(
@@ -1034,7 +1036,7 @@ def run_agent_capture(
     )
 
 
-def _session_browser_note(agent_provider: str, headless: bool) -> str | None:
+def _session_browser_note(agent_provider: str, headless: bool, browser_url: str | None = None) -> str | None:
     """In the full-screen session, one line about the browser; setup steps only show up if connecting fails."""
     from .repl.bridge import active
 
@@ -1043,6 +1045,8 @@ def _session_browser_note(agent_provider: str, headless: bool) -> str | None:
     if agent_provider == "chrome-mcp":
         if headless:
             return "the agent uses its own headless Chrome"
+        if browser_url:
+            return f"the agent drives the Chrome at {browser_url} · avoid sensitive sites while it runs"
         return "the agent drives your Chrome through auto-connect · accept Chrome's connection prompt · avoid sensitive sites while it runs"
     if agent_provider == "agent-browser":
         return "the agent drives a browser through the agent-browser CLI"
@@ -1079,31 +1083,48 @@ def run_auto_capture(
     if url:
         url = normalize_url(url)
 
+    browser_url = None
     if agent_provider == "chrome-mcp" and not headless:
-        from .chrome_mcp import check_auto_connect
+        from .chrome_mcp import check_browser_url, check_auto_connect, chrome_browser_url
 
-        auto_connect = check_auto_connect()
-        if not auto_connect.ok:
-            console.print()
-            console.print(" [dim]chrome devtools mcp (auto-connect)[/dim]")
-            console.print(" [dim]auto-connect setup:[/dim]")
-            console.print(" [dim] 1. chrome 146+ required[/dim]")
-            console.print(" [dim] 2. go to chrome://inspect/#remote-debugging[/dim]")
-            console.print(' [dim] 3. click "Enable auto-connect" and keep chrome open[/dim]')
-            console.print(" [dim] 4. node.js v20.19+[/dim]")
-            console.print(" [dim]or run with --headless, or pick another provider in /settings[/dim]")
-            console.print()
-            console.print(f" [red]error:[/red] {auto_connect.reason}")
-            return {"error": auto_connect.message, "error_kind": "config_invalid", "error_reported": True}
+        browser_url = chrome_browser_url(config_manager.get)
+        if browser_url:
+            connection = check_browser_url(browser_url)
+            if not connection.ok:
+                console.print()
+                console.print(" [dim]chrome devtools mcp (browser url)[/dim]")
+                console.print(f" [dim]chrome_browser_url is {browser_url}: start that Chrome with remote debugging,[/dim]")
+                console.print(" [dim]fix chrome_browser_url in ~/.reverse-api/config.json or RAE_CHROME_BROWSER_URL, or run with --headless[/dim]")
+                console.print()
+                console.print(f" [red]error:[/red] {connection.reason}")
+                return {"error": connection.message, "error_kind": "config_invalid", "error_reported": True}
+        else:
+            auto_connect = check_auto_connect()
+            if not auto_connect.ok:
+                console.print()
+                console.print(" [dim]chrome devtools mcp (auto-connect)[/dim]")
+                console.print(" [dim]auto-connect setup:[/dim]")
+                console.print(" [dim] 1. chrome 146+ required[/dim]")
+                console.print(" [dim] 2. go to chrome://inspect/#remote-debugging[/dim]")
+                console.print(' [dim] 3. click "Enable auto-connect" and keep chrome open[/dim]')
+                console.print(" [dim] 4. node.js v20.19+[/dim]")
+                console.print(" [dim]or run with --headless, or pick another provider in /settings[/dim]")
+                console.print()
+                console.print(f" [red]error:[/red] {auto_connect.reason}")
+                return {"error": auto_connect.message, "error_kind": "config_invalid", "error_reported": True}
 
-    session_note = _session_browser_note(agent_provider, headless)
+    session_note = _session_browser_note(agent_provider, headless, browser_url)
     if session_note:
         console.print(session_note)
     elif agent_provider == "chrome-mcp" and not headless:
         console.print()
-        console.print(" [dim]chrome devtools mcp (auto-connect)[/dim]")
-        console.print(" [dim]controlling your real chrome browser[/dim]")
-        console.print(" [dim]accept chrome's connection prompt when it appears[/dim]")
+        if browser_url:
+            console.print(f" [dim]chrome devtools mcp ({browser_url})[/dim]")
+            console.print(" [dim]controlling the chrome at that address[/dim]")
+        else:
+            console.print(" [dim]chrome devtools mcp (auto-connect)[/dim]")
+            console.print(" [dim]controlling your real chrome browser[/dim]")
+            console.print(" [dim]accept chrome's connection prompt when it appears[/dim]")
         console.print(" [dim]existing sessions, cookies, and auth available[/dim]")
         console.print()
         console.print(" [dim]warning: the agent will execute actions on your browser[/dim]")

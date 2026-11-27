@@ -37,7 +37,7 @@ from .agent_browser import (
     ensure_agent_browser_runtime,
     print_agent_browser_setup_notices,
 )
-from .chrome_mcp import CHROME_DEVTOOLS_MCP_PACKAGE
+from .chrome_mcp import CHROME_DEVTOOLS_MCP_PACKAGE, chrome_connect_args
 from .config import PLAYWRIGHT_MCP_PACKAGE
 from .engineer import ClaudeEngineer
 from .opencode_engineer import OpenCodeEngineer, debug_log, format_error
@@ -198,11 +198,7 @@ class ClaudeAutoEngineer(ClaudeEngineer):
                 "registered browser MCP server (this helper only builds configs for MCP providers)"
             )
         if self.agent_provider == "chrome-mcp":
-            args = [CHROME_DEVTOOLS_MCP_PACKAGE, "--no-usage-statistics"]
-            if self.headless:
-                args.append("--headless")
-            else:
-                args.append("--autoConnect")
+            args = [CHROME_DEVTOOLS_MCP_PACKAGE, "--no-usage-statistics", *chrome_connect_args(self.headless)]
             return "chrome-devtools", {
                 "type": "stdio",
                 "command": "npx",
@@ -404,11 +400,7 @@ class OpenCodeAutoEngineer(OpenCodeEngineer):
             return None
         if self.agent_provider == "chrome-mcp":
             self.mcp_name = f"chrome-devtools-{self._session_id}"
-            cmd = ["npx", "-y", CHROME_DEVTOOLS_MCP_PACKAGE, "--no-usage-statistics"]
-            if self.headless:
-                cmd.append("--headless")
-            else:
-                cmd.append("--autoConnect")
+            cmd = ["npx", "-y", CHROME_DEVTOOLS_MCP_PACKAGE, "--no-usage-statistics", *chrome_connect_args(self.headless)]
             return {
                 "name": self.mcp_name,
                 "config": {
@@ -695,11 +687,7 @@ class CopilotAutoEngineer:
             await client.start()
 
             if self.agent_provider == "chrome-mcp":
-                chrome_args = ["-y", CHROME_DEVTOOLS_MCP_PACKAGE, "--no-usage-statistics"]
-                if self.headless:
-                    chrome_args.append("--headless")
-                else:
-                    chrome_args.append("--autoConnect")
+                chrome_args = ["-y", CHROME_DEVTOOLS_MCP_PACKAGE, "--no-usage-statistics", *chrome_connect_args(self.headless)]
                 mcp_servers_payload: dict[str, Any] = {
                     "chrome-devtools": {
                         "type": "local",

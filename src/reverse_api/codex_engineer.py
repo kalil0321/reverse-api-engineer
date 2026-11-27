@@ -16,7 +16,7 @@ from typing import Any, NamedTuple
 from . import __version__, verification_mcp
 from .agent_browser import ensure_agent_browser_runtime, print_agent_browser_setup_notices
 from .base_engineer import REPORT_CLIENT_VERIFIED_INSTRUCTION, BaseEngineer
-from .chrome_mcp import CHROME_DEVTOOLS_MCP_PACKAGE
+from .chrome_mcp import CHROME_DEVTOOLS_MCP_PACKAGE, chrome_connect_args
 from .config import PLAYWRIGHT_MCP_PACKAGE
 from .tui import ClaudeUI
 from .utils import get_app_dir, get_har_dir
@@ -462,9 +462,8 @@ class CodexAutoEngineer(CodexEngineer):
         if self.agent_provider == "agent-browser":
             return {}  # the agent shells the agent-browser CLI
         if self.agent_provider == "chrome-mcp":
-            # Auto-connect attaches to the user's running Chrome, which a headless run has none of.
             name = "chrome-devtools"
-            args = [CHROME_DEVTOOLS_MCP_PACKAGE, "--no-usage-statistics", "--headless" if self.headless else "--autoConnect"]
+            args = [CHROME_DEVTOOLS_MCP_PACKAGE, "--no-usage-statistics", *chrome_connect_args(self.headless)]
         else:
             name = "playwright"
             args = [PLAYWRIGHT_MCP_PACKAGE, "run-mcp-server", "--run-id", self.mcp_run_id, *(["--headless"] if self.headless else [])]

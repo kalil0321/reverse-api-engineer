@@ -64,3 +64,10 @@ def har_file(tmp_path, sample_har_data):
     har_path = tmp_path / "test.har"
     har_path.write_text(json.dumps(sample_har_data))
     return har_path
+
+
+@pytest.fixture(autouse=True)
+def _no_chrome_browser_url(monkeypatch):
+    """Keep a developer's own chrome_browser_url (config or env) out of chrome-mcp argument tests."""
+    monkeypatch.delenv("RAE_CHROME_BROWSER_URL", raising=False)
+    monkeypatch.setattr("reverse_api.chrome_mcp._configured_browser_url", lambda: None)

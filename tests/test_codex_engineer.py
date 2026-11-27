@@ -436,6 +436,15 @@ class TestBrowserServers:
     def test_agent_browser_has_no_mcp_server(self, tmp_path):
         assert engineer(tmp_path, CodexAutoEngineer, agent_provider="agent-browser")._browser_servers() == {}
 
+    def test_chrome_mcp_attaches_to_a_configured_browser_url(self, tmp_path, monkeypatch):
+        from reverse_api.chrome_mcp import CHROME_DEVTOOLS_MCP_PACKAGE
+
+        monkeypatch.setenv("RAE_CHROME_BROWSER_URL", "http://10.0.0.5:9222")
+        eng = engineer(tmp_path, CodexAutoEngineer, agent_provider="chrome-mcp", headless=False)
+        assert eng._browser_servers()["chrome-devtools"]["args"] == [
+            "-y", CHROME_DEVTOOLS_MCP_PACKAGE, "--no-usage-statistics", "--browserUrl", "http://10.0.0.5:9222",
+        ]
+
     async def test_a_relative_output_dir_reaches_codex_as_absolute_paths(self, tmp_path, fake_codex, monkeypatch):
         fake = fake_codex([FakeTurn([turn_end()])])
         monkeypatch.chdir(tmp_path)
