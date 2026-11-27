@@ -13,6 +13,7 @@ passes ``--browserUrl`` to chrome-devtools-mcp and skips auto-connect.
 from __future__ import annotations
 
 import os
+import http.client
 import json
 import socket
 import sys
@@ -122,10 +123,12 @@ def check_browser_url(url: str, timeout: float = 3.0) -> AutoConnectStatus:
     try:
         with urllib.request.urlopen(endpoint, timeout=timeout) as resp:  # noqa: S310 - user-configured URL
             info = json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, OSError, ValueError) as e:
+    except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as e:
         return AutoConnectStatus(False, f"no Chrome DevTools endpoint at {url} ({e})")
-    browser = info.get("Browser", "Chrome") if isinstance(info, dict) else "Chrome"
-    return AutoConnectStatus(True, f"{browser} reachable at {url}")
+    # Any JSON is not enough: a wrong port or a proxy can answer with {} or an error object.
+    if not isinstance(info, dict) or not info.get("webSocketDebuggerUrl"):
+        return AutoConnectStatus(False, f"{url} answered, but not as a Chrome DevTools endpoint (no webSocketDebuggerUrl)")
+    return AutoConnectStatus(True, f"{info.get('Browser') or 'Chrome'} reachable at {url}")
 
 
 def check_chrome_connection(config_get: Callable[..., Any] | None = None) -> tuple[str, AutoConnectStatus]:
